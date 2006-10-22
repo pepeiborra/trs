@@ -1,0 +1,371 @@
+{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances  #-}
+-----------------------------------------------------------------------------------------
+{-| Module      : TRS.Core
+    Copyright   : 
+    License     : All Rights Reserved
+
+    Maintainer  : 
+    Stability   : 
+    Portability : 
+-}
+-----------------------------------------------------------------------------------------
+
+module TRS.Core ( GT(..), isMutVar, isGenVar, GTm
+		, Fix(..), toFix, fromFix, toFixG, fromFixG
+                , Subst
+                , Rule, RuleG(..), swap
+                , RWTerm(..), Omega
+                , narrow, narrow1, narrowAll
+                , rewrite, rewrite1
+                , equal, equalR
+                , generalize, instan, autoInst, collect
+                , mutsFree
+                , runE, runEG, runEGG, runFromFixGG ) where
+
+import Control.Applicative
+import Control.Arrow ( first, second )
+import Control.Monad hiding (msum, mapM_, mapM, sequence)
+import Control.Monad.List (runListT, ListT(..),lift)
+import Control.Monad.Fix
+import Control.Monad.ST.Lazy
+import Control.Monad.Error (ErrorT(..), MonadTrans(..))
+import Data.STRef.Lazy
+import Data.List ((\\))
+import Debug.Trace
+import Data.Traversable
+import Data.Foldable
+import Data.Monoid
+import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
+                      , concat, sequence)
+import TRS.Utils
+import Control.Exception
+
+-- GADT attempt
+data GT b s r where
+  GenVar :: Int -> GT b s r
+  MutVar :: (STRef r (Maybe (GT b s r))) -> GT Mut s r
+  S :: (Show (s (GT b s r))) => s (GT b s r) -> GT b s r
+
+data Mut
+
+type Ptr b s r   = STRef r (Maybe (GT b s r))
+type Subst s r = [GT Mut s r]
+type GTm m b s r = m (ST r) (GT b s r)
+--type MST m r = m (ST r) 
+
+newtype Fix s  = Fix (s (Fix s))
+   deriving Show
+
+type Rule s r = RuleG (forall b. GT b s r)
+data RuleG a = a :-> a 
+   deriving Eq
+instance Functor (RuleG) where
+    fmap = fmapDefault              --fmap f (l:->r) = f l :-> f r
+instance Foldable (RuleG) where 
+    foldMap = foldMapDefault        --foldMap f (l:->r) = f l `mappend` f r
+instance Traversable (RuleG ) where
+    traverse f (l:->r) = (:->) <$> f l <*> f r
+
+swap :: Rule s r -> Rule s r
+swap (lhs:->rhs) = rhs:->lhs
+
+class (Traversable s) => RWTerm s where
+    matchTerm     :: s x -> s x -> Maybe [(x,x)]
+    toVar         :: Int -> s a
+
+instance RWTerm s => Eq (GT b s r) where
+  (==) = equal
+
+-- "Omega is just a Type Class constraint synonym" 
+--             is an unregistered trademark of Type Hacker enterprises
+class ( MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r))
+      , RWTerm s, Show (s(GT b s r))) => 
+    Omega (m :: (* -> *) -> * -> *) b (s :: * -> *) r
+
+instance (MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s (GT b s r))) => Omega m b s r
+
+runE :: Omega (ErrorT String) b s r => 
+        (forall r. ErrorT String (ST r) (GT b s r)) -> (GT b s r)
+runE c = either (error . show) fromFix (runST (runErrorT (fmap toFix c)))
+
+runEG :: (Omega (ErrorT String) b s r, Functor f) =>
+         (forall r. ErrorT String (ST r) (f(GT b s r))) -> f(GT b s r)
+runEG c = either (error.show) (fmap fromFix) (runST (runErrorT (fmap2 toFix c)))
+
+runEGG :: (Omega (ErrorT String) b s r, Functor f, Functor f1) =>
+         (forall r. ErrorT String (ST r) (f(f1(GT b s r)))) -> f(f1(GT b s r))
+runEGG c = either (error.show) (fmap2 fromFix) (runST (runErrorT (fmap3 toFix c)))
+
+runFromFixGG ::  (Omega (ErrorT String) b s r, Functor f, Functor f1) =>
+                 (forall r.ErrorT String (ST r) (f(f1(Fix s)))) -> f(f1(GT b s r))
+runFromFixGG c = either (error.show) (fmap2 fromFix) (runST (runErrorT c))
+
+prune	  :: Omega m b s r => 
+                       GT b s r  -> GTm m b1 s r
+unify	  :: Omega m Mut s r => GT Mut s r -> GT Mut s r -> m (ST r) ()
+match	  :: Omega m b s r =>
+                       GT b s r -> GT b s r -> m (ST r) ()
+equal	  :: RWTerm s => GT b s r -> GT b s r -> Bool
+occurs	  :: Omega m b s r => 
+                       Ptr b s r -> GT b s r -> m (ST r) Bool
+col 	  :: Omega m b s r => 
+                       GT b s r  -> GTm m b s r    -- ^Dereference variables
+instan	  :: (Omega m b s r, Omega m Mut s r) => 
+             Subst s r-> GT b s r -> GTm m Mut s r
+rewrite1  :: Omega m b s r => 
+                       [Rule s r] -> GT Mut s r -> GTm m b s r -- ^leftmost outermost
+narrow1   :: Omega m b s r => 
+                       [Rule s r] -> (forall b. GT b s r) -> GTm m Mut s r -- ^leftmost outermost. Assumption: term is templatized
+narrowAll :: Omega m b s r => 
+                       [Rule s r] -> (forall b. GT b s r) -> 
+                       m (ST r) [(Subst s r, GT Mut s r)] -- ^leftmost outermost. Assumption: term is instantiated
+generalize:: Omega m b s r => 
+                       GT b s r -> (forall b. GTm m b s r)
+autoInst  :: (Omega m b s r, Omega m Mut s r) => 
+                       GT b s r -> m (ST r) ([GT Mut s r], GT Mut s r)       -- ^Returns the instantitated term together with the new MutVars (you need these to apply substitutions) 
+
+collect   :: RWTerm s => (GT b s r -> Bool) -> GT b s r -> [GT b s r]
+
+fresh	  :: Omega m b s r => GTm m Mut s r
+
+fresh = lift (newSTRef Nothing) >>= return . MutVar
+readVar r = lift$ readSTRef r
+write r x = lift$ writeSTRef r x
+--    collect :: (GT b s r -> Bool) -> GT b s r -> [GT b s r]
+-- | Ought to call colGT before this to make sure all the variables have
+--   been dereferenced 
+collect p (S x) = foldr (\t gg -> collect p t ++ gg) [] x
+collect p x = if p x then [x] else []
+
+prune (typ @ (MutVar ref)) =
+	do { m <- readVar ref
+	   ; case m of
+	      Just t ->
+		do { newt <- prune t
+		   ; write ref (Just newt)
+		   ; return newt }
+	      Nothing -> return typ}
+prune x = return x
+
+col x =
+     do { x' <- prune x
+	; case x' of
+	  (S y) -> 
+	    do { t <- (mapM col y) 
+	       ; return (S t)} 
+	  _     -> return x'}
+
+occurs v t = 
+     do { t2 <- prune t 
+	; case t2 of 
+	  S w -> 
+	    do { s <- (mapM (occurs v) w) 
+	       ; return(foldr (||) False s ) 
+	       } 
+	  MutVar z -> return (v == z) 
+	  GenVar n -> return False } 
+unify tA tB = 
+     do { t1 <- prune tA 
+	; t2 <- prune tB 
+	; case (t1,t2) of 
+	   (MutVar r1,MutVar r2) -> 
+	     if r1 == r2 
+		then return () 
+		else write r1 (Just t2) 
+	   (MutVar r1,_) -> varBind r1 t2 
+	   (_,MutVar r2) -> varBind r2 t1 
+	   (GenVar n,GenVar m) -> 
+	    if n==m 
+		then return () 
+		else fail "Gen error" 
+	   (S x,S y) -> 
+	     case matchTerm x y of 
+		Nothing -> fail "ShapeErr" 
+		Just pairs -> 
+		  mapM_ (uncurry unify) pairs 
+	   (_,_) -> fail "ShapeErr" 
+	} 
+match tA tB = 
+     do { t1 <- prune tA 
+	; t2 <- prune tB 
+	; case (t1,t2) of 
+	  (MutVar r1,_) -> 
+	    write r1 (Just t2) 
+	  (GenVar n,GenVar m) -> 
+	    if n==m 
+		then return () 
+		else fail "Gen error" 
+	  (S x,S y) -> 
+	    case matchTerm x y of 
+		Nothing -> fail "ShapeErr" 
+		Just pairs -> 
+		  mapM_ (uncurry match) pairs 
+	  (_,_) -> fail "ShapeErr" 
+	} 
+equal x y = 
+      case (x,y) of 
+	(MutVar r1,MutVar r2) -> 
+	  r1 == r2 
+	(GenVar n,GenVar m) -> m==n 
+	(S x,S y) -> 
+	    case matchTerm x y of 
+	      Nothing -> False 
+	      Just pairs -> all (uncurry equal) pairs 
+        other -> False 
+instan sub x = 
+      do { x' <- prune x 
+	 ; case x' of 
+	    MutVar r -> return(MutVar r) 
+	    GenVar n -> col (sub !! n) 
+	    S x -> 
+	      do { x' <- (mapM (instan sub) x) 
+		 ; return (S x') 
+	 } }
+generalize x = do
+           x' <- col x
+           let gvars = collect isGenVar x'
+               mvars = collect isMutVar x'
+               tot   = length gvars + length mvars
+               new_gvars = map (Just . GenVar) 
+                               ([0..tot]\\[j|GenVar j <- gvars])
+             -- Buf, menudo follón con las variables. Tengo q solucionarlo o claudicar...
+           zipWithM write [v|MutVar v <-mvars] new_gvars
+           col x'
+autoInst x = do
+           let gvars = collect isGenVar x
+           freshv <- replicateM (1+(maximum$ [i|GenVar i <-gvars] ++ [0])) fresh
+           x' <- instan freshv x
+--           assert (null$ collect isGenVar x') $
+           return (freshv, x')
+    -- The intent is to do one rewrite step only
+    -- But.. for some MonadPlus's, you might get different results
+rewrite1 rules (S t)
+      | isConst t = rewriteTop (S t)
+      | otherwise
+      = rewriteTop (S t) `mplus` (fmap S $ someSubterm (rewrite1 rules) t)
+       where rewriteTop t = msum $ map (rewriteTop1 t) rules
+             rewriteTop1 t r@(lhs :-> rhs) = do
+	        (freshv, lhs') <- autoInst lhs
+	        match lhs' t
+	        --trace ("rule fired: " ++ show r ++ " for " ++ show t) $ 
+                instan freshv rhs
+rewrite1 _ t = fail "no rewrite"  -- TODO: Fail or identity? 
+narrow1 [] _ = fail "narrow: empty set of rules"
+narrow1 rules (S t)
+      | isConst t = narrowTop (S t)
+      | otherwise
+      = narrowTop (S t) `mplus` (fmap S $ someSubterm (narrow1 rules) t)
+        where 
+          narrowTop t = msum . fmap2 snd . fmap (narrowTop1 t) $ rules 
+narrow1 rules _ = fail "narrowing: variable position"
+
+narrowAll [] _ = fail "narrowing: null set of rules"
+narrowAll rules (S t) = do
+      results <- generalize (S t) >>= narrowAll' rules
+      if null results then fail "No narrowings" else return results
+        where 
+          narrowAll' rules (S t) | isConst t = narrowAllTop rules (S t)
+          narrowAll' rules (S t) = do
+              top <- narrowAllTop rules (S t) 
+              results_ <- successes $interleave (narrowAll' rules) 
+                                                (\t->return [([],t)]) t
+              let 
+                  subs = fmap ( second S
+                              . first (concat . toList) 
+                              . unzipG ) 
+                       . concat 
+                       . fmap parallelComb 
+                         $ results_
+              return$ top ++ subs
+          narrowAll' _ _ = fail "narrowing: variable position"
+          narrowAllTop rules t = successes$ map (narrowTop1 t) rules
+narrowAll rules _ = fail "narrowing: variable position"
+
+rewrite rules = fixM (rewrite1 rules)
+--narrow  rules = fixM (\t -> narrow1 rules t >>= generalize)
+
+isConst :: Foldable t => t a -> Bool
+isConst = null . toList
+--    someSubterm :: (MonadPlus m) => (a -> m a) -> s a -> m s a
+someSubterm f x = msum$ interleave f return x
+{-
+someSubtermAll f x = do
+      let try t True  = return (True, t) 
+          try t False = do {y<-f t; return (True, y)} `mplus` return (False,t)
+      (success,term') <- mapAccRS lib try False x
+      unless success (fail "someSubterm failed")
+      return$ S term'
+-}
+
+narrowTop1 :: (Omega m b s r, Omega m Mut s r) => GT b s r -> Rule s r 
+                          -> m (ST r) ([GT Mut s r], GT Mut s r)
+narrowTop1 t r@(lhs:->rhs) = do
+               assert (noMVars t) (return ())
+               (lhsv, lhs') <- autoInst lhs
+               (tv, t')     <- autoInst t
+               unify lhs' t'              
+               --trace ("narrowing fired: " ++ show r ) $ 
+               rhs' <- instan lhsv rhs -- Pensar que la sustitución debe cubrir a 
+                                -- todo el término. ¿Lo cumple esta impl.?
+               col rhs'         -- OPT: col here might be unnecesary
+               return (tv,rhs')
+varBind r1 t2 = 
+     do { b <- occurs r1 t2 
+	; if b 
+	    then fail "OccursErr" 
+	    else write r1 (Just t2) } 
+
+vars = "XYZWJIKHW"
+instance (Show (s (GT b s r))) => Show (GT b s r) where
+    show (S s)      = show s
+    show (GenVar n) = if n < length vars then [vars !! n] else ('v' : show n)
+    show (MutVar r) = "?"
+
+isGenVar :: GT b s r -> Bool
+isGenVar GenVar{} = True
+isGenVar _ = False
+isMutVar :: GT b s r -> Bool
+isMutVar MutVar{} = True
+isMutVar _ = False
+
+noMVars :: RWTerm s => GT b s r -> Bool
+noMVars = null . collect isMutVar 
+
+fromFix :: (Show (s(GT b s r)), Functor s) => Fix s -> GT b s r
+fromFix (Fix x) = S(fmap fromFix x)
+toFix :: RWTerm s => GT b s r -> Fix s
+toFix (MutVar r) = error "toFix: No vars" 
+toFix (GenVar n) = --error "toFix: No generic vars" 
+                  Fix (toVar n) 
+toFix (S y) = Fix (fmap toFix y)
+
+toFixG :: (RWTerm s, Functor s, Functor f) => f (GT b s r) -> f (Fix s)
+toFixG   = fmap toFix
+
+fromFixG :: (Show (s (GT b s r)), Functor f, Functor s) => f (Fix s) -> f (GT b s r)
+fromFixG = fmap fromFix
+
+--mutsFree :: GT b s r -> TRS s r Bool
+mutsFree t = null $ collect isMutVar t 
+
+equalR (l1:->r1) (l2:->r2) = l1 `equal` l2 && r1 `equal` r2
+
+{-
+instance Traversable (RuleG s r) where
+    traverse f (l:->r) = (:->) <$> f l <*> f r
+
+instance Foldable (RuleG s r) where
+    foldMap f (l :-> r) = f l `mappend` f r
+-}
+
+instance Show (a) => Show (RuleG (a)) where
+    show (a:->b) = show a ++ " -> " ++ show b
+--    showList  = unlines . map show
+
+-- TODOs:
+-- - Float pruning to the type
+-- - Fuse seq and map into mapM
+-- - OPT: instantiate all rules before starting the rewrite/narrowing rows
+-- - Replace parts of the RSclass with a Traversable instance
+
+

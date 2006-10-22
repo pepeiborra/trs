@@ -1,0 +1,34 @@
+name: TRS
+version: 0.2
+license: AllRightsReserved
+license-file: ""
+copyright:
+maintainer:
+build-depends: base -any, mtl ==1.0, Hood
+stability:
+homepage:
+package-url:
+synopsis:
+description: Based on the code from the paper "Generic Unification with two level types and parameterized modules"
+category:
+author: Tim Sheard (based on code by Luca Cardelly) (adapted by Pepe Iborra)
+tested-with:
+extra-source-files:
+extra-tmp-files:
+exposed-modules: TRS.Core, TRS.Utils
+other-modules: TRS.Context
+buildable: True
+cc-options:
+ld-options:
+frameworks:
+c-sources:
+extensions:
+extra-libraries:
+extra-lib-dirs:
+includes:
+include-dirs:
+hs-source-dirs: src
+ghc-prof-options: -prof -auto-all
+ghc-options: -fglasgow-exts -O
+hugs-options:
+nhc-options:
