@@ -16,9 +16,9 @@ module TRS.Core ( GT(..), isMutVar, isGenVar, isCtxVar, GTm
                 , Subst
                 , Rule, RuleG(..), swap
                 , RWTerm(..), Omega
-                , narrow, narrow1, narrowAll, narrowBU, narrowFull
+                , narrow, narrow1, narrowFull
                 , rewrite, rewrite1
-                , equal, equalR
+                , equal
                 , generalize, generalizeG, instan, autoInst, collect
                 , noMVars, noGVars
                 , runE, runEG, runEGG 
@@ -57,19 +57,13 @@ data GT s r =
 type Ptr s r   = STRef r (Maybe (GT s r))
 newtype Subst s r = Subst {subst::[GT s r]}
 
-instance Show (s(GT s r)) => Show (Subst s r) where
-    show = show . subst
+emptyS = Subst mempty
 
 type GTm m s r = m (ST r) (GT s r)
---type MST m r = m (ST r) 
 
 newtype Fix s  = Fix (s (Fix s))
    deriving Show
 
-{-
-data Safe s r v p where
-    Safe {safe :: GT s r} :: 
--}
 type Rule s r = RuleG (GT s r)
 data RuleG a = a :-> a -- (GT s r) :-> (GT s r) -- Switch to a newtype for efficiency
    deriving (Eq, Ord)
@@ -79,14 +73,6 @@ instance Foldable (RuleG) where
     foldMap = foldMapDefault        --foldMap f (l:->r) = f l `mappend` f r
 instance Traversable (RuleG ) where
     traverse f (l:->r) = (:->) <$> f l <*> f r
-{-
-instance FunctorM (RuleG s r) where
-    fmapM f (l:->r) = do {l' <- f l; r' <- f r; return (l':->r')} 
--}
-
-
-swap :: Rule s r -> Rule s r
-swap (lhs:->rhs) = rhs:->lhs
 
 class (Traversable s) => RWTerm s where
     matchTerm     :: s x -> s x -> Maybe [(x,x)]
@@ -95,40 +81,12 @@ class (Traversable s) => RWTerm s where
 instance RWTerm s => Eq (GT s r) where
   (==) = equal
 
-instance (RWTerm s, Ord (s (GT s r))) => Ord (GT s r) where
-    compare (S t1) (S t2) = compare t1 t2
-    compare S{} _ = GT
-    compare _ S{} = LT
-    compare MutVar{} MutVar{} = EQ
-    compare GenVar{} GenVar{} = EQ
-    compare GenVar{} MutVar{} = GT
-    compare MutVar{} GenVar{} = LT
-    compare _ CtxVar{} = GT
-    compare CtxVar{} _ = LT
-
 -- "Omega is just a Type Class constraint synonym" 
 --             is an unregistered trademark of Pepe Type Hacker enterprises
 class (MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s(GT s r))) => 
     Omega (m :: (* -> *) -> * -> *) (s :: * -> *) r
 
 instance (MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s (GT s r))) => Omega m s r
-
-runE :: Omega (ErrorT String) s r => 
-        (forall r. ErrorT String (ST r) (GT s r)) -> (GT s r)
-runE c = either (error . show) fromFix (runST (runErrorT (fmap toFix c)))
-
-runEG :: (Omega (ErrorT String) s r, Functor f) =>
-         (forall r. ErrorT String (ST r) (f(GT s r))) -> f(GT s r)
-runEG c = either (error.show) (fmap fromFix) (runST (runErrorT (fmap2 toFix c)))
-
-runEGG :: (Omega (ErrorT String) s r, Functor f, Functor f1) =>
-         (forall r. ErrorT String (ST r) (f(f1(GT s r)))) -> f(f1(GT s r))
-runEGG c = either (error.show) (fmap2 fromFix) (runST (runErrorT (fmap3 toFix c)))
-
-runEIO :: 
-            ErrorT String (ST RealWorld) a
-         -> IO a
-runEIO = fmap (either (error. show) id) . stToIO . runErrorT
 
 prune	  :: Omega m s r => 
                        GT s r  -> GTm m s r
@@ -147,8 +105,6 @@ rewrite1  :: Omega m s r =>
                        [Rule s r] -> GT s r -> GTm m s r -- ^leftmost outermost
 narrow1   :: Omega m s r => 
                        [Rule s r] -> GT s r -> GTm m s r -- ^leftmost outermost. Assumption: term is MutVars free
-narrowAll :: Omega m s r => 
-                       [Rule s r] -> GT s r -> m (ST r) [(Subst s r, GT s r)] -- ^leftmost outermost. Assumption: term is MutVars free
 generalize:: Omega m s r => GT s r -> GTm m s r
 generalizeG :: (Traversable f, Omega m s r) => f(GT s r) -> m (ST r) (f(GT s r))
 autoInst  :: Omega m s r => 
@@ -215,13 +171,6 @@ unify tA tB =
 		  mapM_ (uncurry unify) pairs 
 	   (_,_) -> fail1 "ShapeErr? (U)" 
 
--- #define DEBUG
-trace msg x = 
-#ifdef DEBUG 
-  Debug.Trace.trace msg x 
-#else 
-  x 
-#endif
 match tA tB | trace ("match " ++ show tA ++ " and " ++ show tB) False = undefined
 match tA tB = 
      do { t1 <- prune tA 
@@ -268,7 +217,6 @@ generalize x = do
                tot   = length gvars + length mvars
                new_gvars = map (Just . GenVar) 
                                ([0..tot]\\[j|GenVar j <- gvars])
-             -- Buf, menudo follón con las variables. Tengo q solucionarlo o claudicar...
            zipWithM write [v|MutVar v <-mvars] new_gvars
            x'' <- col x'
            assert (noMVars x'') (return ())
@@ -331,35 +279,10 @@ narrow1 rules x@(S t) = do
        narrowTop x' `mplus` (fmap S $ someSubterm (narrow1 rules) t')
         where 
           narrowTop t = msum . fmap (narrowTop1 t) $ rules 
---narrow1 _ _ = fail "Narrowing at variable position not allowed"
+
 narrow1 rules (MutVar r) = narrowTop (MutVar r)
         where 
           narrowTop t = msum . fmap (narrowTop1 t) $ rules 
-
-narrowAll [] t = return [(emptyS, t)]
-narrowAll rules (S t) = do
-    results <- narrowAll' rules (S t)
-    if null results then fail1 "No narrowings" else return results
-        where 
-          narrowAll' :: Omega m s r => [Rule s r] -> GT s r 
-                                    -> m (ST r) [(Subst s r, GT s r)]
-          narrowAll' rules (S t) | isConst t = narrowAllTop (S t) rules
-          narrowAll' rules (S t) = do
-              assert (noMVars (S t)) (return ())
-              top  <- narrowAllTop (S t) rules
-              subs <- successes $interleave (narrowAll' rules) 
-                                            (\t->return [(emptyS,t)]) t
-              let --combine::[s [(Subst s r, GT s r)]] -> [(Subst s r, GT s r)]
-                  combine = fmap( second S
-                                . first (Subst . concatMap subst . toList)
-                                . unzipG ) 
-                          . concat 
-                          . fmap parallelComb 
-                  subs' = combine subs
-              return (top ++ subs')
-          narrowAll' _ _ = fail1 "narrowing: variable position"
-          narrowAllTop = (successes.). narrowTop
-narrowAll rules _ = return []
 
 -------------------------------
 -- The New Narrowing Framework
@@ -423,99 +346,12 @@ narrowFull _rules t = runListT$ do
                              do_cont
           lift2 x = lift$ lift x
           box x = [x]
-{-
-narrowRoot :: (Omega m s r) => [Rule s r] -> Context s -> GT s r
-           -> [(Context s, GT s r, Int, Subst s r)]
-narrowRoot rules c t = runListT$ do
-          (subst,t') <- ListT$ map (narrow1 t) rules
-          c' <- 
--}
-narrowBU :: (Omega m s r) => [Rule s r] -> GT s r -> m (ST r) [(Subst s r, GT s r)]
-
-{-
-narrowBU rules (S t) = runListT$ do
-          (st, ct) <- ListT . return $ contexts t
-          (ct', subst,  st') <- step rules ct st 
-          (_, subst_t,  t' ) <- step rules empty? (S t)
-          (st2, ct2) <- ListT$ contexts ct
-          (ct2', subst2, st2') <- ListT$ step rules ct2 st2hu
-          return [ (subst, c' st')
-                 , (subst2 ++ subst, ct2' st2' st')
-                 , (subst_t, t')]
--}
-
-narrowBU rules t = runListT$ do
-          (ct,subst1,st) <- loop rules t mempty emptyS
-          term           <- lift$ generalize (ct|>st)
-          assert (noCVars term) (return ())
-          return (subst1, term)
-
-loop :: (Omega m s r) => [Rule s r] -> Context s r -> [GT s r] -> Subst s r
-                      -> ListT (m(ST r)) (Context s r, Subst s r, GT s r)
--- The results from an iteration of the loop are two:
---  Traversing: Combining all the subterms, order matters
---  Processing: 1. Narrowing at the top (of the subterm)
---              2. BU Narrowing from the subterm
---  - 1. BU Narrowing the subterms sequentially, trying all the possible paths,
---       and then afterwards top-narrow the top. So when a context is all holes,
---       we top-narrow the top! And in this case, 
---    2. Top-Narrowing the subterms (i.e.at the top). That is, if possible
--- Note that all these narrowings are modulo failure. I.e. if a narrowing step
--- fails, we proceed to the next step with the current term. We do not cut
-
-loop _ ct acc s | trace ("loop ct=" ++ show ct ++ ", |acc|=" ++ (show$ length acc)) False = undefined
-loop rules ct0 acc subst0 
---    | null cts = return (emptyC, subst0, ct0)
-    | null cts = do (_,subst,ct') <- ListT$ tryTopNarrow rules emptyC ct0 subst0
-                    return (emptyC, subst, close ct' acc)
-    | otherwise = 
-        do result <- ListT$ tryTopNarrow rules emptyC (close ct0 acc) subst0
-           return result
-          `mplus`
-        do (st,ct)          <- ListT$ return cts
-           (st',subst,stst) <- loop rules st mempty subst0
-           (ct',subst',st') <- loop rules ct ((st'|> stst) : acc) subst
-           ListT$ tryTopNarrow rules emptyC (close ct' (st':acc)) subst'
-    where cts = contexts ct0
-          atom [x] = True
-          atom _   = False
-close ct [] = ct
-close ct (st:stt) = close (ct |> st) stt
-
--- This just returns all the possible 1-step narrowings at the top position.
--- However, if no narrowing is possible, it returns the original term.
--- So effectively this action NEVER FAILS
--- Furthermore, it takes care of applyiing the obtained substitution to 
---  the given context, and returning the compound substitution
-tryTopNarrow :: (Omega m s r) => [Rule s r] -> Context s r -> GT s r -> Subst s r 
-     -> m(ST r) [(Context s r, Subst s r, GT s r)]
-tryTopNarrow rules ct t subst0 = do
-          narrows <- successes$ narrowTop t rules
-          case narrows of          -- Taking care of the no-narrows case
-            [] -> return [(ct, subst0, t)]
-            _  -> forM narrows $ \(subst, t') -> do
-                    ct'    <- instan subst ct
-                    subst' <- subst *& subst0
-                    t''    <- generalize t'  --Note the implications of generalize here!
-                    return (ct', subst', t'')
-
-mtry f x = f x `mplus` x
 
 rewrite   :: (Omega m s r) => [Rule s r] -> GT s r -> m (ST r) (GT s r)
 narrow    :: (Omega m s r) => [Rule s r] -> GT s r -> m (ST r) (GT s r)
 rewrite rules = fixM (rewrite1 rules)
 narrow  rules = fixM (narrow1 rules)
 
-isConst :: Foldable t => t a -> Bool
-isConst = null . toList
-
-someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
-someSubterm f x = msum$ interleave f return x
-{-
-interleaveBut ii f g x =  [ liftM ((,) i) x 
-                            | (i,x) <- zip [0..] interleave f g x
-                            , i `notElem` ii]
--}
 narrowTop :: Omega m s r => GT s r -> [Rule s r]
                             -> [m (ST r) (Subst s r, GT s r)]
 narrowTop t rules = assert (noMVars t) $ unsafeNarrowTop t rules
@@ -550,27 +386,6 @@ varBind r1 t2 =
 	    then fail1 "OccursErr"  
 	    else write r1 (Just t2) } 
 
-vars = "XYZWJIKHW"
-instance (Show (s (GT s r))) => Show (GT s r) where
-    show (S s)      = show s
-    show (GenVar n) = if n < length vars then [vars !! n] else ('v' : show n)
-    show (MutVar r) = "?"
-    show (CtxVar c) = '[' : show c ++ "]" 
-
-isGenVar, isMutVar, isCtxVar :: GT s r -> Bool
-isGenVar GenVar{} = True
-isGenVar _ = False
-isMutVar MutVar{} = True
-isMutVar _ = False
-isCtxVar CtxVar{} = True
-isCtxVar _ = False
-
-noCVars, noGVars, noMVars :: RWTerm s => GT s r -> Bool
-noGVars = null . collect isGenVar
-noMVars = null . collect isMutVar 
-noCVars = null . collect isCtxVar 
-
-
 fromFix :: (Functor s, Show (s (GT s r))) => Fix s -> GT s r
 fromFix (Fix x) = S(fmap fromFix x)
 
@@ -586,54 +401,11 @@ toFixG   = fmap toFix
 fromFixG :: (Show (s (GT s r)), Functor f, Functor s) => f (Fix s) -> f (GT s r)
 fromFixG = fmap fromFix
 
-equalR (l1:->r1) (l2:->r2) = l1 `equal` l2 && r1 `equal` r2
 
 
-{-# INLINE fail1 #-}
-fail1 :: Monad m => String -> m a 
-fail1 msg = trace msg $ fail msg
---fail1 = fail
-
-instance Show (a) => Show (RuleG (a)) where
-    show (a:->b) = show a ++ " -> " ++ show b
---    showList  = unlines . map show
-
--- TODOs:
--- - Float pruning to the type
--- - Fuse seq and map into mapM
--- - OPT: instantiate all rules before starting the rewrite/narrowing rows
--- - Replace parts of the RSclass with a Traversable instance
-
-
-{- Substitution Composition 
-
-If we model a substitution as simply a list of Mvars, with which to instantiate GVars,
-it is going to be really painful to model substitution composition.
-But moreover, we are not interested in full composition of substitutions. In fact, only
-composition of disjoint substitutions is needed!
-Suppose we have 5 GenVars, and some first narrowing step gives the substitution:
-{a,[],[],[],[]}
-[] Represent empty substitutions. That is, only instantiating the first 
--}
-(*&) :: Omega m s r => Subst s r -> Subst s r -> m (ST r) (Subst s r)
-(Subst s1) *& (Subst s2) = do
-        s1' <- l s1
-        s2' <- l s2
-        v   <- lift$ zipWithM compose1 s1' s2'
-        return (Subst v)
-    where compose1 (MutVar r1) (MutVar r2) = do
-            v1 <- readSTRef r1
-            v2 <- readSTRef r2
-            writeSTRef r1 (v1 `mplus` v2)
-            return (MutVar r1)
-          unitValue = fresh
-          max_l = max (length s1) (length s2)
-          l x = if length x < max_l
-                then liftM (x ++) $ replicateM (max_l - length x) unitValue
-                else return x
-
-emptyS = Subst mempty
-
+--------------------------------
+-- Duplication of Terms
+--------------------------------
 dupVar sr = readSTRef sr >>= newSTRef
 dupTerm (MutVar r) = fmap MutVar (dupVar r)
 dupTerm (S t) = fmap S $ mapM dupTerm t
@@ -659,7 +431,99 @@ replace x x' (S t) = S$ fmap (replace x x') t
 replace x x' y | x == y = x'
 replace _ _ y = y 
 
+------------------------------
+-- Obtaining the results
+------------------------------
+runE :: Omega (ErrorT String) s r => 
+        (forall r. ErrorT String (ST r) (GT s r)) -> (GT s r)
+runE c = either (error . show) fromFix (runST (runErrorT (fmap toFix c)))
+
+runEG :: (Omega (ErrorT String) s r, Functor f) =>
+         (forall r. ErrorT String (ST r) (f(GT s r))) -> f(GT s r)
+runEG c = either (error.show) (fmap fromFix) (runST (runErrorT (fmap2 toFix c)))
+
+runEGG :: (Omega (ErrorT String) s r, Functor f, Functor f1) =>
+         (forall r. ErrorT String (ST r) (f(f1(GT s r)))) -> f(f1(GT s r))
+runEGG c = either (error.show) (fmap2 fromFix) (runST (runErrorT (fmap3 toFix c)))
+
+runEIO :: 
+            ErrorT String (ST RealWorld) a
+         -> IO a
+runEIO = fmap (either (error. show) id) . stToIO . runErrorT
+
+--------------------------------
+-- Instances and base operators
+--------------------------------
 liftSubst f (Subst s) = Subst (f s)
+swap :: Rule s r -> Rule s r
+swap (lhs:->rhs) = rhs:->lhs
+
+vars = "XYZWJIKHW"
+instance (Show (s (GT s r))) => Show (GT s r) where
+    show (S s)      = show s
+    show (GenVar n) = if n < length vars then [vars !! n] else ('v' : show n)
+    show (MutVar r) = "?"
+    show (CtxVar c) = '[' : show c ++ "]" 
+
+instance (RWTerm s, Ord (s (GT s r))) => Ord (GT s r) where
+    compare (S t1) (S t2) = compare t1 t2
+    compare S{} _ = GT
+    compare _ S{} = LT
+    compare MutVar{} MutVar{} = EQ
+    compare GenVar{} GenVar{} = EQ
+    compare GenVar{} MutVar{} = GT
+    compare MutVar{} GenVar{} = LT
+    compare _ CtxVar{} = GT
+    compare CtxVar{} _ = LT
+
+instance Show (s(GT s r)) => Show (Subst s r) where
+    show = show . subst
+
+instance Show (a) => Show (RuleG (a)) where
+    show (a:->b) = show a ++ " -> " ++ show b
+--    showList  = unlines . map show
+
+----------------
+-- Other stuff
+----------------
+
+isGenVar, isMutVar, isCtxVar :: GT s r -> Bool
+isGenVar GenVar{} = True
+isGenVar _ = False
+isMutVar MutVar{} = True
+isMutVar _ = False
+isCtxVar CtxVar{} = True
+isCtxVar _ = False
+
+noCVars, noGVars, noMVars :: RWTerm s => GT s r -> Bool
+noGVars = null . collect isGenVar
+noMVars = null . collect isMutVar 
+noCVars = null . collect isCtxVar 
+
+isConst :: Foldable t => t a -> Bool
+isConst = null . toList
+
+someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
+someSubterm f x = msum$ interleave f return x
+
+mtry f x = f x `mplus` x
 
 instance Show (GT s r) => Observable (GT s r) where
     observer = observeBase
+
+-- #define DEBUG
+trace msg x = 
+#ifdef DEBUG 
+  Debug.Trace.trace msg x 
+#else 
+  x 
+#endif
+
+{-# INLINE fail1 #-}
+fail1 :: Monad m => String -> m a 
+fail1 msg = trace msg $ fail msg
+--fail1 = fail
+
+-- TODOs:
+-- - Float pruning to the type
+
