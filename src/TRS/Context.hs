@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fdebugging -fglasgow-exts#-}
+{-# OPTIONS_GHC -fglasgow-exts #-}
 {-# LANGUAGE UndecidableInstances  #-}
 module TRS.Context where
 import Control.Arrow
