@@ -16,7 +16,7 @@ module TRS.Core ( GT(..), isMutVar, isGenVar, isCtxVar, GTm
                 , Subst
                 , Rule, RuleG(..), swap
                 , RWTerm(..), Omega
-                , narrow, narrow1, narrowFull
+                , narrow, narrow1, narrowFull, narrowFullV
                 , rewrite, rewrite1
                 , equal
                 , generalize, generalizeG, instan, autoInst, collect
@@ -304,10 +304,17 @@ data NarrowState s r = NS { rules   :: [Rule s r]
 
 emptyNS rules = NS rules emptyC emptyS
 
-narrowFull :: Omega m s r => [Rule s r] -> GT s r 
-           -> m (ST r) [(Subst s r, GT s r)]
-narrowFull [] t = return [(emptyS,t)]
-narrowFull _rules t = runListT$ do 
+narrowFull,narrowFullV :: Omega m s r => [Rule s r] -> GT s r 
+                       -> m (ST r) [(Subst s r, GT s r)]
+narrowFull = narrowFullG narrowTop1
+narrowFullV = narrowFullG narrowTop1V
+
+narrowFullG :: Omega m s r => 
+               (GT s r -> Rule s r -> m (ST r) (GT s r)) 
+            -> [Rule s r] -> GT s r 
+            -> m (ST r) [(Subst s r, GT s r)]
+narrowFullG narrowTop [] t = return [(emptyS,t)]
+narrowFullG narrowTop _rules t = runListT$ do 
      assert (noMVars t) (return ())
      (subst0,t0) <- lift$ autoInst t
      let state0 = NS _rules emptyC subst0
@@ -352,20 +359,24 @@ narrow    :: (Omega m s r) => [Rule s r] -> GT s r -> m (ST r) (GT s r)
 rewrite rules = fixM (rewrite1 rules)
 narrow  rules = fixM (narrow1 rules)
 
-narrowTop :: Omega m s r => GT s r -> [Rule s r]
+narrowTop,narrowTopV :: Omega m s r => GT s r -> [Rule s r]
                             -> [m (ST r) (Subst s r, GT s r)]
 narrowTop t rules = assert (noMVars t) $ unsafeNarrowTop t rules
+narrowTopV t rules = assert (noMVars t) $ unsafeNarrowTopV t rules
 
-unsafeNarrowTop :: Omega m s r => GT s r -> [Rule s r]
+unsafeNarrowTop, unsafeNarrowTopV :: Omega m s r => GT s r -> [Rule s r]
                                -> [m (ST r) (Subst s r, GT s r)]
-unsafeNarrowTop t rules = flip map rules $ \r -> do
+unsafeNarrowTop = unsafeNarrowTopG narrowTop1
+unsafeNarrowTopV = unsafeNarrowTopG narrowTop1V
+unsafeNarrowTopG narrowTop t rules = flip map rules $ \r -> do
               (vars, t') <- autoInst t
-              t''        <- narrowTop1 t' r
+              t''        <- narrowTop t' r
               return (vars, t'')
 
-narrowTop1 :: Omega m s r => GT s r -> Rule s r 
+
+narrowTop1, narrowTop1V :: Omega m s r => GT s r -> Rule s r 
                           -> m (ST r) (GT s r)
-narrowTop1 t@S{} r@(lhs:->rhs) = do
+narrowTop1V t r@(lhs:->rhs) = do
                assert (noGVars t) (return ())
                assert (noMVars lhs) (return ())
                assert (noMVars rhs) (return ())
@@ -377,6 +388,7 @@ narrowTop1 t@S{} r@(lhs:->rhs) = do
                rhs'' <- col rhs'         -- OPT: col here might be unnecesary
                assert (noGVars rhs'') (return ())
                return rhs''
+narrowTop1 t@S{} r = narrowTop1V t r
 narrowTop1 _ _ = fail1 "No rewriting at vars"
 
 varBind :: Omega m s r => Ptr s r -> GT s r -> m (ST r) ()
