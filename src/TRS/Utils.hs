@@ -96,13 +96,6 @@ size = length . toList
 fmap2 f x = fmap (fmap f) x
 fmap3 f x = fmap (fmap (fmap f)) x 
 
-interleave :: (MonadPlus m, Traversable t) =>
-                 (a -> m b) -> (a -> m b) -> t a -> [m (t b)]
-interleave f g x = let
-        indexed_fs = map (indexed f g) [0..size x - 1] 
-        indexed f default_f i (j,x) = if i==j then f x else default_f x
-     in map (\f->mapM f (unsafeZipG [0..] x)) indexed_fs
-
 successes :: (MonadPlus m, Functor m) => [m a] -> m [a]
 successes cc = fmap concat $ sequence $ map (\c->fmap unit c `mplus` return []) cc
     where unit x = [x]
@@ -110,6 +103,14 @@ successes cc = fmap concat $ sequence $ map (\c->fmap unit c `mplus` return []) 
 -- Awesome. Data.Traversable is incredible!
 parallelComb :: Traversable t => t [a] -> [t a]
 parallelComb = sequenceA
+
+interleave :: (MonadPlus m, Traversable t) =>
+                 (a -> m b) -> (a -> m b) -> t a -> [m (t b)]
+interleave f g x = let
+        indexed_fs = map (indexed f g) [0..size x - 1] 
+        indexed f default_f i (j,x) = if i==j then f x else default_f x
+     in map (\f->mapM f (unsafeZipG [0..] x)) indexed_fs
+
 
 {-
    Creo que había entendido mal lo que pone abajo
@@ -136,10 +137,16 @@ Pero tal y como está declarado fixM, nunca se produce un mzero (i.e. un fail)!
 
 -}
 
-tryList :: (a -> [a]) -> a -> [a]
-tryList f a | null (f a) =  [a]
-            | otherwise  =  f a
+tryList :: a -> [a] -> [a]
+tryList a [] = [a]
+tryList _ x  =  x
 
+tryListT :: Monad m => a -> ListT m a -> ListT m a
+tryListT a (ListT m) = ListT$ do 
+  v <- m
+  case v of 
+    [] -> return [a]
+    x  -> return x
 {-
 Ejemplo en el que la funcion f en (tryList f) es recursiva:
 
@@ -151,12 +158,24 @@ Problema:
 f x -expand f-> tryList f0 x -
 
 -}
-tryListT :: Monad m => a -> ListT m a -> ListT m a
-tryListT a (ListT m) = ListT$ do 
-  v <- m
-  case v of 
-    [] -> return [a]
-    x  -> return x
 
-tryStateTListT :: Monad m => (a -> StateT s (ListT m) a) -> a -> StateT s (ListT m) a
-tryStateTListT f a = let StateT m = f a in StateT$ \s -> tryListT (a,s) (m s)
+class MonadTry m where
+ try :: (a -> m a) -> a -> m a
+
+instance MonadTry [] where
+ try f a | null (f a) = [a]
+         | otherwise  = f a
+
+instance Monad m => MonadTry (ListT m) where
+ try m a = let ListT m1 = m a in  
+           ListT$ (m1 >>= \v -> return (if null v then [a] else v))
+
+instance MonadTry m => MonadTry (StateT s m) where
+ try m a = let StateT v = m a in
+            StateT$ \s -> try (\(a,s) -> v s) (a,s)
+
+
+forEach = flip map
+lift2 x = lift$ lift x
+mtry f x = f x `mplus` x
+

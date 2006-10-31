@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances -fno-monomorphism-restriction -fdebugging -cpp#-}
+{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances -fno-monomorphism-restriction -fdebugging -cpp #-}
 
 -----------------------------------------------------------------------------------------
 {-| Module      : TRS.Core
@@ -16,19 +16,20 @@ module TRS.Core ( GT(..), isMutVar, isGenVar, isCtxVar, GTm
                 , Subst
                 , Rule, RuleG(..), swap
                 , RWTerm(..), Omega
-                , narrow, narrow1, narrowFull, narrowFullV
+                , narrow1, narrow1', narrow1V, narrowFull, narrowFullV
+                , narrowFullBounded, narrowFullBoundedV
                 , rewrite, rewrite1
                 , equal
                 , generalize, generalizeG, instan, autoInst, collect
                 , noMVars, noGVars
-                , runE, runEG, runEGG 
-                , runEIO ) where
+                , runE, runEG, runEGG, runEIO
+                , run, runG, runGG, runIO) where
 
 import Control.Applicative
 import Control.Arrow ( first, second )
 import Control.Monad hiding (msum, mapM_, mapM, sequence, forM)
 import Control.Monad.List (runListT, ListT(..),lift)
-import Control.Monad.Fix
+import Control.Monad.Identity (runIdentity)
 import Control.Monad.ST
 import Control.Monad.Error (ErrorT(..), MonadTrans(..))
 import Control.Monad.State (StateT(..), gets, modify)
@@ -42,7 +43,7 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, notElem)
 import TRS.Context
 import TRS.Utils
-import Control.Exception
+import Control.Exception (assert)
 
 import qualified Debug.Trace
 import GHC.Exts (breakpointCond)
@@ -83,37 +84,51 @@ instance RWTerm s => Eq (GT s r) where
 
 -- "Omega is just a Type Class constraint synonym" 
 --             is an unregistered trademark of Pepe Type Hacker enterprises
-class (MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s(GT s r))) => 
+class (MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s(GT s r))) => 
     Omega (m :: (* -> *) -> * -> *) (s :: * -> *) r
 
-instance (MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s (GT s r))) => Omega m s r
+class (Omega m s r, MonadPlus (m (ST r))) => OmegaPlus m s r 
 
-prune	  :: Omega m s r => 
-                       GT s r  -> GTm m s r
+instance (MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s (GT s r))) => Omega m s r
+instance (MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), RWTerm s, Show (s (GT s r))) => OmegaPlus m s r
+
+prune	  :: Omega m s r => GT s r  -> GTm m s r
 
 unify	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
-match	  :: Omega m s r => 
-                       GT s r -> GT s r -> m (ST r) ()
-equal	  :: RWTerm s => GT s r -> GT s r -> Bool
-resetVars :: RWTerm s => GT s r -> GT s r
-occurs	  :: Omega m s r => 
-                       Ptr s r -> GT s r -> m (ST r) Bool
-col 	  :: Omega m s r => 
-                       GT s r  -> GTm m s r    -- ^Dereference variables
+match	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
+equal	  :: RWTerm s    => GT s r -> GT s r -> Bool
+resetVars :: RWTerm s    => GT s r -> GT s r
+occurs	  :: Omega m s r => Ptr s r -> GT s r -> m (ST r) Bool
+-- |Dereference variables
+col 	  :: Omega m s r => GT s r  -> GTm m s r    
 instan	  :: Omega m s r => Subst s r-> GT s r -> GTm m s r
-rewrite1  :: Omega m s r => 
-                       [Rule s r] -> GT s r -> GTm m s r -- ^leftmost outermost
-narrow1   :: Omega m s r => 
-                       [Rule s r] -> GT s r -> GTm m s r -- ^leftmost outermost. Assumption: term is MutVars free
-generalize:: Omega m s r => GT s r -> GTm m s r
-generalizeG :: (Traversable f, Omega m s r) => f(GT s r) -> m (ST r) (f(GT s r))
-autoInst  :: Omega m s r => 
-                       GT s r -> m (ST r) (Subst s r, GT s r)       -- ^Returns the instantitated term together with the new MutVars (you need these to apply substitutions) 
+-- |leftmost outermost
+rewrite1  :: OmegaPlus m s r => [Rule s r] -> GT s r -> m (ST r) (GT s r)
+rewrite   :: OmegaPlus m s r => [Rule s r] -> GT s r -> m (ST r) (GT s r)
+narrow1   :: OmegaPlus m s r => [Rule s r] -> GT s r -> m (ST r) (Subst s r, GT s r)
+-- Unbounded Full Narrowing
 
-collect   :: Foldable s => (GT s r -> Bool) -> GT s r -> [GT s r]
+narrowFull:: (RWTerm s, Show (s (GT s r))) => [Rule s r] -> GT s r -> ST r [(Subst s r, GT s r)]
+-- Unbounded Full Narrowing, with narrowing on variables
+
+narrowFullV:: (RWTerm s, Show (s (GT s r))) => 
+              [Rule s r] -> GT s r -> ST r [(Subst s r, GT s r)]
+narrowFullBounded  :: (RWTerm s, Show (s (GT s r))) => 
+                      (GT s r -> ST r Bool) -> [Rule s r] -> GT s r -> 
+                      ST r [(Subst s r, GT s r)]
+narrowFullBoundedV :: (RWTerm s, Show (s (GT s r))) => 
+                      (GT s r -> ST r Bool) -> [Rule s r] -> GT s r -> 
+                      ST r [(Subst s r, GT s r)]
+
+generalize ::Omega m s r => GT s r -> GTm m s r
+generalizeG::(Traversable f, Omega m s r) => f(GT s r) -> m (ST r) (f(GT s r))
+-- |Returns the instantiated term together with the new MutVars 
+--  (you need these to apply substitutions) 
+autoInst  :: Omega m s r => GT s r -> m (ST r) (Subst s r, GT s r)       
+collect   :: Foldable s  => (GT s r -> Bool) -> GT s r -> [GT s r]
 fresh	  :: Omega m s r => GTm m s r
-readVar   :: (MonadTrans t) => STRef s a -> t (ST s) a
-write     :: (MonadTrans t) => STRef s a -> a -> t (ST s) ()
+readVar   :: MonadTrans t=> STRef s a -> t (ST s) a
+write     :: MonadTrans t=> STRef s a -> a -> t (ST s) ()
 
 fresh = lift (newSTRef Nothing) >>= return . MutVar
 readVar r = lift$ readSTRef r
@@ -252,127 +267,112 @@ autoInst (GenVar _) = do v <- fresh
 autoInst x
     | null gvars = return (emptyS, x)
     | otherwise  = do
-           freshv <- liftM Subst $ replicateM ((maximum$ [i|GenVar i <-gvars]) + 1) fresh
+           freshv <- liftM Subst $ replicateM ((maximum$ [i|GenVar i <-gvars]) + 1) 
+                                              fresh
            x' <- instan freshv x
            assert (noGVars x') (return ())
            return (freshv, x')
     where gvars = collect isGenVar x
 
+autoInstG xx | null gvars = return (emptyS, xx)
+             | otherwise  = do
+           freshv <- liftM Subst $ replicateM ((maximum$ [i|GenVar i <-gvars]) + 1) 
+                                              fresh
+           xx' <- mapM (instan freshv) xx
+           assert (all noGVars xx') (return ())
+           return (freshv, xx')
+    where gvars = concatMap (collect isGenVar) xx
+
     -- The intent is to do one rewrite step only
     -- But.. for some MonadPlus's, you might get different results
 rewrite1 rr (S t) | trace ("rewrite " ++ show t ++ " with " ++ 
                           (show$ length rr) ++ " rules ") False = undefined
+rewrite1 _ t | assert (noMVars t) False = undefined
 rewrite1 rules (S t)
-      | isConst t = rewriteTop (S t)
+--      | isConst t = rewriteTop rules (S t)
       | otherwise
-      = rewriteTop (S t) `mplus` (fmap S $ someSubterm (rewrite1 rules) t)
-       where rewriteTop t = msum $ map (rewriteTop1 t) rules
-             rewriteTop1 t r@(lhs :-> rhs) = do
+      = rewriteTop (S t) `mplus` (fmap S$ someSubterm (rewrite1 rules) t) 
+        where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
 	        (freshv, lhs') <- autoInst lhs
 	        match lhs' t
-	        trace ("rule fired: " ++ show r ++ " for " ++ show t) $ 
-                 instan freshv rhs
-rewrite1 _ t = fail1 "no rewrite"  -- TODO: Fail1 or identity? 
-narrow1 [] _ = fail1 "narrow: empty set of rules"
-narrow1 rules x@(S t) = do
-       (vars, x'@(S t')) <- autoInst x
-       narrowTop x' `mplus` (fmap S $ someSubterm (narrow1 rules) t')
-        where 
-          narrowTop t = msum . fmap (narrowTop1 t) $ rules 
+	        trace ("rule fired: " ++ show r ++ " for " ++ show t) (return 0)
+                instan freshv rhs
 
-narrow1 rules (MutVar r) = narrowTop (MutVar r)
-        where 
-          narrowTop t = msum . fmap (narrowTop1 t) $ rules 
+rewrite1 _ t = fail1 "no rewrite"
+
+rewrite rules = fixM (rewrite1 rules)
+
+narrow1 [] _ = fail1 "narrow: empty set of rules"
+narrow1 _ t | trace ("narrow1 " ++ show t) False = undefined
+narrow1 _ t | assert (noMVars t) False = undefined
+narrow1 rules t@S{} = narrow1' (t, emptyC)
+    where narrow1' (t, ct) = 
+              narrowTop rules ct t
+             `mplus` 
+              msum (map narrow1' (contexts t))
 
 -------------------------------
 -- The New Narrowing Framework
 -------------------------------
-{- the NarrowState structure makes for a nice state monad handling a narrowing sequenc.
-   It is nice because it allows to explore multiple narrowing paths. We are interested
-   in (all) the normal (up to narrowing) forms, which means, the failures for the 
-   ListT monad when narrowing at top as well as subterms. But, how to grab them ?
-   In the ListT monad, failure, that is, mzero, is the empty list. 
-   One cannot test for failure, as there is no 'try..handle' abstraction
-   Thus, it'd be desirable to install YAMT (yet another monad trasnformer) on top.
-   That being the ErrorT MT. But how will this interact? 
-   Another option: DIY. Embed this "try..handle" abstraction in the List monad yourself
-                   This is what I'm doing now.
--}
-data NarrowState s r = NS { rules   :: [Rule s r]
-                          , context :: GT s r
-                          , csubst  :: Subst s r }
+narrow1' = narrowFullG narrowTop'  (const (return True)) 
+narrow1V = narrowFullG narrowTopV' (const (return True)) 
 
-emptyNS rules = NS rules emptyC emptyS
+narrowFull  = narrowFullG narrowTop' (const (return False))
+narrowFullV = narrowFullG narrowTopV' (const (return False))
+narrowFullBounded = narrowFullG narrowTop'
+narrowFullBoundedV = narrowFullG narrowTopV'
 
-narrowFull,narrowFullV :: Omega m s r => [Rule s r] -> GT s r 
-                       -> m (ST r) [(Subst s r, GT s r)]
-narrowFull = narrowFullG narrowTop1
-narrowFullV = narrowFullG narrowTop1V
-
-narrowFullG :: Omega m s r => 
-               (GT s r -> Rule s r -> m (ST r) (GT s r)) 
+narrowFullG :: (RWTerm s, Show(s(GT s r))) =>
+              ([Rule s r] -> Context s r -> Subst s r -> GT s r
+                          -> ListT (ST r) (Subst s r, GT s r)) 
+            -> (GT s r -> ST r Bool)
             -> [Rule s r] -> GT s r 
-            -> m (ST r) [(Subst s r, GT s r)]
-narrowFullG narrowTop [] t = return [(emptyS,t)]
-narrowFullG narrowTop _rules t = runListT$ do 
+            -> ST r [(Subst s r, GT s r)]
+
+narrowFullG _ done [] t = trace ("narrowFull " ++ show t ++ " with empty TRS") $ 
+                     return [(emptyS,t)]
+narrowFullG narrowTop1base done rules t = runListT$ do 
      assert (noMVars t) (return ())
-     (subst0,t0) <- lift$ autoInst t
-     let state0 = NS _rules emptyC subst0
-     (t',ns) <- runStateT (search t0) state0
-     return (csubst ns, t')
+     (subst0,t0) <- autoInst t
+     search emptyS t0
   where 
-          step :: Omega m s r => 
-                   GT s r -> StateT (NarrowState s r) (ListT (m (ST r))) (GT s r)
-          step t = trace ("narrowFull step: " ++ show t) $
-              do (ts,cs) <- lift$ ListT$ return$ contexts t
-                 under cs$ step ts
+          step cs subst t = trace ("narrowFull step: " ++ show t) $
+                   lift (done t) >>= guard >> 
+                   (msum$ forEach (contexts t) $ \(ts,cs1) -> 
+                       step (cs|>cs1) subst ts)
              `mplus`
-              narrowTop' t
-          search t = step t >>= tryStateTListT search 
-          narrowTop' :: Omega m s r => GT s r -> 
-                        StateT (NarrowState s r) (ListT (m (ST r))) (GT s r)
-          narrowTop' t = --trace ("narrowFullTop at " ++ show t) $ 
-                        do 
-              rules   <- gets rules
-              context <- gets context
-              subst   <- gets csubst
-              r       <- lift$ ListT (return rules)
-              (subst',[context'],t') <- lift2$ dupTermWithSubst subst [context] t
-              t'' <- lift$ narrowTop t' r
-              let new_term = context' |> t''
---              trace "made a narrowing" $  
-              modify (\ns -> ns{csubst = subst', context = emptyC})
-              return new_term
-          narrowTop t r = --wrap failures in the inner monad into mzeros in ListT
-                          ListT (fmap box (narrowTop1 t r) `mplus` return [])
-          withRules cont = gets rules >>= lift . cont 
-          under :: Omega m s r => Context s r -> 
-                   StateT (NarrowState s r) (ListT (m (ST r))) (GT s r) -> 
-                   StateT (NarrowState s r) (ListT (m (ST r))) (GT s r)
-          under cs do_cont = modify (\ns -> ns{context = (context ns) |> cs}) >>
-                             do_cont
-          lift2 x = lift$ lift x
-          box x = [x]
+                   narrowTop rules cs subst t
+          search subst t = step emptyC subst t >>= try(uncurry search) 
+          narrowTop = narrowTop1base
 
-rewrite   :: (Omega m s r) => [Rule s r] -> GT s r -> m (ST r) (GT s r)
-narrow    :: (Omega m s r) => [Rule s r] -> GT s r -> m (ST r) (GT s r)
-rewrite rules = fixM (rewrite1 rules)
-narrow  rules = fixM (narrow1 rules)
+narrowTop,narrowTopV :: OmegaPlus m s r => [Rule s r] -> Context s r -> GT s r
+                            -> m (ST r) (Subst s r, GT s r)
+narrowTop rules ct t = assert (all noMVars [t,ct]) $ unsafeNarrowTop t rules ct
+narrowTopV rules ct t = assert (all noMVars [t,ct])$ unsafeNarrowTopV t rules ct
+narrowTop' rules ct s t = assert (all noMVars [t,ct])$ unsafeNarrowTop' t rules ct s
+narrowTopV' rules ct s t= assert (all noMVars [t,ct])$ unsafeNarrowTopV' t rules ct s
 
-narrowTop,narrowTopV :: Omega m s r => GT s r -> [Rule s r]
-                            -> [m (ST r) (Subst s r, GT s r)]
-narrowTop t rules = assert (noMVars t) $ unsafeNarrowTop t rules
-narrowTopV t rules = assert (noMVars t) $ unsafeNarrowTopV t rules
+unsafeNarrowTop, unsafeNarrowTopV
+    :: OmegaPlus m s r => GT s r -> [Rule s r] -> GT s r
+                               -> m (ST r) (Subst s r, GT s r)
+unsafeNarrowTop', unsafeNarrowTopV'
+    :: OmegaPlus m s r => GT s r -> [Rule s r] -> GT s r -> Subst s r
+                               -> m (ST r) (Subst s r, GT s r)
+unsafeNarrowTop   = unsafeNarrowTopG narrowTop1
+unsafeNarrowTopV  = unsafeNarrowTopG narrowTop1V
+unsafeNarrowTop'  = unsafeNarrowTopG' narrowTop1
+unsafeNarrowTopV' = unsafeNarrowTopG' narrowTop1V
 
-unsafeNarrowTop, unsafeNarrowTopV :: Omega m s r => GT s r -> [Rule s r]
-                               -> [m (ST r) (Subst s r, GT s r)]
-unsafeNarrowTop = unsafeNarrowTopG narrowTop1
-unsafeNarrowTopV = unsafeNarrowTopG narrowTop1V
-unsafeNarrowTopG narrowTop t rules = flip map rules $ \r -> do
-              (vars, t') <- autoInst t
-              t''        <- narrowTop t' r
-              return (vars, t'')
+unsafeNarrowTopG _ t _ _ | trace ("unsafeNarrowTop") False = undefined
+unsafeNarrowTopG narrowTop1 t rules ct = msum$ forEach rules $ \r -> do
+               (vars, [t',ct']) <- autoInstG [t,ct]
+               t''              <- narrowTop1 t' r
+               return (vars, ct'|>t'')
 
+unsafeNarrowTopG' narrowTop1 t rules ct subst = msum$ forEach rules $ \r -> do
+               (subst', [ct'], t') <- lift$ dupTermWithSubst subst [ct] t
+               t'' <- narrowTop1 t' r
+               return (subst', ct'|>t'')
 
 narrowTop1, narrowTop1V :: Omega m s r => GT s r -> Rule s r 
                           -> m (ST r) (GT s r)
@@ -382,14 +382,13 @@ narrowTop1V t r@(lhs:->rhs) = do
                assert (noMVars rhs) (return ())
                (lhsv, lhs') <- autoInst lhs
                unify lhs' t
---               trace ("narrowing fired: " ++ show t ++ " " ++ show r ) (return ()) 
-               rhs' <- instan lhsv rhs -- Pensar que la sustitución debe cubrir a 
-                                -- todo el término. ¿Lo cumple esta impl.?
+               trace ("narrowing fired: t=" ++ show t ++ ", rule=" ++ show r ) (return ()) 
+               rhs' <- instan lhsv rhs
                rhs'' <- col rhs'         -- OPT: col here might be unnecesary
                assert (noGVars rhs'') (return ())
                return rhs''
 narrowTop1 t@S{} r = narrowTop1V t r
-narrowTop1 _ _ = fail1 "No rewriting at vars"
+narrowTop1 _ _     = fail1 "No narrowing at vars"
 
 varBind :: Omega m s r => Ptr s r -> GT s r -> m (ST r) ()
 varBind r1 t2 = 
@@ -413,8 +412,6 @@ toFixG   = fmap toFix
 fromFixG :: (Show (s (GT s r)), Functor f, Functor s) => f (Fix s) -> f (GT s r)
 fromFixG = fmap fromFix
 
-
-
 --------------------------------
 -- Duplication of Terms
 --------------------------------
@@ -423,14 +420,16 @@ dupTerm (MutVar r) = fmap MutVar (dupVar r)
 dupTerm (S t) = fmap S $ mapM dupTerm t
 dupTerm x = return x
 
-dupTermWithSubst :: Omega m s r => Subst s r -> [GT s r] -> GT s r 
-                 -> m (ST r) (Subst s r, [GT s r], GT s r)
+dupTermWithSubst :: (RWTerm s, Show (s (GT s r))) => 
+                    Subst s r -> [GT s r] -> GT s r 
+                 -> ST r (Subst s r, [GT s r], GT s r)
 --dupTermWithSubst subst tt x | trace "dupTermWithSubst" False = undefined
-dupTermWithSubst (Subst s) tt (MutVar r) = lift$ do
+dupTermWithSubst (Subst s) tt (MutVar r) = do
     newvar <- dupVar r
     let subst' = Subst$ fmap (replace (MutVar r) (MutVar newvar)) s
     let tt'    = fmap (replace (MutVar r) (MutVar newvar)) tt
     return (subst', tt', MutVar newvar)
+
 dupTermWithSubst subst tt (S t) = fmap unwrap$  mapMState foldFun (subst, tt) t
     where wrapRes (subst,tt,t) = (t, (subst, tt))
           unwrap  (t, (subst, tt)) = (subst, tt, S t)
@@ -446,6 +445,22 @@ replace _ _ y = y
 ------------------------------
 -- Obtaining the results
 ------------------------------
+run :: (RWTerm s, Show (s (GT s r))) => (forall r.ST r (GT s r)) -> GT s r
+run c = fromFix (runST (fmap toFix c))
+
+runG :: (RWTerm s, Show (s (GT s r)), Functor f) =>
+         (forall r.ST r (f(GT s r))) -> f(GT s r)
+runG c = (fmap fromFix) (runST ( (fmap2 toFix c)))
+
+runGG :: (RWTerm s, Show (s (GT s r)), Functor f, Functor f1) =>
+         (forall r.ST r (f(f1(GT s r)))) -> f(f1(GT s r))
+runGG c = (fmap2 fromFix) (runST ( (fmap3 toFix c)))
+
+runIO :: 
+            ErrorT String (ST RealWorld) a
+         -> IO a
+runIO = fmap (either (error. show) id) . stToIO . runErrorT
+
 runE :: Omega (ErrorT String) s r => 
         (forall r. ErrorT String (ST r) (GT s r)) -> (GT s r)
 runE c = either (error . show) fromFix (runST (runErrorT (fmap toFix c)))
@@ -498,6 +513,8 @@ instance Show (a) => Show (RuleG (a)) where
 ----------------
 -- Other stuff
 ----------------
+someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
+someSubterm f x = msum$ interleave f return x
 
 isGenVar, isMutVar, isCtxVar :: GT s r -> Bool
 isGenVar GenVar{} = True
@@ -515,15 +532,10 @@ noCVars = null . collect isCtxVar
 isConst :: Foldable t => t a -> Bool
 isConst = null . toList
 
-someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
-someSubterm f x = msum$ interleave f return x
-
-mtry f x = f x `mplus` x
-
 instance Show (GT s r) => Observable (GT s r) where
     observer = observeBase
 
--- #define DEBUG
+#define DEBUG
 trace msg x = 
 #ifdef DEBUG 
   Debug.Trace.trace msg x 
