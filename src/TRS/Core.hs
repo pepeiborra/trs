@@ -23,6 +23,7 @@ module TRS.Core ( GT(..), isMutVar, isGenVar, isCtxVar, GTm
                 , generalize, generalizeG, instan, autoInst, collect
                 , noMVars, noGVars
                 , runE, runEG, runEGG, runEIO
+                , runL, runLG, runLGG, runLIO
                 , run, runG, runGG, runIO) where
 
 import Control.Applicative
@@ -68,19 +69,6 @@ newtype Fix s  = Fix (s (Fix s))
 type Rule s r = RuleG (GT s r)
 data RuleG a = a :-> a -- (GT s r) :-> (GT s r) -- Switch to a newtype for efficiency
    deriving (Eq, Ord)
-instance Functor (RuleG) where
-    fmap = fmapDefault              --fmap f (l:->r) = f l :-> f r
-instance Foldable (RuleG) where 
-    foldMap = foldMapDefault        --foldMap f (l:->r) = f l `mappend` f r
-instance Traversable (RuleG ) where
-    traverse f (l:->r) = (:->) <$> f l <*> f r
-
-class (Traversable s) => RWTerm s where
-    matchTerm     :: s x -> s x -> Maybe [(x,x)]
-    toVar         :: Int -> s a
-
-instance RWTerm s => Eq (GT s r) where
-  (==) = equal
 
 -- "Omega is just a Type Class constraint synonym" 
 --             is an unregistered trademark of Pepe Type Hacker enterprises
@@ -456,10 +444,11 @@ runGG :: (RWTerm s, Show (s (GT s r)), Functor f, Functor f1) =>
          (forall r.ST r (f(f1(GT s r)))) -> f(f1(GT s r))
 runGG c = (fmap2 fromFix) (runST ( (fmap3 toFix c)))
 
-runIO :: 
-            ErrorT String (ST RealWorld) a
-         -> IO a
+runIO :: ErrorT String (ST RealWorld) a -> IO a
 runIO = fmap (either (error. show) id) . stToIO . runErrorT
+
+
+
 
 runE :: Omega (ErrorT String) s r => 
         (forall r. ErrorT String (ST r) (GT s r)) -> (GT s r)
@@ -473,10 +462,24 @@ runEGG :: (Omega (ErrorT String) s r, Functor f, Functor f1) =>
          (forall r. ErrorT String (ST r) (f(f1(GT s r)))) -> f(f1(GT s r))
 runEGG c = either (error.show) (fmap2 fromFix) (runST (runErrorT (fmap3 toFix c)))
 
-runEIO :: 
-            ErrorT String (ST RealWorld) a
-         -> IO a
+runEIO :: ErrorT String (ST RealWorld) a -> IO a
 runEIO = fmap (either (error. show) id) . stToIO . runErrorT
+
+
+
+runL :: Omega (ListT) s r => (forall r. ListT (ST r) (GT s r)) -> [GT s r]
+runL c = map fromFix (runST (runListT (fmap toFix c)))
+
+runLG :: (Omega (ListT) s r, Functor f) =>
+         (forall r. ListT (ST r) (f(GT s r))) -> [f(GT s r)]
+runLG c = map (fmap fromFix) (runST (runListT (fmap2 toFix c)))
+
+runLGG :: (Omega (ListT) s r, Functor f, Functor f1) =>
+         (forall r. ListT (ST r) (f(f1(GT s r)))) -> [f(f1(GT s r))]
+runLGG c = map (fmap2 fromFix) (runST (runListT (fmap3 toFix c)))
+
+runLIO :: ListT (ST RealWorld) a -> IO [a]
+runLIO = stToIO . runListT
 
 --------------------------------
 -- Instances and base operators
@@ -510,6 +513,20 @@ instance Show (a) => Show (RuleG (a)) where
     show (a:->b) = show a ++ " -> " ++ show b
 --    showList  = unlines . map show
 
+instance Functor (RuleG) where
+    fmap = fmapDefault              --fmap f (l:->r) = f l :-> f r
+instance Foldable (RuleG) where 
+    foldMap = foldMapDefault        --foldMap f (l:->r) = f l `mappend` f r
+instance Traversable (RuleG ) where
+    traverse f (l:->r) = (:->) <$> f l <*> f r
+
+class (Traversable s) => RWTerm s where
+    matchTerm     :: s x -> s x -> Maybe [(x,x)]
+    toVar         :: Int -> s a
+
+instance RWTerm s => Eq (GT s r) where
+  (==) = equal
+
 ----------------
 -- Other stuff
 ----------------
@@ -535,7 +552,7 @@ isConst = null . toList
 instance Show (GT s r) => Observable (GT s r) where
     observer = observeBase
 
-#define DEBUG
+-- #define DEBUG
 trace msg x = 
 #ifdef DEBUG 
   Debug.Trace.trace msg x 
