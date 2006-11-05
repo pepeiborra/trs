@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances -fno-monomorphism-restriction -fdebugging -cpp#-}
+{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances -fallow-overlapping-instances -fallow-incoherent-instances -cpp #-}
 
 -----------------------------------------------------------------------------------------
 {-| Module      : TRS.Core
@@ -37,7 +37,7 @@ import Control.Exception (assert)
 import Test.QuickCheck (Arbitrary(..))
 
 import qualified Debug.Trace
-import GHC.Exts (breakpointCond)
+import GHC.Exts (unsafeCoerce#)
 import Observe
 
 data GT_ eq s r = 
