@@ -55,7 +55,7 @@ emptyC = CtxVar 0
 fill,(|>) :: (Show (Context t r), Traversable t) =>
             Context t r -> GT t r -> GT t r
 fill (S ct) x = S$ fmap (fill' x (c-1)) ct
-    where c = (length . collect isCtxVar) (S ct) 
+    where c = (length . collect_ isCtxVar) (S ct) 
           fill' a i (CtxVar j) | i == j = a
           fill' a i (S t) = S$ fmap (fill' a i) t 
           fill' _ _ x = x
@@ -69,7 +69,7 @@ fill x y = --trace ("Warning2! " ++ show x ++ " |> " ++ show y)
 contexts :: Traversable t => GT t r -> [(GT t r,Context t r)]
 contexts (S t) = --(CtxVar 0, S t) : 
                  catMaybes (map (context (S t) c) [0..size t - 1])
-    where c = (length . collect isCtxVar) (S t)
+    where c = (length . collect_ isCtxVar) (S t)
           context :: Traversable t =>
                               GT t r -> Int -> Int -> Maybe (GT t r,Context t r)
           context (S t) depth i = let 

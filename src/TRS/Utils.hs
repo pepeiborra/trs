@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts #-}
+{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances -fallow-overlapping-instances #-}
 -----------------------------------------------------------------------------------------
 {-| Module      : TRS.Utils
     Copyright   : 
@@ -14,6 +14,7 @@ module TRS.Utils where
 import Control.Applicative
 import Control.Monad.State hiding (mapM, sequence)
 import Control.Monad.List (ListT(..))
+import Control.Monad.Error (catchError, Error, ErrorT, MonadError)
 import Data.Traversable
 import Data.Foldable
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
@@ -174,8 +175,13 @@ instance MonadTry m => MonadTry (StateT s m) where
  try m a = let StateT v = m a in
             StateT$ \s -> try (\(a,s) -> v s) (a,s)
 
+instance MonadError e m => MonadTry m  where
+ try m a = m a `catchError` \_->return a
 
 forEach = flip map
 lift2 x = lift$ lift x
 mtry f x = f x `mplus` x
 
+atLeast _ []   = False
+atLeast 0 _    = True
+atLeast n list = atLeast (n-1) (tail list)

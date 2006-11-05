@@ -1,22 +1,21 @@
 module TRS.Core where
-import Data.STRef
+import Data.STRef.Lazy
 import Data.Foldable
 import Data.Traversable	
-import Control.Monad.ST
+import Control.Monad.ST.Lazy
 
-data GT s r = 
-   S (s (GT s r))
- | MutVar (STRef r (Maybe (GT s r)))
+data GT_ eq s r = 
+   S (s (GT_ eq s r))
+ | MutVar (STRef r (Maybe (GT_ eq s r)))
  | GenVar Int
  | CtxVar Int
 
-type Ptr s r   = STRef r (Maybe (GT s r))
---type Subst s r = [GT s r]
+type GT s r = GT_ Identity s r
+data Identity
 type GTm m s r = m (ST r) (GT s r)
 
-isGenVar, isMutVar, isCtxVar :: GT s r -> Bool
-collect   :: Foldable s => (GT s r -> Bool) -> GT s r -> [GT s r]
+isGenVar, isMutVar, isCtxVar :: GT_ eq s r -> Bool
+collect_  :: Foldable s => (GT_ eq s r -> Bool) -> GT_ eq s r -> [GT_ eq s r]
 
 class (Traversable s) => RWTerm s where
     matchTerm     :: s x -> s x -> Maybe [(x,x)]
-    toVar         :: Int -> s a

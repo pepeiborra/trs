@@ -1,22 +1,22 @@
 name: TRS
-version: 0.2
+version: 0.3
 license: AllRightsReserved
 license-file: ""
 copyright:
 maintainer:
-build-depends: base -any, mtl ==1.0, Hood
+build-depends: base -any, mtl ==1.0, Hood, QuickCheck
 stability:
 homepage:
 package-url:
 synopsis:
 description: Based on the code from the paper "Generic Unification with two level types and parameterized modules"
 category:
-author: Tim Sheard (based on code by Luca Cardelly) (adapted by Pepe Iborra)
+author: Tim Sheard (based on code by Luca Cardelli) (adapted by Pepe Iborra)
 tested-with:
 extra-source-files:
 extra-tmp-files:
-exposed-modules: TRS.Core, TRS.Utils
-other-modules: TRS.Context
+exposed-modules: TRS, TRS.Utils
+other-modules: TRS.Core, TRS.Context
 buildable: True
 cc-options:
 ld-options:
