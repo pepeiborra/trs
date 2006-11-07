@@ -6,7 +6,7 @@ import Data.Foldable
 import Data.Maybe
 import Data.Traversable
 import TRS.Utils
-import {-# SOURCE #-} TRS.Core
+import TRS.Types
 
 import Debug.Trace
 

@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances -fallow-overlapping-instances #-}
+{-# OPTIONS_GHC -cpp -fglasgow-exts -fallow-undecidable-instances -fallow-overlapping-instances #-}
 -----------------------------------------------------------------------------------------
 {-| Module      : TRS.Utils
     Copyright   : 
@@ -20,7 +20,8 @@ import Data.Foldable
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
                       , sequence, and )
 
-import Debug.Trace
+import qualified Debug.Trace
+
 
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'
@@ -185,3 +186,11 @@ mtry f x = f x `mplus` x
 atLeast _ []   = False
 atLeast 0 _    = True
 atLeast n list = atLeast (n-1) (tail list)
+
+-- #define DEBUG
+trace msg x = 
+#ifdef DEBUG 
+  Debug.Trace.trace msg x 
+#else 
+  x 
+#endif
