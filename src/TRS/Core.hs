@@ -302,7 +302,7 @@ narrowFullG _ done [] t = trace ("narrowFull " ++ show t ++ " with empty TRS")$
 narrowFullG narrowTop1base done rules t = do 
      assert (noMVars t) (return ())
      (subst0,t0) <- autoInst_ t
-     step emptyC subst0 t0 >>= try search
+     try search(subst0, t0)
   where 
           search (subst,t) = lift (done t) >>= guard . not >> 
                              step emptyC subst t >>= try search

@@ -140,17 +140,20 @@ buTRS = [ f [b,c] :-> d
         , a :-> c ]
 
 angryTerm = f [x,x]
-angryTermFull  = runL (sndM2(narrowFull buTRS) angryTerm)
+angryTermFull  = runL (sndM2(narrowFull buTRS) angryTerm >>= generalize)
 angryTermFullv = runL (sndM2(narrowFullV buTRS) angryTerm)
 
 testAngryTerm = TestLabel "Angry Term narrowing" $ 
-                TestList [ angryTermFull  ~?= [] 
+                TestList [ angryTermFull  ~?= [angryTerm] 
                       --   , angryTermFullv ~?= [c] 
                          ]
 
 --------------------------
 -- The narrow issues
 --------------------------
+
+isSNF rr = (fmap null . runListT) . ( (narrow1 rr =<<) . generalize)
+
 u = ts(x + y)
 narrowTrs = [ ts(cero) + y :-> ts(y)
             , ts(ts(cero)) + x :-> ts(ts(x))
@@ -162,8 +165,7 @@ u' = runE (sndM2(narrowFull narrowTrs) u >>= generalize)
 -- This one uses the peano System. Tests narrowFullBounded, 
 -- using the first step of Tp Forward, where the Interpretation is only
 -- one equation long
-tpForward1 = runL(sndM2(narrowFullBounded isNF [z +: x :-> x]) (s(x +: y)) >>= generalize)
-    where isNF = (fmap null . runListT) . ((narrow1 peanoTRS =<<) . generalize)
+tpForward1 = runL(sndM2(narrowFullBounded (isSNF peanoTRS) [z +: x :-> x]) (s(x +: y)) >>= generalize)
 
 tpBackward1 =runL(sndM(narrow1 (map swap peanoTRS) (s(z) +: x)) >>= generalize)
 
@@ -189,6 +191,9 @@ propNarrow' x = let
     bb = urunLIO$ sndM(narrow1' peanoTRS x)
     in (aa =|= bb)
 
+propNarrowFullNF x = urunIO(isSNF peanoTRS x) ==> narrowFull x == [x]
+    where narrowFull x = urunLIO (sndM(TRS.Core.narrowFull peanoTRS x) )
+
 a =|= b = a `intersect` b == a && b `intersect` a == b
 {-
 propNarrowDefinition x rules = and$ urunLIO$ do
@@ -202,6 +207,10 @@ propNarrowDefinition x rules = and$ urunLIO$ do
 ---------------------------------
 -- Testing equality modulo vars 
 ---------------------------------
+-- 'macros'
+x + y = term "+" [x,y]
+cero = term "0" []
+ts x = term "s" [x]
 
 testEquality = TestLabel "test equality" $
                TestList [ -- x   ==  y    ~? "Eq modulo Vars"
@@ -215,23 +224,21 @@ testEquality = TestLabel "test equality" $
 propDuplication1 t = and$ urunLIO$ do 
                         (vars,t1)   <- autoInst_ t 
                         (vars',_,t') <- lift$ dupTermWithSubst emptyS [] t1
-                        return$ eqGT' t == eqGT' t' && eqGT' t1 == eqGT' t'
+                        return$ eqGT t == eqGT t' && eqGT t1 == eqGT t'
                         
     where types = (t::GT Peano RealWorld)
 
 propDuplication2 t = and$ urunLIO$ do 
                         (vars,t1)   <- autoInst_ t 
                         (Subst vars',_,t') <- lift$dupTermWithSubst emptyS [] t1
-                        mapM (\(MutVar r) -> write r (Just (eqGT z))) vars'
+                        mapM (\(MutVar r) -> write r (Just (idGT z))) vars'
                         t'' <- col t'
-                        return$ eqGT' t == eqGT' t1 
+                        return$ eqGT t == eqGT t1 
 
 
 ---------------
 -- helpers
 ---------------
-msg ==> assertion = TestLabel msg . TestCase $ assertion
-
 sndM :: Functor m => m(a,b) -> m b
 sndM = fmap snd
 
@@ -245,7 +252,6 @@ urunEIO = unsafePerformIO . runEIO
 gen x = x >>= generalize
 gsndM = gen . sndM
 
-infixl 0 ==>
 infixl 2 ? 
 infixl 2 =?
 
