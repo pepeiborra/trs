@@ -7,12 +7,13 @@ module TRS.Types ( ST, runST, stToIO, RealWorld
 import TRS.Utils
 import Control.Applicative
 import Data.Foldable
+import Data.Maybe
 import Data.Monoid
 import Data.Traversable
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.ST.Lazy
-import Data.STRef.Lazy
+import Control.Monad.ST
+import Data.STRef
 import System.Mem.StableName
 import System.IO.Unsafe
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
@@ -87,7 +88,7 @@ vars = "XYZWJIKHW"
 instance (Show (s (GT_ eq s r))) => Show (GT_ eq s r) where
     show (S s)      = show s
     show (GenVar n) = if n < length vars then [vars !! n] else ('v' : show n)
-    show (MutVar r) = "?" ++ (show . hashStableName . unsafePerformIO . makeStableName$ r)
+    show (MutVar r) = "?" ++ (show . hashStableName . unsafePerformIO . makeStableName$ r) ++ ":=" ++ (show$  unsafePerformIO$ unsafeSTToIO $ ( readSTRef r))
     show (CtxVar c) = '[' : show c ++ "]" 
 
 instance (Eq(GTE s r), RWTerm s, Ord (s (GTE s r))) => Ord (GTE s r) where

@@ -1,7 +1,9 @@
 {-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fno-monomorphism-restriction  -fallow-undecidable-instances #-}
 module Test where
-import TRS.Core hiding (s)
-import qualified TRS.Core as TRS
+import TRS.Core 
+import TRS.Types hiding (s)
+import qualified TRS.Types as TRS
+import TRS.Terms
 import TRS.Utils
 import Data.Char
 import Data.Foldable
@@ -128,35 +130,6 @@ testNarrowing = TestList [ [s(s(s(s(z)))), s(s(z))] ~=? fourN1
 -------------------------------
 -- The TRS for testing narrowBU
 -------------------------------
--- First the term datatype
-data TermST a = T !String [a]
-    deriving Eq
-
-term = (TRS.s .) . T
--- 'macros'
-x + y = term "+" [x,y]
-cero  = term "0" []
-ts x  = term "s" [x]
-
-instance Traversable TermST where
-    traverse f (T s tt) = T s <$> traverse f tt
-instance Functor TermST where
-    fmap = fmapDefault
-instance Foldable TermST where
-    foldMap = foldMapDefault
-instance RWTerm TermST where
-  matchTerm (T s1 tt1) (T s2 tt2) = if s1==s2 && length tt1 == length tt2
-              then Just (zip tt1 tt2)
-              else Nothing
-instance Show a => Show (TermST a) where 
-    show (T s [])   = s
-    show (T s [x,y]) | not (any isAlpha s)
-                     = show x ++ ' ':s ++ ' ':show y
-    show (T s tt)   = render (text s <> parens( hcat$ punctuate comma (map (text.show) tt)))
-
-
-
--- The TRS
 [f,g] = map term ["f","g"]
 [a,b,c,d] = map constant (map unit "abcd")
     where unit x = [x]

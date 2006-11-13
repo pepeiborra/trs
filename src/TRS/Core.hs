@@ -38,7 +38,7 @@ import GHC.Exts (unsafeCoerce#)
 import Observe
 
 instance RWTerm s => Eq (GT s r) where
-  (==) = trace "Using Identity" equal
+  (==) = equal
 
 {-# SPECIALIZE prune_ :: Omega m TermST r => GT TermST r -> m (ST r) (GT TermST r) #-}
 {-# SPECIALIZE equal :: GT TermST r  -> GT TermST r  -> Bool #-}
@@ -140,7 +140,7 @@ unify_ tA tB =
 		  mapM_ (uncurry unify_) pairs 
 	   (x,y) -> fail1$ "ShapeErr Unifying " ++show x ++ " and " ++ show y 
 
-match_ tA tB | trace ("match " ++ show tA ++ " and " ++ show tB) False = undefined
+-- match_ tA tB | trace ("match " ++ show tA ++ " and " ++ show tB) False = undefined
 match_ tA tB = 
      do { t1 <- prune_ tA 
 	; t2 <- prune_ tB 
@@ -225,7 +225,7 @@ generalizeG_ x = do
            assert (all noMVars x'') (return ())
            return x''
 
-autoInst_ x | trace ("autoInst " ++ show x) False = undefined
+--autoInst_ x | trace ("autoInst " ++ show x) False = undefined
 autoInst_ x@MutVar{} = return (emptyS, x)
 autoInst_ x
     | null gvars = return (emptyS, x)
@@ -254,8 +254,7 @@ autoInstG xx | null gvars = return (emptyS, xx)
 
     -- The intent is to do one rewrite step only
     -- But.. for some MonadPlus's, you might get different results
-rewrite1_ rr (S t) | trace ("rewrite " ++ show t ++ " with " ++ 
-                          (show$ length rr) ++ " rules ") False = undefined
+--rewrite1_ rr (S t) | trace ("rewrite " ++ show t ++ " with " ++  (show$ length rr) ++ " rules ") False = undefined
 --rewrite1_ _ t | assert (noMVars t) False = undefined
 rewrite1_ rules (S t)
 --      | isConst t = rewriteTop rules (S t)
@@ -264,7 +263,7 @@ rewrite1_ rules (S t)
         where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
 	        (freshv, lhs') <- autoInst_ lhs
 	        match_ lhs' t
-	        trace ("rule fired: " ++ show r ++ " for " ++ show t) (return 0)
+--	        trace ("rule fired: " ++ show r ++ " for " ++ show t) (return 0)
                 instan_ freshv rhs
 
 rewrite1_ _ t = fail1 "no rewrite"
@@ -330,7 +329,7 @@ unsafeNarrowTopV  = unsafeNarrowTopG narrowTop1V
 narrowTop'  = narrowTopG' narrowTop1
 narrowTopV' = narrowTopG' narrowTop1V
 
-unsafeNarrowTopG _ _ _ t | trace ("unsafeNarrowTop " ++ show t) False = undefined
+-- unsafeNarrowTopG _ _ _ t | trace ("unsafeNarrowTop " ++ show t) False = undefined
 unsafeNarrowTopG narrowTop1 rules ct t = msum$ forEach rules $ \r -> do
                (vars, [t',ct']) <- autoInstG [t,ct]
                t''              <- narrowTop1 t' r
@@ -351,7 +350,8 @@ narrowTop1V t r@(lhs:->rhs) = do
                assert (noMVars rhs) (return ())
                (lhsv, lhs') <- autoInst_ lhs
                unify_ lhs' t
-               trace ("narrowing fired: t=" ++ show t ++ ", rule=" ++ show r ) (return ()) 
+               trace ("narrowing fired: t=" ++ show t ++ ", rule=" ++ show r ++
+                     ", rho= " ++ show lhsv) (return ()) 
                rhs' <- instan_ lhsv rhs
                rhs'' <- col rhs'         -- OPT: col here might be unnecesary
 --               assert (noGVars rhs'') (return ())
@@ -473,7 +473,7 @@ runLIO = stToIO . runListT
 -----------------------
 
 instance RWTerm s => Eq (GTE s r) where
-  a == b = trace "using Equivalence" $ 
+  a == b = --trace "using Equivalence" $ 
             resetVars (idGT a) `equal` resetVars(idGT b)
 
 instance Show(GTE s r) => Show(GT s r) where
@@ -584,8 +584,8 @@ instance Show (GT_ eq s r) => Observable (GT_ eq s r) where
 
 {-# INLINE fail1 #-}
 fail1 :: Monad m => String -> m a 
-fail1 msg = trace msg $ fail msg
---fail1 = fail
+--fail1 msg = trace msg $ fail msg
+fail1 = fail
 
 -- TODOs:
 -- - Float pruning to the type
