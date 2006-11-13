@@ -2,7 +2,8 @@ module TRS ( module TRS.Core
 	   , module TRS.Types )  where
 
 import TRS.Types( GTE, s, genVar, isMutVar, isGenVar, isCtxVar
-		, Subst
+		, ST, runST, stToIO, readSTRef, writeSTRef
+                , Subst
 		, Rule, RuleG(..), swap
 		, RWTerm(..), Omega, OmegaPlus
 		)
