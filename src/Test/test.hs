@@ -1,6 +1,9 @@
-{-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fno-monomorphism-restriction  -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds #-}
+{-# OPTIONS_GHC -fno-monomorphism-restriction #-}
+{-# OPTIONS_GHC -fallow-undecidable-instances #-}
+
 module Test where
-import TRS.Core 
+import TRS.Core  hiding (collect)
 import TRS.Types hiding (s)
 import qualified TRS.Types as TRS
 import TRS.Terms
@@ -10,6 +13,7 @@ import Data.Foldable
 import Data.List (intersect)
 import Data.Traversable
 import Control.Applicative
+import Control.Monad (guard, unless, replicateM)
 import Control.Monad.List (ListT(..), liftM, liftM2, lift)
 import Control.Monad.ST.Lazy (ST)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
@@ -17,18 +21,14 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , (+) )
 
 import Test.HUnit
-import Test.QuickCheck hiding (two,three,four,test)
+import Test.QuickCheck 
 import Text.PrettyPrint
 import Debug.Trace 
 import System.IO.Unsafe
 import GHC.Exts
 
 tests = TestList
-        [ testRewriting1
-        , testRewriting2
-        , testRewriting3
-        , testRewriting4
-        , testRewriting5
+        [ testRewriting
         , testNarrowing
         , testEquality ]
 
@@ -74,13 +74,70 @@ instance RWTerm Peano where
 p (Succ _) = "succ"
 p (_ :+ _) = "+"
 p Zero     = "0"
+
 ----------------------------
--- a TRS 
+-- Peano numbers
 ----------------------------
 peanoTRS = [  x +: s(y) :-> s(x +: y)
             , y +: z    :-> y         ]
 
 (x,y) = (genVar 0, genVar 1)
+
+-------------------------
+-- Testing Equality
+-------------------------
+propSemanticEquality :: Smart(PeanoT r) -> Bool
+propSemanticEquality (Smart _ t) = let 
+    vars_t   = vars (idGT t)
+    new_vars = [ GenVar (succ i) | GenVar i<- vars_t]
+    new_term = eqGT$ replaceAll (zip vars_t new_vars) (idGT t) 
+    in new_term == t
+--        where types = t :: PeanoT r
+
+propRuleEquality :: Rule Peano r -> Rule Peano r -> Property
+propRuleEquality t@(l1:->r1) s@(l2:->r2) = l1 == l2 && r1 == r2 ==> 
+                                           equal_rule' t s
+
+rule1 = x +: y :-> x
+rule2 = x +: y :-> y
+
+--------------------------
+-- Some axioms in the framework
+--------------------------
+
+propGeneralize (PeanoClean t) = runST $ do
+    newvars <- mkVarsForTerm t
+    t'  <- instan_ newvars t
+    t'' <- generalize t
+    (idGT t') `equal_sem` (idGT t'')
+
+--propAutoInstGeneralize 
+
+propAutoInst1 (PeanoClean t) = (not$ null (vars t)) ==> collect (length$ vars t) $ runST (do
+   (_,t1) <- autoInst_ t'
+   (_,t2) <- run_autoInstG_ autoInst1 t'
+   t1 `equal_sem` t2)
+       where t' = idGT t
+
+propAutoInstMutVars (PeanoClean t) = (not$ null (vars t)) ==> collect (length$ vars t) $ runST $ do
+    (_,t1) <- autoInst_ t'
+    return (noGVars t1)
+        where t' = idGT t
+
+propAutoInst1MutVars (PeanoClean t) = (not$ null (vars t)) ==> collect (length$ vars t) $ runST $ do
+    (_,t1) <- run_autoInstG_ autoInst1 t'
+    return (noGVars t1)
+        where t' = idGT t
+--------------------------
+-- Testing Reductions
+--------------------------
+testRewriting = TestLabel "Test Rewriting" $ TestList
+        [ testRewriting1
+        , testRewriting2
+        , testRewriting3
+        , testRewriting4
+        , testRewriting5
+        , testRewNoRules ]
 
 -- Testing rewriting
 two   = s(s(z))
@@ -105,6 +162,9 @@ testRewriting4 = s(s(s(five))) ~=? runE (rewrite peanoTRS (seven +: s(z)))
 sillyRules = [ z :-> s(z), z :-> s(s(z)) ]
 
 testRewriting5 = test (assert True) --TODO
+
+-- Corner cases
+testRewNoRules = TestLabel "No Rules" $ runL (rewrite [] seven) ~?= []
 
 -- Testing Narrowing
 peanoTRS2 = [ s(s(z)) +: s(x) :-> s(s(s(x)))
@@ -140,7 +200,7 @@ buTRS = [ f [b,c] :-> d
         , a :-> c ]
 
 angryTerm = f [x,x]
-angryTermFull  = runL (sndM2(narrowFull buTRS) angryTerm >>= generalize)
+angryTermFull  = runL (gen$ sndM2(narrowFull buTRS) angryTerm)
 angryTermFullv = runL (sndM2(narrowFullV buTRS) angryTerm)
 
 testAngryTerm = TestLabel "Angry Term narrowing" $ 
@@ -152,7 +212,7 @@ testAngryTerm = TestLabel "Angry Term narrowing" $
 -- The narrow issues
 --------------------------
 
-isSNF rr = (fmap null . runListT) . ( (narrow1 rr =<<) . generalize)
+isSNF rr = (fmap null . runListT') . ( (narrow1 rr =<<) . lift . generalize)
 
 u = ts(x + y)
 narrowTrs = [ ts(cero) + y :-> ts(y)
@@ -160,14 +220,14 @@ narrowTrs = [ ts(cero) + y :-> ts(y)
             , cero + x :-> x 
             , x + cero :-> x]
 
-u' = runE (sndM2(narrowFull narrowTrs) u >>= generalize)
+u' = runE (gen$ sndM2(narrowFull narrowTrs) u)
 
 -- This one uses the peano System. Tests narrowFullBounded, 
 -- using the first step of Tp Forward, where the Interpretation is only
 -- one equation long
-tpForward1 = runL(sndM2(narrowFullBounded (isSNF peanoTRS) [z +: x :-> x]) (s(x +: y)) >>= generalize)
+tpForward1 = runL(gen$ sndM2(narrowFullBounded (isSNF peanoTRS) [z +: x :-> x]) (s(x +: y)))
 
-tpBackward1 =runL(sndM(narrow1 (map swap peanoTRS) (s(z) +: x)) >>= generalize)
+tpBackward1 =runL(gen$ sndM(narrow1 (map swap peanoTRS) (s(z) +: x)))
 
 
 testNarrowIssue = TestLabel "Narrowing Issues" $ TestList 
@@ -221,19 +281,18 @@ testEquality = TestLabel "test equality" $
 --------------------------
 -- Other properties
 -------------------------
-propDuplication1 t = and$ urunLIO$ do 
-                        (vars,t1)   <- autoInst_ t 
-                        (vars',_,t') <- lift$ dupTermWithSubst emptyS [] t1
-                        return$ eqGT t == eqGT t' && eqGT t1 == eqGT t'
-                        
-    where types = (t::GT Peano RealWorld)
+propDuplication1 :: PeanoClean -> Bool
+propDuplication1 (PeanoClean t) = runST$ do 
+                        (vars,t1)    <- autoInst t 
+                        (vars',_,t') <- dupTermWithSubst emptyS [] (idGT t1)
+                        return$ t == (eqGT t') && t1 == (eqGT t')
 
-propDuplication2 t = and$ urunLIO$ do 
-                        (vars,t1)   <- autoInst_ t 
-                        (Subst vars',_,t') <- lift$dupTermWithSubst emptyS [] t1
-                        mapM (\(MutVar r) -> write r (Just (idGT z))) vars'
+propDuplication2 (PeanoClean t) = runST$ do 
+                        (vars,t1)   <- autoInst t 
+                        (Subst vars',_,t') <- dupTermWithSubst emptyS [] (idGT t1)
+                        mapM (\(MutVar r) -> write r (Just$ GenVar 1)) vars'
                         t'' <- col t'
-                        return$ eqGT t == eqGT t1 
+                        return$ t == t1 
 
 
 ---------------
@@ -249,7 +308,7 @@ urunIO  = unsafePerformIO . runIO
 urunLIO = unsafePerformIO . runLIO
 urunEIO = unsafePerformIO . runEIO
 
-gen x = x >>= generalize
+gen x = x >>= (lift . generalize)
 gsndM = gen . sndM
 
 infixl 2 ? 
@@ -259,9 +318,40 @@ infixl 2 =?
 (=?) = (Test.HUnit.@=?)
 
 instance Arbitrary (PeanoT r) where
-    arbitrary = 
-            frequency [ (3,return z)
-                      , (2,liftM2 (+:) arbitrary arbitrary)
-                      , (2,liftM s arbitrary)
-                      , (1,liftM genVar (choose (0,2)))]
+    arbitrary = arbitraryPeano (map genVar [0..2])
+    shrink (S (a :+ b)) = [a,b]
+    shrink x = []
 
+arbitraryPeano [] =
+            frequency [ (3,return z)
+                      , (2,liftM2 (+:) (arbitraryPeano []) (arbitraryPeano []))
+                      , (2,liftM s (arbitraryPeano [])) ]
+
+arbitraryPeano vars =
+            frequency [ (3,return z)
+                      , (2,liftM2 (+:) (arbitraryPeano vars) (arbitraryPeano vars))
+                      , (2,liftM s (arbitraryPeano vars))
+                      , (1, elements vars)]
+
+data PeanoClean = PeanoClean {peanoClean::forall r. PeanoT r}
+
+mkPeanoClean :: PeanoT r -> PeanoClean
+mkPeanoClean p = PeanoClean (fromFix(toFix p))
+
+instance Arbitrary PeanoClean where
+  arbitrary = arbitraryPeano (map genVar [0..2]) >>= \p -> 
+              return (mkPeanoClean p)
+  shrink (PeanoClean t) = map mkPeanoClean (shrink t)
+
+instance Arbitrary (Rule Peano r) where
+  arbitrary = arbitraryRule
+  shrink (a :-> b) = (:->) <$> (shrink a) <*> (shrink b)
+
+instance Show PeanoClean where
+  show (PeanoClean t) = show t
+
+--arbitraryRule :: (Arbitrary (GT_ eq s r), Eq (GT_ eq s r))
+arbitraryRule = do
+  l <- arbitrary
+  r <- arbitraryPeano (vars l)
+  return (l:->r)

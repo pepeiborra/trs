@@ -6,14 +6,16 @@ import TRS.Types( GTE, s, genVar, isMutVar, isGenVar, isCtxVar
                 , Subst
 		, Rule, RuleG(..), swap
 		, RWTerm(..), Omega, OmegaPlus
+                , noMVars, noGVars
 		)
 		
-import TRS.Core ( noMVars, noGVars
+import TRS.Core (
 --		, Fix(..), toFix, fromFix, toFixG, fromFixG
-                , narrow1, narrow1', narrow1V, narrowFull, narrowFullV
+                  narrow1, narrow1', narrow1V, narrowFull, narrowFullV
                 , narrowFullBounded, narrowFullBoundedV
                 , rewrite, rewrite1
-                , generalize, generalizeG, instan, autoInst, collect
+                , generalize, generalizeG, generalizeGG
+                , instan, autoInst, collect
                 , runE, runEG, runEGG, runEIO
                 , runL, runLG, runLGG, runLIO
                 , run, runG, runGG, runIO) 

@@ -1,29 +1,32 @@
-{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances -fallow-overlapping-instances -fallow-incoherent-instances #-}
+{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fallow-overlapping-instances #-}
+{-# OPTIONS_GHC -fno-monomorphism-restriction #-}
+{-# OPTIONS_GHC -fdebugging #-}
 
 -----------------------------------------------------------------------------------------
 {-| Module      : TRS.Core
     Copyright   : 
     License     : All Rights Reserved
 
-    Maintainer  : 
+    Maintainer  : Pepe Iborra
     Stability   : 
     Portability : 
 -}
 ----------------------------------------------------------------------------------------
 
+
 module TRS.Core where
 
 import Control.Applicative
-import Control.Arrow ( first, second )
+import Control.Arrow ( first, second, (>>>))
 import Control.Monad hiding (msum, mapM_, mapM, sequence, forM)
-import Control.Monad.List (runListT, ListT(..),lift)
-import Control.Monad.Identity (runIdentity)
-import Control.Monad.Error (ErrorT(..), MonadTrans(..))
-import Control.Monad.State (StateT(..), gets, modify)
+import Control.Monad.Error (MonadError(..), ErrorT(..), MonadTrans(..))
+import Control.Monad.State (StateT(..), MonadState(..), gets, modify, lift)
+import Control.Monad.Fix (MonadFix(..))
 import Data.List ((\\), nub, elemIndex)
 import Data.Traversable
 import Data.Foldable
-import Data.Maybe (fromJust)
+import Data.Maybe 
 import Data.Monoid
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
@@ -36,61 +39,142 @@ import Test.QuickCheck (Arbitrary(..))
 
 import GHC.Exts (unsafeCoerce#)
 import Observe
+import qualified Debug.Trace
 
 instance RWTerm s => Eq (GT s r) where
-  (==) = equal
+  (==) = equal   -- syntactic equality
 
-{-# SPECIALIZE prune_ :: Omega m TermST r => GT TermST r -> m (ST r) (GT TermST r) #-}
+{-# SPECIALIZE prune_ :: GT TermST r -> ST r (GT TermST r) #-}
 {-# SPECIALIZE equal :: GT TermST r  -> GT TermST r  -> Bool #-}
 
 
-prune_	  :: Omega m s r => GT s r  -> GTm m s r
+---------------------------
+-- External Interface
+---------------------------
+-- This is the intended user API for this module
+-- Below we expose versions of the functions we have defined before
+--  which take have GTE types in signatures instead of GT. 
 
-unify_	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
-match_	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
-equal	  :: RWTerm s    => GT s r -> GT s r -> Bool
-resetVars :: RWTerm s    => GT s r -> GT s r
-occurs	  :: Omega m s r => Ptr s r -> GT s r -> m (ST r) Bool
--- |Dereference variables
---col 	  :: Omega m s r => GT s r  -> GTm m s r    
-instan_	  :: Omega m s r => Subst s r-> GT s r -> GTm m s r
+--liftGTE2 :: (GT s r -> GT s r -> a) -> GTE s r -> GTE s r -> a
+liftGTE2 f x y =  f (idGT x) (idGT y)
+--liftGTE :: Functor f => (GT s r -> f(GT s r)) -> GTE s r -> f(GTE s r)
+liftGTE f = fmap eqGT . f . idGT
+--fixRules :: [Rule s r] -> [RuleI s r]
+fixRules = fmap2 idGT
+adaptSubstitutionResult f rre t = fmap (second eqGT) $ f (fixRules rre) (idGT t)
+
+prune	  :: GTE s r -> ST r (GTE s r)
+prune = liftGTE prune_
+
+unify	  :: Omega m s r => GTE s r -> GTE s r -> m (ST r) ()
+unify = liftGTE2 unify_
+
+match	  :: Omega m s r => GTE s r -> GTE s r -> m (ST r) ()
+match = liftGTE2 match_
+
+instan	  :: RWTerm s => Subst s r -> GTE s r -> ST r (GTE s r)
+instan s = liftGTE (instan_ s)
+
+rewrite1  :: OmegaPlus m s r => [Rule s r] -> GTE s r -> m (ST r) (GTE s r)
+rewrite1 rre = liftGTE (rewrite1_ (fixRules rre))
+
+rewrite   :: OmegaPlus m s r => [Rule s r] -> GTE s r -> m (ST r) (GTE s r)
+rewrite  rre = liftGTE (rewrite_ (fixRules rre))
+
+narrow1   :: OmegaPlus m s r => [Rule s r] -> GTE s r -> 
+             m (ST r) (Subst s r, GTE s r)
+narrow1 = adaptSubstitutionResult narrow1_
+
+narrow1',narrow1V 
+          :: (OmegaPlus m s r) => [Rule s r] -> GTE s r -> 
+             m (ST r) (Subst s r, GTE s r)
+narrow1' = adaptSubstitutionResult narrow1'_
+narrow1V = adaptSubstitutionResult narrow1V_
+
+narrowFull:: (OmegaPlus m s r) => [Rule s r] -> GTE s r -> 
+             m (ST r) (Subst s r, GTE s r)
+narrowFull = adaptSubstitutionResult narrowFull_
+
+narrowFullV:: (OmegaPlus m s r) =>
+              [Rule s r] -> GTE s r -> m (ST r) (Subst s r, GTE s r)
+narrowFullV = adaptSubstitutionResult narrowFullV_
+narrowFullBounded  :: (OmegaPlus m s r) =>
+                      (GTE s r -> ST r Bool) -> [Rule s r] -> GTE s r -> 
+                      m (ST r) (Subst s r, GTE s r)
+narrowFullBounded pred = adaptSubstitutionResult (narrowFullBounded_ (pred . eqGT))
+narrowFullBoundedV :: (OmegaPlus m s r) =>
+                      (GTE s r -> ST r Bool) -> [Rule s r] -> GTE s r -> 
+                      m (ST r) (Subst s r, GTE s r)
+narrowFullBoundedV pred = adaptSubstitutionResult (narrowFullBoundedV_ (pred . eqGT))
+
+generalize :: RWTerm s => GTE s r -> ST r (GTE s r)
+generalize = liftGTE generalize_
+
+generalizeG::(RWTerm s, Traversable f) => f(GTE s r) -> ST r (f(GTE s r))
+generalizeG = fmap2 eqGT . generalizeG_  . fmap idGT
+
+generalizeGG = fmap3 eqGT . generalizeGG_ . fmap2 idGT
+
+autoInst  :: RWTerm s => GTE s r -> ST r (Subst s r, GTE s r)       
+autoInst t = fmap (second eqGT) $ autoInst_ (idGT t)
+
+-----------------------------
+-- * The underlying machinery
+------------------------------
 -- |leftmost outermost
 rewrite1_ :: OmegaPlus m s r => [RuleI s r] -> GT s r -> m (ST r) (GT s r)
 rewrite_  :: OmegaPlus m s r => [RuleI s r] -> GT s r -> m (ST r) (GT s r)
 narrow1_  :: OmegaPlus m s r => [RuleI s r] -> GT s r -> 
              m (ST r) (Subst s r, GT s r)
-narrow1'_, narrow1V_
-          :: (OmegaPlus m s r, MonadTry (m(ST r))) => [RuleI s r] -> GT s r -> 
+narrow1'_ :: (OmegaPlus m s r) => [RuleI s r] -> GT s r -> 
+             m (ST r) (Subst s r, GT s r)
+
+-- |leftmost outermost, on variables too (paramodulation)
+narrow1V_
+          :: (OmegaPlus m s r) => [RuleI s r] -> GT s r -> 
              m (ST r) (Subst s r, GT s r)
 
 -- Unbounded Full Narrowing
-
-narrowFull_ :: (OmegaPlus m s r, MonadTry (m (ST r))) => [RuleI s r] -> GT s r -> 
+narrowFull_ :: (OmegaPlus m s r) => [RuleI s r] -> GT s r -> 
              m (ST r) (Subst s r, GT s r)
--- Unbounded Full Narrowing, with narrowing on variables
 
-narrowFullV_ :: (OmegaPlus m s r, MonadTry (m (ST r))) =>
+-- Unbounded Full Paramodulation
+narrowFullV_ :: (OmegaPlus m s r) =>
               [RuleI s r] -> GT s r -> m (ST r) (Subst s r, GT s r)
-narrowFullBounded_ :: (OmegaPlus m s r, MonadTry (m (ST r))) =>
+
+-- Bounded versions. The first argument is the bound checking predicate
+narrowFullBounded_ :: (OmegaPlus m s r) =>
                       (GT s r -> ST r Bool) -> [RuleI s r] -> GT s r -> 
                       m (ST r) (Subst s r, GT s r)
-narrowFullBoundedV_:: (OmegaPlus m s r, MonadTry (m (ST r))) =>
+narrowFullBoundedV_:: (OmegaPlus m s r) =>
                       (GT s r -> ST r Bool) -> [RuleI s r] -> GT s r -> 
                       m (ST r) (Subst s r, GT s r)
 
---generalize_ ::Omega m s r => GT s r -> GTm m s r
----generalizeG_::(Traversable f, Omega m s r) => f(GT s r) -> m (ST r) (f(GT s r))
+generalize_ ::RWTerm s => GT s r -> ST r (GT s r)
+generalizeG_::(RWTerm s,Traversable f) => f(GT s r) -> ST r (f(GT s r))
+generalizeGG_::(RWTerm s, Traversable f, Traversable f') => 
+               f'(f(GT s r)) -> ST r (f'(f(GT s r)))
+
 -- |Returns the instantiated term together with the new MutVars 
 --  (you need these to apply substitutions) 
-autoInst_  :: Omega m s r => GT s r -> m (ST r) (Subst s r, GT s r)       
-fresh	  :: Omega m s r => GTm m s r
-readVar   :: MonadTrans t=> STRef s a -> t (ST s) a
-write     :: MonadTrans t=> STRef s a -> a -> t (ST s) ()
+autoInst_ :: RWTerm s => GT s r -> ST r (Subst s r, GT s r)       
+autoInstG_:: (Traversable s, Traversable f) =>  f(GT s r) -> ST r (Subst s r, f(GT s r))
 
-fresh = lift (newSTRef Nothing) >>= return . MutVar
-readVar r = lift$ readSTRef r
-write r x = lift$ writeSTRef r x
---    collect_ :: (GT s r -> Bool) -> GT s r -> [GT s r]
+
+-- * Basic primitives
+unify_	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
+match_	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
+
+-- | Syntactic equality
+equal	  :: RWTerm s    => GT s r -> GT s r -> Bool
+
+-- ** Dereference variables
+prune_	  :: GT_ eq s r  -> ST r (GT_ eq s r)
+col 	  :: Traversable s => GT_ eq s r  -> ST r (GT_ eq s r)    
+instan_	  :: Traversable s => Subst_ eq s r-> GT_ eq s r -> ST r (GT_ eq s r)
+
+resetVars :: (Eq (GT_ eq s r), Traversable s) => GT_ eq s r -> GT_ eq s r
+occurs	  :: Omega m s r => Ptr_ eq s r -> GT_ eq s r ->m (ST r) Bool
 
 {-# INLINE prune_ #-}
 prune_ (typ @ (MutVar ref)) =
@@ -111,7 +195,7 @@ col x =
 	       ; return (S t)} 
 	  _     -> return x'}
 occurs v t = 
-     do { t2 <- prune_ t 
+     do { t2 <- lift$ prune_ t 
 	; case t2 of 
 	  S w -> 
 	    do { s <- (mapM (occurs v) w) 
@@ -119,44 +203,52 @@ occurs v t =
 	       } 
 	  MutVar z -> return (v == z) 
 	  _ -> return False } 
+
 unify_ tA tB = 
-     do  t1 <- prune_ tA 
-	 t2 <- prune_ tB 
+     do  t1 <- lift$ prune_ tA 
+	 t2 <- lift$ prune_ tB 
 	 case (t1,t2) of 
 	   (MutVar r1,MutVar r2) -> 
 	     if r1 == r2 
 		then return () 
-		else write r1 (Just t2) 
+		else lift$ write r1 (Just t2) 
 	   (MutVar r1,_) -> varBind r1 t2 
 	   (_,MutVar r2) -> varBind r2 t1 
 	   (GenVar n,GenVar m) -> 
 	    if n==m 
 		then return () 
-		else fail1 "Gen error" 
+		else throwError genErrorUnify
 	   (S x,S y) -> 
 	     case matchTerm x y of
-		Nothing -> fail1 ("ShapeErr in unify_(" ++ show tA ++ ',' : show tB ++ ")")
+                Nothing    -> throwError genErrorUnify --(shapeErrorUnify tA tB)
 		Just pairs -> 
 		  mapM_ (uncurry unify_) pairs 
-	   (x,y) -> fail1$ "ShapeErr Unifying " ++show x ++ " and " ++ show y 
+	   (x,y) -> throwError genErrorUnify -- (shapeErrorUnify tA tB)
+
+varBind :: Omega m s r => Ptr s r -> GT s r -> m (ST r) ()
+varBind r1 t2 = 
+     do { b <- occurs r1 t2 
+	; if b 
+	    then throwError occursError
+	    else lift$ write r1 (Just t2) } 
 
 -- match_ tA tB | trace ("match " ++ show tA ++ " and " ++ show tB) False = undefined
 match_ tA tB = 
-     do { t1 <- prune_ tA 
-	; t2 <- prune_ tB 
+     do { t1 <- lift$ prune_ tA 
+	; t2 <- lift$ prune_ tB 
 	; case (t1,t2) of 
 	  (MutVar r1,_) -> 
-	    write r1 (Just t2) 
+	    lift$ write r1 (Just t2) 
 	  (GenVar n,GenVar m) -> 
 	    if n==m 
 		then return () 
-		else fail1 "Gen error" 
+		else throwError genErrorMatch
 	  (S x,S y) -> 
 	    case matchTerm x y of 
-		Nothing -> fail1 "ShapeErr" 
+		Nothing -> throwError genErrorMatch
 		Just pairs -> 
 		  mapM_ (uncurry match_) pairs 
-	  (_,_) -> fail1 "ShapeErr?" 
+	  (_,_) -> throwError shapeErrorMatch 
 	} 
 equal x y = go x y
   where 
@@ -171,34 +263,37 @@ equal x y = go x y
 	      Nothing -> False 
 	      Just pairs -> all (uncurry go) pairs 
         other -> False
-           
-resetVars x = reset x
-    where reset (GenVar n) = new_gvars !! fromJust(elemIndex n gvars)
-          reset (MutVar r) = new_mvars !! fromJust(elemIndex r mvars)
-          reset (S t)      = S$ fmap reset t 
-          reset x = x
-          gvars = [n | GenVar n <- collect_ isGenVar x]
-          mvars = [r | MutVar r <- collect_ isMutVar x]
-          new_gvars = map GenVar [0..]
-          new_mvars = map GenVar [length gvars..]
+
+collect   :: Foldable s  => (GTE s r -> Bool) -> GTE s r -> [GTE s r]
+collect pred = liftGTE (collect_ (pred . eqGT) )
 
 {- Good performance of equality is fundamental. But everytime it's called
-   a resetVars is done. One would wish to cache the result of a previous
-   call to resetVars. Maybe steal some ideas about caching from the 
-   Finger Trees paper!
+   a resetVars is done (see the Eq instance for GTE), which is expensive
 
-   Another DANGEROUS thing is confusing identity with eq-uivalence. Equals 
-   tests for the second, but in haskell the Eq type class is commonly identified
-   with the first. For instance, in dupTermWithSubst I want to test for 
-   identity, as in most places inside this module! 
-   Thus the reasoning is as follows. In this module I want to use identity. But for
-   the client, I want to expose the instance that provides equivalence.
+   Let's distinguish between syntactic and semantic equivalence. 
+   Function 'equal' above tests for syntactic. When paired with resetVars below
+   we are testing for semantic. Syntactic is much faster, semantic is correct. 
+   For instance, in dupTermWithSubst I only need to test for 
+   syntactic, as in most places inside this module! 
+   Thus the reasoning is as follows. Inside this module I want to use syntactic
+   equivalence. Why? Because it's way faster, and I don't need the extra 
+   generality. But for the client, I want to expose the always correct 
+   semantic version of equality instance.
 -}
+-- This is a kludge. Used to simulate 'equivalence up to renaming'
+-- In theory this 'canonicalizes' the vars of a term
+resetVars x = reset x
+    where reset g@GenVar{} = new_vars !! fromMaybe undefined (elemIndex g vars_x)
+          reset m@MutVar{} = new_vars !! fromMaybe undefined (elemIndex m vars_x)
+          reset (S t)      = S$ fmap reset t 
+          reset x  = x
+          vars_x   = vars x
+          new_vars = map GenVar [0..]
 
 instan_ sub x = 
       do { x' <- prune_ x 
 	 ; case x' of 
-	    GenVar n | n < length (subst sub) -> col $! (subst sub !! n) 
+	    GenVar n | n `atLeast` (subst sub) -> col $! (subst sub !! n) 
 	    S x -> fmap S (mapM (instan_ sub) x) 
             _ -> return x'
 	 } 
@@ -225,6 +320,21 @@ generalizeG_ x = do
            assert (all noMVars x'') (return ())
            return x''
 
+generalizeGG_ x = do
+           x' <- mapM2 col x
+           let gvars = nub$ concat2 (toList2 (fmap2 (collect_ isGenVar) x'))
+               mvars = nub$ concat2 (toList2 (fmap2 (collect_ isMutVar) x'))
+               tot   = length gvars + length mvars
+               new_gvars = map GenVar
+                               ([0..tot]\\[j|GenVar j <- gvars])
+           let x'' = fmap2 (replaceAll (zip mvars new_gvars)) x'
+           assert (all (and . fmap noMVars) x'') (return ())
+           return x''
+
+mapM2 f = mapM (mapM f)
+concat2 = concat . concat
+toList2 = map toList . toList
+
 --autoInst_ x | trace ("autoInst " ++ show x) False = undefined
 autoInst_ x@MutVar{} = return (emptyS, x)
 autoInst_ x
@@ -242,45 +352,137 @@ autoInst_ x
           maxGVar = maximum [ n | GenVar n <- gvars]
           upd list i v | (h, (_:t)) <- splitAt i list = h ++ v:t
           updM list i c = c >>= return . upd list i
-              
-autoInstG xx | null gvars = return (emptyS, xx)
-             | otherwise  = do
-           freshv <- liftM Subst $ replicateM ((maximum$ [i|GenVar i <-gvars]) + 1) 
-                                              fresh
-           xx' <- mapM (instan_ freshv) xx
-           assert (all noGVars xx') (return ())
-           return (freshv, xx')
-    where gvars = concatMap (collect_ isGenVar) xx
 
-    -- The intent is to do one rewrite step only
-    -- But.. for some MonadPlus's, you might get different results
+run_autoInstG_ autoInst1 = fmap swap . flip runStateT emptyS . autoInst1 
+  where swap (a,b) = (b,a)
+
+autoInstG_ = run_autoInstG_ (mapM autoInst1)
+autoInstGG_= run_autoInstG_ (mapM2 autoInst1)
+
+autoInst1 x = do
+           freshv <- createFreshs x
+           lift$ instan_ freshv x
+    where createFreshs t | null vars_t = get 
+                         | otherwise   = do
+             freshv <- gets subst
+             unless (topIndex `atLeast` freshv) $ do
+                extra_freshv <- replicateM (topIndex - length freshv + 1) 
+                                           (lift fresh)
+                put (Subst$ freshv ++ extra_freshv)
+             get
+               where
+                  vars_t = vars t
+                  topIndex = maximum [ i | GenVar i <- vars_t ]
+
+-----------------------
+-- * Semantic Equality
+-----------------------
+instance RWTerm s => Eq (GTE s r) where
+--  a == b = resetVars (idGT a) `equal` resetVars(idGT b)
+  (==) = equal_sem'
+
+-- |Semantic equality (equivalence up to renaming of vars) 
+equal_sem :: (RWTerm s) => GT s r -> GT s r -> ST r Bool
+equal_sem x@S{} y@S{} = fmap (either (return False) id) $ runErrorT $ do
+    (theta_x, x') <- lift$ autoInst_ x
+    (theta_y, y') <- lift$ autoInst_ y
+    unify_ x' y'
+    return (none isTerm theta_x && none isTerm theta_y)
+  where none = (not.) . any
+
+equal_sem x y = return$ equal x y
+
+-- | Out of the monad, fails for terms with mutvars
+equal_sem' :: (RWTerm s) => GTE s r -> GTE s r -> Bool
+equal_sem' s t = assert (noMVars s) $ assert (noMVars t) $ 
+  let   s' = fromFix $ toFix s
+        t' = fromFix $ toFix t
+   in runST (equal_sem s' t')
+
+instance RWTerm s => Eq (Rule s r) where
+  (==) = equal_rule'
+
+-- | Semantic equivalence for rules (no mvars restriction)
+equal_rule' :: RWTerm s => Rule s r -> Rule s r ->  Bool
+equal_rule' s1 s2 = runST (equal_rule s1' s2')
+      where s1' = fromFixG (toFixG (fmap idGT s1))
+            s2' = fromFixG (toFixG (fmap idGT s2))
+
+-- | Semantic equivalence for rules
+equal_rule :: RWTerm s => Rule s r -> Rule s r -> ST r Bool
+equal_rule s1 s2 = fmap(either (return False) id) $ runErrorT$ do
+   (theta1, l1:->r1) <- lift$ autoInstG_ (fmap idGT s1)
+   (theta2, l2:->r2) <- lift$ autoInstG_ (fmap idGT s2)
+   unify_ l1 l2 >> unify_ r1 r2
+   lift$ isARenaming (subst theta1) &>& allM isEmptyVar (subst theta2)
+   where (&>&) = liftM2 (&&)
+         isARenaming = allM (\(MutVar m) -> readVar m >>= 
+                       return . maybe True (not . isTerm))
+
+-----------------------------------------------------
+-----------------------------------------------------
+
 --rewrite1_ rr (S t) | trace ("rewrite " ++ show t ++ " with " ++  (show$ length rr) ++ " rules ") False = undefined
 --rewrite1_ _ t | assert (noMVars t) False = undefined
 rewrite1_ rules (S t)
---      | isConst t = rewriteTop rules (S t)
       | otherwise
       = rewriteTop (S t) `mplus` (fmap S$ someSubterm (rewrite1_ rules) t) 
         where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
-	        (freshv, lhs') <- autoInst_ lhs
+	        (freshv, lhs') <- lift$ autoInst_ lhs
 	        match_ lhs' t
---	        trace ("rule fired: " ++ show r ++ " for " ++ show t) (return 0)
-                instan_ freshv rhs
+                lift$ instan_ freshv rhs
 
 rewrite1_ _ t = fail1 "no rewrite"
 
 rewrite_ rules = fixM (rewrite1_ rules)
 
-narrow1_ _ t | trace ("narrow1 " ++ show t) False = undefined
+--narrow1_ _ t | trace ("narrow1 " ++ show t) False = undefined
 narrow1_ [] _ = fail1 "narrow1: empty set of rules"
 narrow1_ _ t | assert (noMVars t) False = undefined
-narrow1_ rules t@S{} = narrow1' (t, emptyC)
-    where narrow1' (t, ct) = 
+narrow1_ rules t@S{} = go (t, emptyC)
+    where go (t, ct) = 
               narrowTop rules ct t
              `mplus` 
-              msum ( map (\(t, ct1) -> narrow1' (t, ct|>ct1) ) (contexts t))
+              msum ( map (\(t, ct1) -> go (t, ct|>ct1) ) (contexts t))
 narrow1_ rules _ = fail1 "narrow1: No Narrowing at vars"
+
+
+narrowTop,narrowTopV :: OmegaPlus m s r => [RuleI s r] -> Context s r -> GT s r
+                            -> m (ST r) (Subst s r, GT s r)
+unsafeNarrowTop, unsafeNarrowTopV
+    :: OmegaPlus m s r => [RuleI s r] -> Context s r -> GT s r
+                            -> m (ST r) (Subst s r, GT s r)
+
+narrowTop  rules ct t = assert (all noMVars [t,ct])$ unsafeNarrowTop rules ct t
+narrowTopV rules ct t = assert (all noMVars [t,ct])$ unsafeNarrowTopV rules ct t
+unsafeNarrowTop   = unsafeNarrowTopG narrowTop1
+unsafeNarrowTopV  = unsafeNarrowTopG narrowTop1V
+
+
+-- unsafeNarrowTopG _ _ _ t | trace ("unsafeNarrowTop " ++ show t) False = undefined
+unsafeNarrowTopG narrowTop1 rules ct t = msum$ forEach rules $ \r -> do
+               (vars, [t',ct']) <- lift$ autoInstG_ [t,ct]
+               t''              <- narrowTop1 t' r
+               return (vars, ct'|>t'')
+
+narrowTop1, narrowTop1V :: Omega m s r => GT s r -> RuleI s r -> m (ST r) (GT s r)
+narrowTop1V t r@(lhs:->rhs) = do
+               assert (noGVars t) (return ())
+               assert (noMVars lhs) (return ())
+               assert (noMVars rhs) (return ())
+               (lhsv, lhs') <- lift$ autoInst_ lhs
+               unify_ lhs' t
+--             trace ("narrowing fired: t=" ++ show t ++ ", rule=" ++ show r ++
+--                     ", rho= " ++ show lhsv) (return ()) 
+               rhs'  <- lift$ instan_ lhsv rhs
+               rhs'' <- lift$ col rhs'      -- OPT: col here might be unnecesary
+--             assert (noGVars rhs'') (return ())
+               return rhs''
+narrowTop1 t@S{} r = narrowTop1V t r
+narrowTop1 _ _     = fail1 "No narrowing at vars"
+
 -------------------------------
--- The New Narrowing Framework
+-- * The Full Narrowing Framework
 -------------------------------
 narrow1'_ = narrowFullG narrowTop'  (const (return True)) 
 narrow1V_ = narrowFullG narrowTopV' (const (return True)) 
@@ -290,100 +492,63 @@ narrowFullV_ = narrowFullG narrowTopV' (const (return False))
 narrowFullBounded_  = narrowFullG narrowTop'
 narrowFullBoundedV_ = narrowFullG narrowTopV'
 
-narrowFullG :: (OmegaPlus m s r, MonadTry (m (ST r))) =>
+narrowFullG :: (OmegaPlus m s r) =>
               ([RuleI s r] -> Context s r -> Subst s r -> GT s r
                           -> m (ST r) (Subst s r, GT s r)) 
             -> (GT s r -> ST r Bool)
             -> [RuleI s r] -> GT s r 
             -> m (ST r) (Subst s r, GT s r)
 
-narrowFullG _ done [] t = trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
+narrowFullG _ done [] t = -- trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
                           lift (done t) >>= guard >> return (emptyS,t)
 narrowFullG narrowTop1base done rules t = do 
      assert (noMVars t) (return ())
-     (subst0,t0) <- autoInst_ t
+     (subst0,t0) <- lift$ autoInst_ t
      try search(subst0, t0)
   where 
           search (subst,t) = lift (done t) >>= guard . not >> 
                              step emptyC subst t >>= try search
-          step cs subst t = trace ("narrowFull step: " ++ show t) $
+          step cs subst t = -- trace ("narrowFull step: " ++ show t) $
                    (msum$ forEach (contexts t) $ \(ts,cs1) -> 
                        step (cs|>cs1) subst ts)
              `mplus`
-                   narrowTop rules cs subst t 
-          narrowTop = narrowTop1base
+                   narrowTop1base rules cs subst t 
 
-narrowTop,narrowTopV :: OmegaPlus m s r => [RuleI s r] -> Context s r -> GT s r
-                            -> m (ST r) (Subst s r, GT s r)
-unsafeNarrowTop, unsafeNarrowTopV
-    :: OmegaPlus m s r => [RuleI s r] -> Context s r -> GT s r
-                               -> m (ST r) (Subst s r, GT s r)
 narrowTop', narrowTopV'
     :: OmegaPlus m s r => [RuleI s r] -> Context s r -> Subst s r -> GT s r
                                -> m (ST r) (Subst s r, GT s r)
 
-narrowTop rules ct t  = assert (all noMVars [t,ct])$ unsafeNarrowTop rules ct t
-narrowTopV rules ct t = assert (all noMVars [t,ct])$ unsafeNarrowTopV rules ct t
-unsafeNarrowTop   = unsafeNarrowTopG narrowTop1
-unsafeNarrowTopV  = unsafeNarrowTopG narrowTop1V
-narrowTop'  = narrowTopG' narrowTop1
-narrowTopV' = narrowTopG' narrowTop1V
+narrowTop'        = narrowTopG' narrowTop1
+narrowTopV'       = narrowTopG' narrowTop1V
 
--- unsafeNarrowTopG _ _ _ t | trace ("unsafeNarrowTop " ++ show t) False = undefined
-unsafeNarrowTopG narrowTop1 rules ct t = msum$ forEach rules $ \r -> do
-               (vars, [t',ct']) <- autoInstG [t,ct]
-               t''              <- narrowTop1 t' r
-               return (vars, ct'|>t'')
-
-narrowTopG' _ _ _ _  t | trace ("NarrowTop' " ++ show t) False = undefined
+-- narrowTopG' _ _ _ _  t | trace ("NarrowTop' " ++ show t) False = undefined
 narrowTopG' _ _ ct _ t | assert(all noGVars [ct,t]) False = undefined
 narrowTopG' narrowTop1 rules ct subst t = msum$ forEach rules $ \r -> do
                (subst', [ct'], t') <- lift$ dupTermWithSubst subst [ct] t
                t'' <- narrowTop1 t' r
                return (subst', ct'|>t'')
 
-narrowTop1, narrowTop1V :: Omega m s r => GT s r -> RuleI s r 
-                          -> m (ST r) (GT s r)
-narrowTop1V t r@(lhs:->rhs) = do
-               assert (noGVars t) (return ())
-               assert (noMVars lhs) (return ())
-               assert (noMVars rhs) (return ())
-               (lhsv, lhs') <- autoInst_ lhs
-               unify_ lhs' t
-               trace ("narrowing fired: t=" ++ show t ++ ", rule=" ++ show r ++
-                     ", rho= " ++ show lhsv) (return ()) 
-               rhs' <- instan_ lhsv rhs
-               rhs'' <- col rhs'         -- OPT: col here might be unnecesary
---               assert (noGVars rhs'') (return ())
-               return rhs''
-narrowTop1 t@S{} r = narrowTop1V t r
-narrowTop1 _ _     = fail1 "No narrowing at vars"
+--------------------------------------------------------------------------
+-- * Out and back into the ST monad with recursive Fixpoint datastructures
+--------------------------------------------------------------------------
 
-varBind :: Omega m s r => Ptr s r -> GT s r -> m (ST r) ()
-varBind r1 t2 = 
-     do { b <- occurs r1 t2 
-	; if b 
-	    then fail1 "OccursErr"  
-	    else write r1 (Just t2) } 
+fromFix :: (Functor s) => Fix s -> (forall r. GT_ eq s r)
+fromFix (Fix x) = S(fmap fromFix x)
+fromFix (Var n) = GenVar n
 
-fromFix_ :: (Functor s, Show (s (GTE s r))) => Fix s -> GT s r
-fromFix_ (Fix x) = S(fmap fromFix_ x)
-fromFix_ (Var n) = GenVar n
+toFix :: (RWTerm s) => GT_ eq s t -> Fix s
+toFix (MutVar r) = error "toFix: No vars" 
+toFix (GenVar n) = Var n
+toFix (S y) = Fix (fmap toFix y)
 
-toFix_ :: (RWTerm s) => GT s t -> Fix s
-toFix_ (MutVar r) = error "toFix: No vars" 
-toFix_ (GenVar n) = Var n
-                   
-toFix_ (S y) = Fix (fmap toFix_ y)
+toFixG :: (RWTerm s, Functor s, Functor f) => f (GT_ eq s r) -> f (Fix s)
+toFixG   = fmap toFix
 
-toFixG_ :: (RWTerm s, Functor s, Functor f) => f (GT s r) -> f (Fix s)
-toFixG_   = fmap toFix_
-
-fromFixG_ :: (Show (s (GTE s r)), Functor f, Functor s) => f (Fix s) -> f (GT s r)
-fromFixG_ = fmap fromFix_
+fromFixG :: (Functor f, Functor s) => f (Fix s) -> f (GT_ eq s r)
+fromFixG = fmap fromFix
 
 --------------------------------
--- Duplication of Terms
+-- * Duplication of Terms
 --------------------------------
 dupVar sr = readSTRef sr >>= newSTRef
 dupTerm (MutVar r) = fmap MutVar (dupVar r)
@@ -391,7 +556,7 @@ dupTerm (S t) = fmap S $ mapM dupTerm t
 dupTerm x = return x
 
 --dupTermWithSubst subst tt x | trace "dupTermWithSubst" False = undefined
-dupTermWithSubst :: (RWTerm s) => 
+dupTermWithSubst :: (Eq (GT s r), RWTerm s) => 
                     Subst s r -> [GT s r] -> GT s r 
                  -> ST r (Subst s r, [GT s r], GT s r)
 dupTermWithSubst subst tt t@MutVar{} = do
@@ -412,14 +577,16 @@ dupTermWithSubst subst tt t@S{} = do
 
 dupTermWithSubst subst tt x = return (subst, tt, x)
 
-replaceAll :: RWTerm s => [(GT s r, GT s r)] -> GT s r -> GT s r
+-- syntactic equality is primordial here
+replaceAll :: (Eq (GT s r), RWTerm s) => 
+              [(GT s r, GT s r)] -> GT s r -> GT s r
 replaceAll dict x = fromJust$ replaceAll' dict x
    where replaceAll' dict (S t) = lookup (S t) dict `mplus` 
                                   fmap S (mapM (replaceAll' dict) t) 
          replaceAll' dict x = lookup x dict `mplus` return x
 
 ------------------------------
--- Obtaining the results
+-- * Obtaining the results
 ------------------------------
 run :: (RWTerm s, Show (s (GTE s r))) => (forall r.ST r (GTE s r)) -> GTE s r
 run c = fromFix (runST (fmap toFix c))
@@ -436,144 +603,45 @@ runIO :: ST RealWorld a -> IO a
 runIO = stToIO
 
 
+runE :: (Omega (ErrorT (TRSException)) s r) => 
+        (forall r. ErrorT (TRSException) (ST r) (GTE s r)) -> (GTE s r)
+runE c = fromFix (runST (fmap (either (error.show) id) 
+                              (runErrorT (fmap toFix c))))
 
-runE :: Omega (ErrorT String) s r => 
-        (forall r. ErrorT String (ST r) (GTE s r)) -> (GTE s r)
-runE c = either (error . show) fromFix (runST (runErrorT (fmap toFix c)))
+runEG :: (Omega (ErrorT (TRSException)) s r, Functor f) =>
+         (forall r. ErrorT (TRSException) (ST r) (f(GTE s r))) -> f(GTE s r)
+runEG c = fmap fromFix (runST (fmap (either (error.show) id) 
+                                    (runErrorT (fmap2 toFix c))))
 
-runEG :: (Omega (ErrorT String) s r, Functor f) =>
-         (forall r. ErrorT String (ST r) (f(GTE s r))) -> f(GTE s r)
-runEG c = either (error.show) (fmap fromFix) (runST (runErrorT (fmap2 toFix c)))
+runEGG :: (Omega (ErrorT (TRSException)) s r, Functor f, Functor f1) =>
+         (forall r. ErrorT (TRSException) (ST r) (f(f1(GTE s r)))) -> f(f1(GTE s r))
+runEGG c = fmap2 fromFix (runST (fmap (either (error.show) id) 
+                                      (runErrorT (fmap3 toFix c))))
 
-runEGG :: (Omega (ErrorT String) s r, Functor f, Functor f1) =>
-         (forall r. ErrorT String (ST r) (f(f1(GTE s r)))) -> f(f1(GTE s r))
-runEGG c = either (error.show) (fmap2 fromFix) (runST (runErrorT (fmap3 toFix c)))
-
-runEIO :: ErrorT String (ST RealWorld) a -> IO a
+runEIO :: ErrorT (TRSException) (ST RealWorld) a -> IO a
 runEIO = fmap (either (error. show) id) . stToIO . runErrorT
 
 
 
-runL :: Omega (ListT) s r => (forall r. ListT (ST r) (GTE s r)) -> [GTE s r]
-runL c = map fromFix (runST (runListT (fmap toFix c)))
+runL :: Omega (ListT') s r => (forall r. ListT' (ST r) (GTE s r)) -> [GTE s r]
+runL c = map fromFix (runST (runListT' (fmap toFix c)))
 
-runLG :: (Omega (ListT) s r, Functor f) =>
-         (forall r. ListT (ST r) (f(GTE s r))) -> [f(GTE s r)]
-runLG c = map (fmap fromFix) (runST (runListT (fmap2 toFix c)))
+runLG :: (Omega (ListT') s r, Functor f) =>
+         (forall r. ListT' (ST r) (f(GTE s r))) -> [f(GTE s r)]
+runLG c = map (fmap fromFix) (runST (runListT' (fmap2 toFix c)))
 
-runLGG :: (Omega (ListT) s r, Functor f, Functor f1) =>
-         (forall r. ListT (ST r) (f(f1(GTE s r)))) -> [f(f1(GTE s r))]
-runLGG c = map (fmap2 fromFix) (runST (runListT (fmap3 toFix c)))
+runLGG :: (Omega (ListT') s r, Functor f, Functor f1) =>
+         (forall r. ListT' (ST r) (f(f1(GTE s r)))) -> [f(f1(GTE s r))]
+runLGG c = map (fmap2 fromFix) (runST (runListT' (fmap3 toFix c)))
 
-runLIO :: ListT (ST RealWorld) a -> IO [a]
-runLIO = stToIO . runListT
-
------------------------
--- Equivalence of terms
------------------------
-
-instance RWTerm s => Eq (GTE s r) where
-  a == b = --trace "using Equivalence" $ 
-            resetVars (idGT a) `equal` resetVars(idGT b)
-
-instance Show(GTE s r) => Show(GT s r) where
-    show = show . eqGT  
-
-instance Arbitrary(GTE s r) => Arbitrary(GT s r) where
-    arbitrary = fmap idGT arbitrary 
-
-instance (Functor s, Show(s(GTE s r))) => Show(s(GT s r)) where
-    show = show . fmap eqGT 
-
-liftGTE2 :: (GT s r -> GT s r -> a) -> GTE s r -> GTE s r -> a
-liftGTE2 f x y =  f (idGT x) (idGT y)
-liftGTE :: Functor f => (GT s r -> f(GT s r)) -> GTE s r -> f(GTE s r)
-liftGTE f = fmap eqGT . f . idGT
-fixRules :: [Rule s r] -> [RuleI s r]
-fixRules = fmap2 idGT
-adaptSubstitutionResult f rre t = fmap (second eqGT) $ f (fixRules rre) (idGT t)
-
-prune	  :: Omega m s r => GTE s r -> m (ST r) (GTE s r)
-prune = liftGTE prune_
-
-unify	  :: Omega m s r => GTE s r -> GTE s r -> m (ST r) ()
-unify = liftGTE2 unify_
-
-match	  :: Omega m s r => GTE s r -> GTE s r -> m (ST r) ()
-match = liftGTE2 match_
-
-instan	  :: Omega m s r => Subst s r -> GTE s r -> m (ST r) (GTE s r)
-instan subst = liftGTE (instan_ subst)
-
--- |leftmost outermost
-rewrite1  :: OmegaPlus m s r => [Rule s r] -> GTE s r -> m (ST r) (GTE s r)
-rewrite1 rre = liftGTE (rewrite1_ (fixRules rre))
-
-rewrite   :: OmegaPlus m s r => [Rule s r] -> GTE s r -> m (ST r) (GTE s r)
-rewrite rre = liftGTE (rewrite_ (fixRules rre))
-
-narrow1   :: OmegaPlus m s r => [Rule s r] -> GTE s r -> 
-             m (ST r) (Subst s r, GTE s r)
-narrow1 = adaptSubstitutionResult narrow1_
-
-narrow1',narrow1V 
-          :: (OmegaPlus m s r, MonadTry (m(ST r))) => [Rule s r] -> GTE s r -> 
-             m (ST r) (Subst s r, GTE s r)
-narrow1' = adaptSubstitutionResult narrow1'_
-narrow1V = adaptSubstitutionResult narrow1V_
-
--- Unbounded Full Narrowing
-narrowFull:: (OmegaPlus m s r, MonadTry (m (ST r))) => [Rule s r] -> GTE s r -> 
-             m (ST r) (Subst s r, GTE s r)
-narrowFull = adaptSubstitutionResult narrowFull_
-
--- Unbounded Full Narrowing, with narrowing on variables
-narrowFullV:: (OmegaPlus m s r, MonadTry (m (ST r))) =>
-              [Rule s r] -> GTE s r -> m (ST r) (Subst s r, GTE s r)
-narrowFullV = adaptSubstitutionResult narrowFullV_
-narrowFullBounded  :: (OmegaPlus m s r, MonadTry (m (ST r))) =>
-                      (GTE s r -> ST r Bool) -> [Rule s r] -> GTE s r -> 
-                      m (ST r) (Subst s r, GTE s r)
-narrowFullBounded pred = adaptSubstitutionResult (narrowFullBounded_ (pred . eqGT))
-narrowFullBoundedV :: (OmegaPlus m s r, MonadTry (m (ST r))) =>
-                      (GTE s r -> ST r Bool) -> [Rule s r] -> GTE s r -> 
-                      m (ST r) (Subst s r, GTE s r)
-narrowFullBoundedV pred = adaptSubstitutionResult (narrowFullBoundedV_ (pred . eqGT))
-
-fromFix  :: (Functor s, Show (s (GTE s r))) => Fix s -> GTE s r
-toFix    :: (RWTerm s, Functor s) => GTE s r -> Fix s
-fromFixG :: (Show (s (GTE s r)), Functor f, Functor s) => f (Fix s) -> f (GTE s r)
-toFixG   :: (RWTerm s, Functor s, Functor f) => f (GTE s r) -> f (Fix s)
-
-toFix   = toFix_ . idGT
-fromFix = eqGT . fromFix_ 
-toFixG  = toFixG_ . fmap idGT
-fromFixG= fmap eqGT . fromFixG_
-
-generalize ::Omega m s r => GTE s r -> m (ST r) (GTE s r)
-generalize = liftGTE generalize_
-
-generalizeG::(Traversable f, Omega m s r) => f(GTE s r) -> m (ST r) (f(GTE s r))
-generalizeG = fmap2 eqGT . generalizeG_ . fmap idGT
-
--- |Returns the instantiated term together with the new MutVars 
---  (you need these to apply substitutions) 
-autoInst  :: Omega m s r => GTE s r -> m (ST r) (Subst s r, GTE s r)       
-autoInst t = fmap (second eqGT) $ autoInst_ (idGT t)
-
-collect   :: Foldable s  => (GTE s r -> Bool) -> GTE s r -> [GTE s r]
-collect pred = liftGTE (collect_ (pred . eqGT) )
+runLIO :: ListT' (ST RealWorld) a -> IO [a]
+runLIO = stToIO . runListT'
 
 ----------------
 -- Other stuff
 ----------------
 someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
 someSubterm f x = msum$ interleave f return x
-
-noCVars, noGVars, noMVars :: RWTerm s => GT_ eq s r -> Bool
-noGVars = null . collect_ isGenVar
-noMVars = null . collect_ isMutVar 
-noCVars = null . collect_ isCtxVar 
 
 isConst :: Foldable t => t a -> Bool
 isConst = null . toList

@@ -15,8 +15,8 @@ author: Tim Sheard (based on code by Luca Cardelli) (adapted by Pepe Iborra)
 tested-with:
 extra-source-files:
 extra-tmp-files:
-exposed-modules: TRS, TRS.Utils, TRS.Terms
-other-modules: TRS.Core, TRS.Context, TRS.Types
+exposed-modules: TRS, TRS.Utils, TRS.Terms, TRS.Types
+other-modules: TRS.Core, TRS.Context
 buildable: True
 cc-options:
 ld-options:

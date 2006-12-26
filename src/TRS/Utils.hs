@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -cpp -fglasgow-exts -fallow-undecidable-instances -fallow-overlapping-instances #-}
+{-# OPTIONS_GHC -cpp -fglasgow-exts #-}
+{-# OPTIONS_GHC -fallow-undecidable-instances #-}
 -----------------------------------------------------------------------------------------
 {-| Module      : TRS.Utils
     Copyright   : 
@@ -14,7 +15,7 @@ module TRS.Utils where
 import Control.Applicative
 import Control.Monad.State hiding (mapM, sequence)
 import Control.Monad.List (ListT(..))
-import Control.Monad.Error (catchError, Error, ErrorT, MonadError)
+import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
 import Data.Traversable
 import Data.Foldable
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
@@ -22,6 +23,9 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, co
 
 import qualified Debug.Trace
 
+inBounds _ [] = False
+inBounds 0 _  = True
+inBounds i (x:xs) = inBounds (i-1) xs
 
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'
@@ -95,17 +99,14 @@ size :: Traversable t => t a -> Int
 size = length . toList    
 
 --fmap2 = (fmap.) . fmap
-fmap2 f x = fmap (fmap f) x
-fmap3 f x = fmap (fmap (fmap f)) x 
+fmap2 f x = fmap (fmap  f) x
+fmap3 f x = fmap (fmap2 f) x 
 
 successes :: (MonadPlus m, Functor m) => [m a] -> m [a]
 successes cc = fmap concat $ sequence $ map (\c->fmap unit c `mplus` return []) cc
     where unit x = [x]
 
 -- Awesome. Data.Traversable is incredible!
-parallelComb :: Traversable t => t [a] -> [t a]
-parallelComb = sequenceA
-
 interleave :: (MonadPlus m, Traversable t) =>
                  (a -> m b) -> (a -> m b) -> t a -> [m (t b)]
 interleave f g x = let
@@ -113,35 +114,32 @@ interleave f g x = let
         indexed f default_f i (j,x) = if i==j then f x else default_f x
      in map (\f->mapM f (unsafeZipG [0..] x)) indexed_fs
 
+----------------------------------------------------------
+-- A monad isomorphic to ListT 
+-- Only the monadError instance is different
+----------------------------------------------------------
+newtype ListT' m a = ListT_ {runListT_ :: ListT m a}
+  deriving (Monad, MonadPlus, MonadIO, MonadTrans, MonadFix, Functor)
 
-{-
-   Creo que había entendido mal lo que pone abajo
-   En realidad debería ocurrir lo siguiente:
-      - Narrowing en una variable: fail
-      - Intento de Narrowing y fallo de unificación: fail
-      - SI NO HAY REGLAS: fail siempre (inductivamente se ve)
--} 
+listT'    = ListT_ . ListT 
+runListT' = runListT . runListT_
 
-{-
--- Exigencias del guión.
--- Queremos que fixM narrowing (t): 
---  1. Declare success si t es una variable
---  2. Declare failure si t es un término que no unifica con ninguna regla
---   2.1 Incluido el caso de que NO HAYA REGLAS.
---
-   Por lo tanto, si el conjunto de reglas es el conjunto vacío:
-        narrowing V : success
-        narrowing t : failure
-        fixNarrowing V : success
-        fixNarrowing t : failure
-
-Pero tal y como está declarado fixM, nunca se produce un mzero (i.e. un fail)!
-
+{- This is the standard MonadError instance, useless since ST is not MonadError
+instance MonadError e m => MonadError e (ListT' m) where
+  throwError _   = listT' (return [])
+  catchError m f = listT'$ catchError (runListT' m) (\e-> runListT' (f e))
 -}
 
-tryList :: a -> [a] -> [a]
-tryList a [] = [a]
-tryList _ x  =  x
+instance Monad m => MonadError e (ListT' m) where
+  throwError _   = listT' (return [])
+  catchError m f = listT' (runListT' m       >>= \v -> 
+                     if null v 
+                                then runListT' (f undefined)
+                                else return v)
+
+-- | Try a computation m over an argument a, returning a if it failed
+try :: MonadError e m => (a -> m a) -> a -> m a
+try m a = m a `catchError` \_->return a
 
 tryListT :: Monad m => a -> ListT m a -> ListT m a
 tryListT a (ListT m) = ListT$ do 
@@ -149,35 +147,33 @@ tryListT a (ListT m) = ListT$ do
   case v of 
     [] -> return [a]
     x  -> return x
-{-
-Ejemplo en el que la funcion f en (tryList f) es recursiva:
 
-f0 x = [ y | x' <- g x, y <- f0 x'] ++ [ f0 y | y <- h x]
-
-f = tryList f0
-
-Problema: 
-f x -expand f-> tryList f0 x -
-
--}
-
-class MonadTry m where
- try :: (a -> m a) -> a -> m a
-
-instance MonadTry [] where
- try f a | null (f a) = [a]
-         | otherwise  = f a
-
-instance Monad m => MonadTry (ListT m) where
- try m a = let ListT m1 = m a in  
+try1 m a = let ListT m1 = m a in  
            ListT$ (m1 >>= \v -> return (if null v then [a] else v))
+----------------------------------------
+-- The brilliant FunctorN class
+--  supercedes all fmap, fmap2, fmap3..
+----------------------------------------
+class FunctorN a b c d | a b c -> d where 
+  gfmap :: (a -> b) -> c -> d
 
-instance MonadTry m => MonadTry (StateT s m) where
- try m a = let StateT v = m a in
-            StateT$ \s -> try (\(a,s) -> v s) (a,s)
+instance FunctorN a b a b where
+  gfmap = id
 
-instance MonadError e m => MonadTry m  where
- try m a = m a `catchError` \_->return a
+instance (Functor f, FunctorN a b c d) => FunctorN a b (f c) (f d) where
+  gfmap f = fmap (gfmap f)
+
+
+class TraversableN a b c d | b c d -> a, a c d -> b, a b d -> c, a b c -> d where
+  gmapM :: Monad m => (a -> m b) -> c -> m d
+
+instance TraversableN a b a b where
+  gmapM f = f
+
+instance (Traversable f, TraversableN a b c d) => TraversableN a b (f c) (f d) where
+  gmapM f = mapM (gmapM f)
+
+---------------------------------------------------------
 
 forEach = flip map
 lift2 x = lift$ lift x
@@ -186,6 +182,14 @@ mtry f x = f x `mplus` x
 atLeast _ []   = False
 atLeast 0 _    = True
 atLeast n list = atLeast (n-1) (tail list)
+
+
+runIdentityT = runErrorT_
+
+runIdentityT, runErrorT_ :: (Functor m) => ErrorT [Char] m a -> m a
+runErrorT_ =  fmap noErrors . runErrorT
+noErrors (Left msg) = error msg
+noErrors (Right x)  = x
 
 -- #define DEBUG
 trace msg x = 
