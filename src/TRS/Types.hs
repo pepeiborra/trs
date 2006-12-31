@@ -1,6 +1,5 @@
 {-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
-{-# OPTIONS_GHC -fdebugging #-}
 
 module TRS.Types ( ST, runST, stToIO, RealWorld
 		 , STRef, newSTRef, readSTRef, writeSTRef

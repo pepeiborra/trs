@@ -1,7 +1,6 @@
 {-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 {-# OPTIONS_GHC -fno-monomorphism-restriction #-}
-{-# OPTIONS_GHC -fdebugging #-}
 
 -----------------------------------------------------------------------------------------
 {-| Module      : TRS.Core
