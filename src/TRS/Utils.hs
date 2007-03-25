@@ -159,6 +159,7 @@ try1 m a = let ListT m1 = m a in
 ----------------------------------------
 -- The brilliant FunctorN class
 --  supercedes all fmap, fmap2, fmap3..
+--  but produces headache type errors
 ----------------------------------------
 class FunctorN a b c d | a b c -> d where 
   gfmap :: (a -> b) -> c -> d

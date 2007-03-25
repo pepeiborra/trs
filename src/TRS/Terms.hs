@@ -43,7 +43,7 @@ instance Ord a => Ord (TermST a) where
           x  -> x
 
 ---------------------------------------------------------
--- Instantiation of the generic 'module-like' structure
+-- Instantiation of the relevant classes
 ---------------------------------------------------------
 
 instance Traversable TermST where
@@ -80,9 +80,9 @@ instance Show a => Show (TermST a) where
 class Outputable a where
   ppr :: a -> Doc
 
-----------------------------------
--- Other stuff looking for a home
-----------------------------------
+---------------------------------------------
+-- Other stuff for using in the ghci debugger
+---------------------------------------------
 
 uc = unsafeCoerce#
 ucT t = uc t :: GTE TermST r
