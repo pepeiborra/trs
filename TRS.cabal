@@ -11,7 +11,7 @@ package-url:
 synopsis:
 description: Based on the code from the paper "Generic Unification with two level types and parameterized modules"
 category:
-author: Tim Sheard (based on code by Luca Cardelli) (adapted by Pepe Iborra)
+author: Pepe Iborra
 tested-with:
 extra-source-files:
 extra-tmp-files:

@@ -1,5 +1,19 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
-{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE UndecidableInstances #-}
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  TRS.Context
+-- Copyright   :  (c) Pepe Iborra 2006-2007
+--                (c) Universidad Politécnica de Valencia 2006-2007
+-- License     :  BSD-style (see LICENSE)
+--
+-- Maintainer  :  pepeiborra@gmail.org
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Context-of-a-term management.
+-----------------------------------------------------------------------------
+
 module TRS.Context where
 import Control.Arrow
 import Data.Foldable

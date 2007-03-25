@@ -1,6 +1,20 @@
 {-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  TRS.Types
+-- Copyright   :  (c) Pepe Iborra 2006-2007
+--                (c) Universidad Politécnica de Valencia 2006-2007
+-- License     :  BSD-style (see LICENSE)
+--
+-- Maintainer  :  pepeiborra@gmail.org
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Home for all types and helpers. Internal
+-----------------------------------------------------------------------------
+
 module TRS.Types ( ST, runST, stToIO, RealWorld
 		 , STRef, newSTRef, readSTRef, writeSTRef
 		 , module TRS.Types) where

@@ -1,14 +1,18 @@
 {-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fallow-undecidable-instances -fallow-incoherent-instances -fallow-overlapping-instances -funbox-strict-fields#-}
------------------------------------------------------------------------------------------
-{-| Module      : Terms
-    Copyright   : 
-    License     : All Rights Reserved
 
-    Maintainer  : 
-    Stability   : 
-    Portability : 
--}
------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  TRS.Terms
+-- Copyright   :  (c) Pepe Iborra 2006-2007
+--                (c) Universidad Politécnica de Valencia 2006-2007
+-- License     :  BSD-style (see LICENSE)
+--
+-- Maintainer  :  pepeiborra@gmail.org
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Datatype for Terms, used for testing
+-----------------------------------------------------------------------------
 
 module TRS.Terms where
 import Control.Applicative

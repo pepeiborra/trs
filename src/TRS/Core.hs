@@ -2,16 +2,19 @@
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 {-# OPTIONS_GHC -fno-monomorphism-restriction #-}
 
------------------------------------------------------------------------------------------
-{-| Module      : TRS.Core
-    Copyright   : 
-    License     : All Rights Reserved
 
-    Maintainer  : Pepe Iborra
-    Stability   : 
-    Portability : 
--}
-----------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  TRS.Core
+-- Copyright   :  (c) Pepe Iborra 2006-2007
+--                (c) Universidad Politécnica de Valencia 2006-2007
+-- License     :  All Rights Reserved
+--
+-- Maintainer  :  pepeiborra@gmail.org
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-----------------------------------------------------------------------------
 
 
 module TRS.Core where

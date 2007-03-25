@@ -1,15 +1,18 @@
 {-# OPTIONS_GHC -cpp -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
------------------------------------------------------------------------------------------
-{-| Module      : TRS.Utils
-    Copyright   : 
-    License     : All Rights Reserved
-
-    Maintainer  : 
-    Stability   : 
-    Portability : 
--}
------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  TRS.Utils
+-- Copyright   :  (c) Pepe Iborra 2006-2007
+--                (c) Universidad Politécnica de Valencia 2006-2007
+-- License     :  BSD-style (see LICENSE)
+--
+-- Maintainer  :  pepeiborra@gmail.org
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Internal
+-----------------------------------------------------------------------------
 
 module TRS.Utils where
 import Control.Applicative
