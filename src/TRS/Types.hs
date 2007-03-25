@@ -21,12 +21,13 @@ module TRS.Types ( ST, runST, stToIO, RealWorld
 
 import TRS.Utils
 import Control.Applicative
-import Data.Foldable
+import Control.Arrow
+import Data.Foldable as Foldable
 import Data.Maybe
 import Data.Monoid
-import Data.Traversable
-import Control.Monad
-import Control.Monad.Error
+import Data.Traversable as Traversable
+import Control.Monad       hiding (msum)
+import Control.Monad.Error hiding (msum)
 import Control.Monad.Fix
 import Control.Monad.Trans
 import Control.Monad.ST
@@ -116,6 +117,48 @@ noCVars, noGVars, noMVars :: Foldable s => GT_ eq s r -> Bool
 noGVars = null . collect_ isGenVar
 noMVars = null . collect_ isMutVar 
 noCVars = null . collect_ isCtxVar 
+
+-- * Positions. Indexing over subterms.
+
+type Position = [Int]
+subtermAt :: (Functor m, MonadPlus m, Traversable s) => GT_ eq s r -> Position -> m (GT_ eq s r)
+subtermAt t (0:_) = return t
+subtermAt (S t) (i:is) = join . fmap (flip subtermAt is . snd) 
+                       . maybe mzero return 
+                       . find ((== i) . fst) 
+                       . unsafeZipG [1..] 
+                       $ t
+subtermAt x [] = return x
+subtermAt _ _ = mzero
+
+-- | Updates the subterm at the position given 
+--   Note that this function does not guarantee success. A failure to substitute anything
+--   results in the input term being returned untouched
+updateAt  :: (Traversable s) => GT_ eq s r -> Position -> GT_ eq s r -> GT_ eq s r
+updateAt _ (0:_) st' = st'
+updateAt (S t) (i:is) st' = S . fmap (\(j,st) -> if i==j then updateAt st is st' else st) 
+                          . unsafeZipG [1..] 
+                          $ t
+updateAt _ [] x' = x'
+updateAt x _ _ = x
+
+
+-- | Like updateAt, but returns a tuple with the new term, and the previous subterm at position pos
+updateAt'  :: (Functor m, MonadPlus m, Traversable s) => 
+             GT_ eq s r -> Position -> GT_ eq s r -> m (GT_ eq s r, GT_ eq s r)
+updateAt' x pos x' = go x pos x' >>= \ (t',a) -> a >>= \v->return (t',v)
+  where
+    go x (0:_) x'       = return (x', return x)
+    go (S t) (i:is) st' = fmap (first S . second Foldable.msum . unzipG)
+                        . Traversable.sequence
+                        . fmap (\(j,u)->if i==j
+                                       then go u is st'
+                                       else return (u, mzero))
+                        . unsafeZipG [1..]
+                        $ t
+    go x [] x' = return (x', return x)
+    go x _ _   = mzero
+
 
 -----------------------------
 -- * The Class of Match-ables

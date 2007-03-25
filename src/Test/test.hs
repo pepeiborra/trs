@@ -2,17 +2,20 @@
 {-# OPTIONS_GHC -fno-monomorphism-restriction #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 
-module Test where
+module Test.Test where
 import TRS.Core  hiding (collect)
 import TRS.Types hiding (s)
 import qualified TRS.Types as TRS
 import TRS.Terms
 import TRS.Utils
+import TRS.Context
 import Data.Char
 import Data.Foldable
 import Data.List (intersect)
+import Data.Maybe
 import Data.Traversable
 import Control.Applicative
+import Control.Arrow hiding (pure)
 import Control.Monad (guard, unless, replicateM)
 import Control.Monad.List (ListT(..), liftM, liftM2, lift)
 import Control.Monad.ST.Lazy (ST)
@@ -277,6 +280,36 @@ testEquality = TestLabel "test equality" $
                           s(x) == s(y)  ~? "With a context"
                         , x+y  == y+x   ~? "Same Name, but unrelated"
                         ]
+-----------------------------------------------
+-- Verifying the new implementation of contexts
+-----------------------------------------------
+contexts' (S t) = --(CtxVar 0, S t) : 
+                 catMaybes (map (context (S t) c) [0..size t - 1])
+    where c = (length . collect_ isCtxVar) (S t)
+--          context :: Traversable t => GT t r -> Int -> Int -> Maybe (GT t r,Context t r)
+          context (S t) depth i 
+             | (a, t') <- first (msum . toList) . unzipG $
+                        fmap (\(j,u)->if i==j && not (isCtxVar u) 
+                                       then (Just u, CtxVar depth) 
+                                       else (Nothing,u)) 
+                             (unsafeZipG [0..] t)
+             = a >>= \a'->return (a',S t')   -- in the Maybe monad
+contexts' _ = []
+
+
+propContexts :: PeanoT r -> Bool
+propContexts t = contexts' (idGT t) == contexts (idGT t)
+
+
+ -- REVIEW these properties
+propCIdentity, propCTransiti :: PeanoT r -> Bool
+propCIdentity x_ = and [ ct|>y == x | (y,ct) <- contexts x ]
+  where x = idGT x_
+
+propCTransiti x_ = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts x
+                                         , (y,ct) <- contexts ct1]
+  where x = idGT x_ 
+
 
 --------------------------
 -- Other properties
@@ -311,11 +344,11 @@ urunEIO = unsafePerformIO . runEIO
 gen x = x >>= (lift . generalize)
 gsndM = gen . sndM
 
-infixl 2 ? 
-infixl 2 =?
+--infixl 2 ? 
+--infixl 2 =?
 
-(?) = (Test.HUnit.@?)
-(=?) = (Test.HUnit.@=?)
+--(?) = (Test.HUnit.@?)
+--(=?) = (Test.HUnit.@=?)
 
 instance Arbitrary (PeanoT r) where
     arbitrary = arbitraryPeano (map genVar [0..2])
@@ -334,7 +367,7 @@ arbitraryPeano vars =
                       , (1, elements vars)]
 
 data PeanoClean = PeanoClean {peanoClean::forall r. PeanoT r}
-
+                
 mkPeanoClean :: PeanoT r -> PeanoClean
 mkPeanoClean p = PeanoClean (fromFix(toFix p))
 

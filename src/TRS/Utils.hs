@@ -16,6 +16,7 @@
 
 module TRS.Utils where
 import Control.Applicative
+import Control.Arrow
 import Control.Monad.State hiding (mapM, sequence)
 import Control.Monad.List (ListT(..))
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
@@ -29,6 +30,8 @@ import qualified Debug.Trace
 inBounds _ [] = False
 inBounds 0 _  = True
 inBounds i (x:xs) = inBounds (i-1) xs
+
+both f = first f . second f
 
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'

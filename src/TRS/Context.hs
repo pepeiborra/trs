@@ -27,44 +27,40 @@ import Debug.Trace
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, notElem, sum)
 
+
+-- | What is a context? A term with a hole.
+--   The hole is represented by the constructor CtxVar
 type Context s r = GT s r
 
+-- A CtxVar carries an index, which must be unique
 emptyC = CtxVar 0
 
-fill,(|>) :: (Traversable t) =>
-            Context t r -> GT t r -> GT t r
-fill (S ct) x = S$ fmap (fill' x (c-1)) ct
-    where c = (length . collect_ isCtxVar) (S ct) 
-          fill' a i (CtxVar j) | i == j = a
-          fill' a i (S t) = S$ fmap (fill' a i) t 
-          fill' _ _ x = x
+-- | Fill a hole in a context
+fill,(|>) :: Traversable t => Context t r -> GT t r -> GT t r
+fill (S ct) x = S (fmap fill' ct)
+    where fill' (CtxVar 0) = x
+          fill' (CtxVar i) = CtxVar (i-1)
+          fill' (S t)      = S$ fmap fill' t 
+          fill' x          = x
 fill CtxVar{} x = --trace ("Warning! " ++ show x)  
                   x
 fill x y = --trace ("Warning2! " ++ show x ++ " |> " ++ show y) 
            x
-
+           
 (|>) = fill
 
-contexts :: Traversable t => GT t r -> [(GT t r,Context t r)]
-contexts (S t) = --(CtxVar 0, S t) : 
-                 catMaybes (map (context (S t) c) [0..size t - 1])
-    where c = (length . collect_ isCtxVar) (S t)
-          context :: Traversable t =>
-                              GT t r -> Int -> Int -> Maybe (GT t r,Context t r)
-          context (S t) depth i = let 
-             (a, t') = first (msum . toList) . unzipG $
-                        fmap (\(j,u)->if i==j && not (isCtxVar u) 
-                                       then (Just u, CtxVar depth) 
-                                       else (Nothing,u)) 
-                             (unsafeZipG [0..] t)
-           in a >>= \a'->return (a',S t')
+-- | Returns a list of subterms and the corresponding contexts
+--   | forall subterm ctx . (subterm, ctx) <- contexts t ==> ctx |> subterm = t
+contexts :: Traversable t => GT t r -> [(GT t r, Context t r)]
+contexts (S t) = [contexts i | i <- [1..size t]]
+    where 
+      shift_t    = shiftC 1 (S t)
+      contexts i = first (shiftC (-1)) $ swap$ fromJust$ updateAt' shift_t [i] (CtxVar 0)
+      swap (x,y) = (y,x)
 contexts _ = []
 
-{- -- REVIEW these properties
-propIdentity x = and [ ct|>y == x | (y,ct) <- contexts x ]
-  where types = (x :: [Int])
-
-propIdentity2 x = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts x
-                                                 , (y,ct) <- contexts ct1]
-  where types = (x :: [Int])
--}
+-- | Shift the indexes of the contexts inside
+--shiftC :: Functor t => GT t r -> GT t r
+shiftC n (S t) = S$ fmap (shiftC n) t
+shiftC n (CtxVar i) = CtxVar $! (i + n)
+shiftC _ x = x
