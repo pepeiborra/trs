@@ -27,16 +27,23 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , sequence, concat, concatMap )
 import GHC.Exts (unsafeCoerce#)
 
-data TermST a = T !String [a]
+data TermShape a = T !String [a]
     deriving Eq
 
-type Term r = GTE TermST r
+type TermST r = GTE TermShape r
+type Term = TermStatic TermShape
 
-type RewRule r = Rule TermST r 
+type RewRule = Rule TermShape
 
 term = (s.) . T
+term1 f t       = s$ T f [t]
+term2 f t t'    = s$ T f [t,t']
+term3 f t t' t''= s$ T f [t,t',t'']
 
-instance Ord a => Ord (TermST a) where
+var  = Var 
+constant f = s (T f [])
+
+instance Ord a => Ord (TermShape a) where
     (T s1 tt1) `compare` (T s2 tt2) = 
         case compare s1 s2 of
           EQ -> compare tt1 tt2
@@ -46,14 +53,14 @@ instance Ord a => Ord (TermST a) where
 -- Instantiation of the relevant classes
 ---------------------------------------------------------
 
-instance Traversable TermST where
+instance Traversable TermShape where
     traverse f (T s tt) = T s <$> traverse f tt
-instance Functor TermST where
+instance Functor TermShape where
     fmap = fmapDefault
-instance Foldable TermST where
+instance Foldable TermShape where
     foldMap = foldMapDefault
 
-instance RWTerm TermST where
+instance RWTerm TermShape where
   matchTerm (T s1 tt1) (T s2 tt2) = if s1==s2 && length tt1 == length tt2
               then Just (zip tt1 tt2)
               else Nothing
@@ -66,7 +73,7 @@ instance Eq (Term a) where
   t1 == t2 = (S t1) `equal` (S t2)
 -}
 
-instance Show a => Show (TermST a) where 
+instance Show a => Show (TermShape a) where 
     show (T s [])   = s
     show (T s [x,y]) | not (any isAlpha s)
                      = show x ++ ' ':s ++ ' ':show y
@@ -76,7 +83,6 @@ instance Show a => Show (TermST a) where
  
 --sh = text . show
 
-
 class Outputable a where
   ppr :: a -> Doc
 
@@ -85,6 +91,6 @@ class Outputable a where
 ---------------------------------------------
 
 uc = unsafeCoerce#
-ucT t = uc t :: GTE TermST r
-ucR r = uc r :: Rule TermST r
+ucT t = uc t :: GTE TermShape r
+--ucR r = uc r :: Rule TermShape
 

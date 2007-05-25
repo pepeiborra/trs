@@ -45,6 +45,7 @@ iterateMn n f x = f x >>= iterateMn (n-1) f
 iterateM f x = let iM f x = x : iM f (x >>= f) in
                sequence $ iM f $ return x
 
+concatMapM f = fmap concat . mapM f
 
 -- |All the pairs of element + rest of the list
 selections :: [a] -> [(a,[a])]
@@ -198,7 +199,6 @@ runErrorT_ =  fmap noErrors . runErrorT
 noErrors (Left msg) = error msg
 noErrors (Right x)  = x
 
--- #define DEBUG
 trace msg x = 
 #ifdef DEBUG 
   Debug.Trace.trace msg x 

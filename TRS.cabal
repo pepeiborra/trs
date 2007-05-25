@@ -1,10 +1,10 @@
 name: TRS
-version: 0.6
+version: 0.7
 license: AllRightsReserved
 license-file: ""
 copyright:
 maintainer:
-build-depends: base -any, mtl ==1.0, Hood, QuickCheck
+build-depends: base -any, mtl, GHoodOff, QuickCheck
 stability:
 homepage:
 package-url:
@@ -15,14 +15,20 @@ author: Pepe Iborra
 tested-with:
 extra-source-files:
 extra-tmp-files:
-exposed-modules: TRS, TRS.Utils, TRS.Terms, TRS.Types
-other-modules: TRS.Core, TRS.Context
+exposed-modules: 
+  TRS
+  TRS.Utils 
+  TRS.Terms
+  TRS.Types
+other-modules: 
+  TRS.Core 
+  TRS.Context
 buildable: True
 cc-options:
 ld-options:
 frameworks:
 c-sources:
-extensions:
+extensions: CPP
 extra-libraries:
 extra-lib-dirs:
 includes:

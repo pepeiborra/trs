@@ -47,13 +47,20 @@ The datatype of 'Generic Terms', where the type variables have the following mea
    s:  This is a type constructor for the structure of terms (See Terms.hs for an example)
    r:  This is the ST monad thread token
 -}
-
-data GT_ (eq :: *) (s :: * -> *) (r :: *) = 
+#ifdef __HADDOCK__
+data GT_ eq s r = 
    S (s(GT_ eq s r))
  | MutVar (STRef r (Maybe (GT_ eq s r)))
  | GenVar Int
  | CtxVar Int
 
+#else
+data GT_ (eq :: *) (s :: * -> *) (r :: *) = 
+   S (s(GT_ eq s r))
+ | MutVar (STRef r (Maybe (GT_ eq s r)))
+ | GenVar Int
+ | CtxVar Int
+#endif
 -- 'Witness' types for equality. The actual Eq instances for GT_ are not 
 --  defined here, but in the Core module
 data Syntactic  -- denotes pure syntactic equality
@@ -62,8 +69,6 @@ data Semantic   -- denotes syntactic equality modulo variables
 type GT s r  = GT_ Syntactic s r
 type GTE s r = GT_ Semantic s r
 
-s :: s(GTE s r) -> GTE s r
-s      = S
 genVar :: Int -> GTE s r
 genVar = GenVar
 
@@ -80,7 +85,12 @@ type Ptr_ eq s r = STRef r (Maybe (GT_ eq s r))
 type Ptr s r     = STRef r (Maybe (GT s r))
 type GTm m s r   = m (ST r) (GT s r)
 
-data Fix s  = Fix (s (Fix s)) | Var Int
+data TermStatic_ s i = Term (s (TermStatic s)) | Var i
+  deriving (Eq)
+type TermStatic s = TermStatic_ s Int
+
+s :: s(TermStatic s) -> TermStatic s
+s      = Term
 
 -- ** MutVars
 fresh	  :: ST r (GT_ eq s r)
@@ -166,6 +176,14 @@ updateAt' x pos x' = go x pos x' >>= \ (t',a) -> a >>= \v->return (t',v)
 class (Traversable s) => RWTerm s where
     matchTerm     :: s x -> s x -> Maybe [(x,x)]
 
+-- | Match two static terms
+--   1st arg is the template
+matchStatic (Term x) (Term y) 
+  | Nothing <- matchTerm x y = Nothing
+  | Just pairs <- matchTerm x y
+  = concatMapM (uncurry matchStatic) pairs
+matchStatic (Var v) (Term y) = return [(v,y)]
+matchStatic _ _ = Nothing
 ----------------------
 -- * Substitutions
 ----------------------
@@ -191,9 +209,12 @@ mkVarsForTerm t | null vars_t = return emptyS
 -- * The Omega type class 
 ------------------------
 -- |"Omega is just a Type Class constraint synonym" 
+#ifdef __HADDOCK__
+class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s) => Omega m s r
+#else
 class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s) => 
     Omega (m :: (* -> *) -> * -> *) (s :: * -> *) r
-
+#endif
 class (Omega m s r, MonadPlus (m (ST r))) => OmegaPlus m s r 
 
 instance ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s) => Omega m s r
@@ -208,12 +229,17 @@ data TRSException = Match (MatchException)
 data MatchException = GenErrorMatch
                     | ShapeErrorMatch
   deriving (Show,Eq)
-
+#ifdef __HADDOCK__
+data UnifyException = 
+    GenErrorUnify   |
+    ShapeErrorUnify |
+    OccursError     
+#else
 data UnifyException where 
     GenErrorUnify   :: UnifyException
     ShapeErrorUnify :: Show a => a -> a -> UnifyException
     OccursError     :: UnifyException
-
+#endif
 instance Show UnifyException where
   show GenErrorUnify = "Unification: general error"
   show OccursError   = "Unification: occurs  error"
@@ -236,6 +262,7 @@ genErrorUnify   = Unify GenErrorUnify
 shapeErrorUnify :: Show a => a -> a -> TRSException
 shapeErrorUnify = (Unify.) . ShapeErrorUnify
 occursError     = Unify OccursError
+
 --------------------------------
 -- Other Instances and base operators
 --------------------------------
@@ -243,11 +270,16 @@ occursError     = Unify OccursError
 liftSubst f (Subst s) = Subst (f s)
 
 varNames = "XYZWJIKHW"
-instance (Show (s (GT_ eq s r))) => Show (GT_ eq s r) where
-    show (S s)      = show s
-    show (GenVar n) = if n < length varNames 
+showVar n = if n < length varNames 
                          then [varNames !! n] 
                          else ('v' : show n)
+instance (Show (s (TermStatic s))) => Show (TermStatic s) where
+    show (Term s) = show s
+    show (Var  i) = showVar i 
+
+instance (Show (s (GT_ eq s r))) => Show (GT_ eq s r) where
+    show (S s)      = show s
+    show (GenVar n) = showVar n
     show (CtxVar c) = '[' : show c ++ "]" 
     show (MutVar r) = "?" ++ (show . hashStableName . unsafePerformIO . makeStableName$ r) ++ ":=" ++ (show$  unsafeAll $ ( readSTRef r))
 --        where unsafeAll = unsafePerformIO . ST.unsafeSTToIO . lazyToStrictST
@@ -286,7 +318,7 @@ instance Arbitrary(GTE s r) => Arbitrary(GT s r) where
 ----------
 -- * Rules
 ----------
-type Rule s r  = RuleG (GTE s r)
+type Rule s  = RuleG (TermStatic s)
 type RuleI s r = RuleG (GT  s r)
 data RuleG a = a :-> a
 
