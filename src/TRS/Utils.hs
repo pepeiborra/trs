@@ -26,6 +26,7 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, co
                       , sequence, and )
 
 import qualified Debug.Trace
+import Control.Exception
 
 inBounds _ [] = False
 inBounds 0 _  = True
@@ -105,9 +106,14 @@ mapMState f s0 x = flip runStateT s0 (mapM f' x)
 size :: Traversable t => t a -> Int
 size = length . toList    
 
+modifySpine t xx = assert (xx >=: toList t) $  mapM (\_-> pop) t `evalState` xx
+  where pop = gets head >>= \v -> modify tail >> return v
+
 --fmap2 = (fmap.) . fmap
 fmap2 f x = fmap (fmap  f) x
 fmap3 f x = fmap (fmap2 f) x 
+
+concatMap2 f = concat . concat . fmap (fmap f)
 
 successes :: (MonadPlus m, Functor m) => [m a] -> m [a]
 successes cc = fmap concat $ sequence $ map (\c->fmap unit c `mplus` return []) cc
@@ -191,6 +197,12 @@ atLeast _ []   = False
 atLeast 0 _    = True
 atLeast n list = atLeast (n-1) (tail list)
 
+_      >=: []     = True
+(x:xx) >=: (y:yy) = xx >=: yy
+_      >=: _      = False
+
+propLEQCons xx yy = (length xx >= length yy) == xx >=: yy
+    where types = (xx::[Int], yy::[Int])
 
 runIdentityT = runErrorT_
 

@@ -25,6 +25,8 @@ import Control.Monad hiding (msum, mapM_, mapM, sequence, forM)
 import Control.Monad.Error (MonadError(..), ErrorT(..), MonadTrans(..))
 import Control.Monad.State (StateT(..), MonadState(..), gets, modify, lift)
 import Control.Monad.Fix (MonadFix(..))
+import Control.Exception (assert)
+import Test.QuickCheck (Arbitrary(..))
 import Data.List ((\\), nub, elemIndex)
 import Data.Traversable
 import Data.Foldable
@@ -32,23 +34,21 @@ import Data.Maybe
 import Data.Monoid
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
-import TRS.Types
+
+import TRS.Types 
+import TRS.Term
 import TRS.Terms
 import TRS.Context
 import TRS.Utils
-import Control.Exception (assert)
-import Test.QuickCheck (Arbitrary(..))
 
 import GHC.Exts (unsafeCoerce#)
 import Observe
 import qualified Debug.Trace
 
-instance RWTerm s => Eq (GT s r) where
-  (==) = equal   -- syntactic equality
+instance TermShape s => Eq (GT s r) where
+  (==) = synEq   -- syntactic equality
 
-{-# SPECIALIZE prune_ :: GT TermShape r -> ST r (GT TermShape r) #-}
-{-# SPECIALIZE equal :: GT TermShape r  -> GT TermShape r  -> Bool #-}
-
+{-# SPECIALIZE prune_ :: GT BasicShape r -> ST r (GT BasicShape r) #-}
 
 ---------------------------
 -- * External Interface
@@ -62,7 +62,7 @@ liftGTE2 f x y =  f (idGT x) (idGT y)
 --liftGTE :: Functor f => (GT s r -> f(GT s r)) -> GTE s r -> f(GTE s r)
 liftGTE f = fmap eqGT . f . idGT
 fixRules :: Functor s => [Rule s] -> [RuleI s r]
-fixRules = map $ \(t :-> s) -> mkTemplate t :-> mkTemplate s
+fixRules = map $ \(t :-> s) -> templateTerm t :-> templateTerm s
 adaptSubstitutionResult f rre t = fmap (second eqGT) $ f (fixRules rre) (idGT t)
 
 prune	  :: GTE s r -> ST r (GTE s r)
@@ -74,7 +74,8 @@ unify = liftGTE2 unify_
 match	  :: Omega m s r => GTE s r -> GTE s r -> m (ST r) ()
 match = liftGTE2 match_
 
-instan	  :: RWTerm s => Subst s r -> GTE s r -> ST r (GTE s r)
+-- | Instantiates a type scheme with the given substitution
+instan	  :: TermShape s => Subst s r -> GTE s r -> ST r (GTE s r)
 instan s = liftGTE (instan_ s)
 
 rewrite1  :: OmegaPlus m s r => [Rule s] -> GTE s r -> m (ST r) (GTE s r)
@@ -109,15 +110,20 @@ narrowFullBoundedV :: (OmegaPlus m s r) =>
                       m (ST r) (Subst s r, GTE s r)
 narrowFullBoundedV pred = adaptSubstitutionResult (narrowFullBoundedV_ (pred . eqGT))
 
-generalize :: RWTerm s => GTE s r -> ST r (GTE s r)
+-- | generalize builds a sigma type, i.e. a type scheme, by 
+--   replacing all mutvars in a term with GenVars
+generalize :: TermShape s => GTE s r -> ST r (GTE s r)
 generalize = liftGTE generalize_
 
-generalizeG::(RWTerm s, Traversable f) => f(GTE s r) -> ST r (f(GTE s r))
+generalizeG::(TermShape s, Traversable f) => f(GTE s r) -> ST r (f(GTE s r))
 generalizeG = fmap2 eqGT . generalizeG_  . fmap idGT
 
 generalizeGG = fmap3 eqGT . generalizeGG_ . fmap2 idGT
 
-autoInst  :: RWTerm s => GTE s r -> ST r (Subst s r, GTE s r)       
+-- | autoInst instantitates a type scheme with fresh mutable vars
+--   Returns the instantiated term together with the new MutVars 
+--  (you need these to apply substitutions) 
+autoInst  :: TermShape s => GTE s r -> ST r (Subst s r, GTE s r)       
 autoInst t = fmap (second eqGT) $ autoInst_ (idGT t)
 
 -----------------------------
@@ -152,30 +158,25 @@ narrowFullBoundedV_:: (OmegaPlus m s r) =>
                       (GT s r -> ST r Bool) -> [RuleI s r] -> GT s r -> 
                       m (ST r) (Subst s r, GT s r)
 
-generalize_ ::RWTerm s => GT s r -> ST r (GT s r)
-generalizeG_::(RWTerm s,Traversable f) => f(GT s r) -> ST r (f(GT s r))
-generalizeGG_::(RWTerm s, Traversable f, Traversable f') => 
+generalize_ ::TermShape s => GT s r -> ST r (GT s r)
+generalizeG_::(TermShape s,Traversable f) => f(GT s r) -> ST r (f(GT s r))
+generalizeGG_::(TermShape s, Traversable f, Traversable f') => 
                f'(f(GT s r)) -> ST r (f'(f(GT s r)))
 
--- |Returns the instantiated term together with the new MutVars 
---  (you need these to apply substitutions) 
-autoInst_ :: RWTerm s => GT s r -> ST r (Subst s r, GT s r)       
-autoInstG_:: (Traversable s, Traversable f) =>  f(GT s r) -> ST r (Subst s r, f(GT s r))
+autoInst_ :: TermShape s => GT_ eq s r -> ST r (Subst_ eq s r, GT_ eq s r)       
+autoInstG_:: (Traversable s, Traversable f, TermShape s) =>  
+               f(GT_ eq s r) -> ST r (Subst_ eq s r, f(GT_ eq s r))
 
 
 -- * Basic primitives
 unify_	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
 match_	  :: Omega m s r => GT s r -> GT s r -> m (ST r) ()
 
--- | Syntactic equality
-equal	  :: RWTerm s    => GT s r -> GT s r -> Bool
-
 -- ** Dereference variables
 prune_	  :: GT_ eq s r  -> ST r (GT_ eq s r)
 col 	  :: Traversable s => GT_ eq s r  -> ST r (GT_ eq s r)    
 instan_	  :: Traversable s => Subst_ eq s r-> GT_ eq s r -> ST r (GT_ eq s r)
 
-resetVars :: (Eq (GT_ eq s r), Traversable s) => GT_ eq s r -> GT_ eq s r
 occurs	  :: Omega m s r => Ptr_ eq s r -> GT_ eq s r ->m (ST r) Bool
 
 {-# INLINE prune_ #-}
@@ -252,45 +253,6 @@ match_ tA tB =
 		  mapM_ (uncurry match_) pairs 
 	  (_,_) -> throwError shapeErrorMatch 
 	} 
-equal x y = go x y
-  where 
-    go x y = 
-      case (x,y) of 
-	(MutVar r1,MutVar r2) -> 
-	  r1 == r2 
-	(GenVar n,GenVar m) -> m==n
-	(CtxVar n,CtxVar m) -> m==n
-        (S x, S y) -> 
-	    case matchTerm x y of 
-	      Nothing -> False 
-	      Just pairs -> all (uncurry go) pairs 
-        other -> False
-
-collect   :: Foldable s  => (GTE s r -> Bool) -> GTE s r -> [GTE s r]
-collect pred = liftGTE (collect_ (pred . eqGT) )
-
-{- Good performance of equality is fundamental. But everytime it's called
-   a resetVars is done (see the Eq instance for GTE), which is expensive
-
-   Let's distinguish between syntactic and semantic equivalence. 
-   Function 'equal' above tests for syntactic. When paired with resetVars below
-   we are testing for semantic. Syntactic is much faster, semantic is correct. 
-   For instance, in dupTermWithSubst I only need to test for 
-   syntactic, as in most places inside this module! 
-   Thus the reasoning is as follows. Inside this module I want to use syntactic
-   equivalence. Why? Because it's way faster, and I don't need the extra 
-   generality. But for the client, I want to expose the always correct 
-   semantic version of equality instance.
--}
--- This is a kludge. Used to simulate 'equivalence up to renaming'
--- In theory this 'canonicalizes' the vars of a term
-resetVars x = reset x
-    where reset g@GenVar{} = new_vars !! fromMaybe undefined (elemIndex g vars_x)
-          reset m@MutVar{} = new_vars !! fromMaybe undefined (elemIndex m vars_x)
-          reset (S t)      = S$ fmap reset t 
-          reset x  = x
-          vars_x   = vars x
-          new_vars = map GenVar [0..]
 
 instan_ sub x = 
       do { x' <- prune_ x 
@@ -302,34 +264,34 @@ instan_ sub x =
 --generalize_ x | trace ("generalize " ++ show x ) False = undefined
 generalize_ x = do
            x' <- col x
-           let gvars = collect_ isGenVar x'
-               mvars = collect_ isMutVar x'
+           let gvars = collect isGenVar x'
+               mvars = collect isMutVar x'
                tot   = length gvars + length mvars
                new_gvars = map GenVar
                                ([0..tot]\\[j|GenVar j <- gvars])
-           let x'' = (replaceAll (zip mvars new_gvars)) x'
+           let x'' = replace (zip mvars new_gvars) x'
            assert (noMVars x'') (return ())
            return x''
 
 generalizeG_ x = do
            x' <- mapM col x
-           let gvars = nub$ concat (toList (fmap (collect_ isGenVar) x'))
-               mvars = nub$ concat (toList (fmap (collect_ isMutVar) x'))
+           let gvars = nub$ concat (toList (fmap (collect isGenVar) x'))
+               mvars = nub$ concat (toList (fmap (collect isMutVar) x'))
                tot   = length gvars + length mvars
                new_gvars = map GenVar
                                ([0..tot]\\[j|GenVar j <- gvars])
-           let x'' = fmap (replaceAll (zip mvars new_gvars)) x'
+           let x'' = fmap (replace (zip mvars new_gvars)) x'
            assert (all noMVars x'') (return ())
            return x''
 
 generalizeGG_ x = do
            x' <- mapM2 col x
-           let gvars = nub$ concat2 (toList2 (fmap2 (collect_ isGenVar) x'))
-               mvars = nub$ concat2 (toList2 (fmap2 (collect_ isMutVar) x'))
+           let gvars = nub$ concat2 (toList2 (fmap2 (collect isGenVar) x'))
+               mvars = nub$ concat2 (toList2 (fmap2 (collect isMutVar) x'))
                tot   = length gvars + length mvars
                new_gvars = map GenVar
                                ([0..tot]\\[j|GenVar j <- gvars])
-           let x'' = fmap2 (replaceAll (zip mvars new_gvars)) x'
+           let x'' = fmap2 (replace (zip mvars new_gvars)) x'
            assert (all (and . fmap noMVars) x'') (return ())
            return x''
 
@@ -342,49 +304,35 @@ autoInst_ x@MutVar{} = return (emptyS, x)
 autoInst_ x
     | null gvars = return (emptyS, x)
     | otherwise  = do
-           freshv <- fmap (Subst . reverse) $ 
-                    foldM (\rest gv -> liftM (:rest) $
-                            if gv`elem`gvars then fresh else return gv) 
-                          []
-                          (map GenVar [0..maxGVar+1])
+           freshv <- mkVarsForTerm x
            x' <- instan_ freshv x
            assert (noGVars x') (return ())
            x' `seq` return (freshv, x')
-    where gvars = collect_ isGenVar x
+    where gvars = collect isGenVar x
           maxGVar = maximum [ n | GenVar n <- gvars]
-          upd list i v | (h, (_:t)) <- splitAt i list = h ++ v:t
-          updM list i c = c >>= return . upd list i
 
-run_autoInstG_ autoInst1 = fmap swap . flip runStateT emptyS . autoInst1 
-  where swap (a,b) = (b,a)
 
-autoInstG_ = run_autoInstG_ (mapM autoInst1)
-autoInstGG_= run_autoInstG_ (mapM2 autoInst1)
+autoInstG_ xx = do
+  freses <- Subst <$> replicateM topIndex fresh 
+  xx' <- instan_ freses `mapM` xx
+  return (freses, xx')
+    where topIndex = maximum [ i | GenVar i <- concatMap vars xx]
 
-autoInst1 x = do
-           freshv <- createFreshs x
-           lift$ instan_ freshv x
-    where createFreshs t | null vars_t = get 
-                         | otherwise   = do
-             freshv <- gets subst
-             unless (topIndex `atLeast` freshv) $ do
-                extra_freshv <- replicateM (topIndex - length freshv + 1) 
-                                           (lift fresh)
-                put (Subst$ freshv ++ extra_freshv)
-             get
-               where
-                  vars_t = vars t
-                  topIndex = maximum [ i | GenVar i <- vars_t ]
-
+autoInstGG_ xx = do
+  freses <- Subst <$> replicateM topIndex fresh 
+  xx' <- instan_ freses `mapM2` xx
+  return (freses, xx')
+    where topIndex = maximum [ i | GenVar i <- concatMap2 vars xx]
+  
 -----------------------
 -- * Semantic Equality
 -----------------------
-instance RWTerm s => Eq (GTE s r) where
+instance TermShape s => Eq (GTE s r) where
 --  a == b = resetVars (idGT a) `equal` resetVars(idGT b)
   (==) = equal_sem'
 
 -- |Semantic equality (equivalence up to renaming of vars) 
-equal_sem :: (RWTerm s) => GT s r -> GT s r -> ST r Bool
+equal_sem :: (TermShape s) => GT s r -> GT s r -> ST r Bool
 equal_sem x@S{} y@S{} = fmap (either (return False) id) $ runErrorT $ do
     (theta_x, x') <- lift$ autoInst_ x
     (theta_y, y') <- lift$ autoInst_ y
@@ -392,36 +340,30 @@ equal_sem x@S{} y@S{} = fmap (either (return False) id) $ runErrorT $ do
     return (none isTerm theta_x && none isTerm theta_y)
   where none = (not.) . any
 
-equal_sem x y = return$ equal x y
+equal_sem x y = return$ synEq x y
 
 -- | Out of the monad, fails for terms with mutvars
 -- TODO Review in terms of staticTerm
-equal_sem' :: (RWTerm s) => GTE s r -> GTE s r -> Bool
+equal_sem' :: (TermShape s) => GTE s r -> GTE s r -> Bool
 equal_sem' s t = assert (noMVars s) $ assert (noMVars t) $ 
-  let   s' = mkTemplate $ zonkTerm s
-        t' = mkTemplate $ zonkTerm t
+  let   s' = templateTerm $ zonkTerm s
+        t' = templateTerm $ zonkTerm t
    in runST (equal_sem s' t')
 
-instance RWTerm s => Eq (Rule s) where
-  (==) = equal_rule'
+instance TermShape s => Eq (Rule s) where
+  (==) = equal_rule
 
--- | Semantic equivalence for rules (no mvars restriction)
-equal_rule' :: RWTerm s => Rule s -> Rule s ->  Bool
-equal_rule' s1 s2 = runST (equal_rule s1' s2')
-      where s1' = fmap mkTemplate s1
-            s2' = fmap mkTemplate s2
+-- | Semantic equivalence for rules 
+equal_rule :: TermShape s => Rule s -> Rule s ->  Bool
+equal_rule s1_ s2_ = runST$ do
+   [l1:->r1,l2:->r2] <- mapM (mutableRule >=> generalizeG_) [s1_,s2_]
+   return (l1 `synEq` l2 && r1 `synEq` r2)
 
--- | Semantic equivalence for rules
---equal_rule :: RWTerm s => RuleI s r -> RuleI s r -> ST r Bool
-equal_rule s1 s2 = fmap(either (return False) id) $ runErrorT$ do
-   (theta1, l1:->r1) <- lift$ autoInstG_ (fmap idGT s1)
-   (theta2, l2:->r2) <- lift$ autoInstG_ (fmap idGT s2)
-   unify_ l1 l2 >> unify_ r1 r2
-   lift$ isARenaming (subst theta1) &>& allM isEmptyVar (subst theta2)
-   where (&>&) = liftM2 (&&)
-         isARenaming = allM (\(MutVar m) -> readVar m >>= 
-                       return . maybe True (not . isTerm))
-
+instance TermShape s => Eq (TermStatic s) where
+  t1 == t2 = runST$ do
+   [t1',t2'] <- mapM (mutableTerm >=> generalize_) [t1,t2]
+   return (t1' `synEq` t2')
+   
 -----------------------------------------------------
 -----------------------------------------------------
 
@@ -535,25 +477,29 @@ narrowTopG' narrowTop1 rules ct subst t = msum$ forEach rules $ \r -> do
 -- * Out and back into the ST monad
 --------------------------------------------------------------------------
 
-instTerm :: (RWTerm s, Functor s) => TermStatic s -> ST r (GTE s r)
-instTerm = autoInst . mkTemplate >=> return . snd
+mutableTerm :: (TermShape s, Functor s) => TermStatic s -> ST r (GT s r)
+mutableTerm = autoInst_ . templateTerm >=> return . snd
 
-mkTemplate (Term x) = S(fmap mkTemplate x)
-mkTemplate (Var n)  = GenVar n
+mutableRule :: (TermShape s, Functor s) => Rule s -> ST r (RuleG (GT s r))
+mutableRule = autoInstG_ . fmap templateTerm >=> return . snd
+
+templateTerm :: Functor s =>  TermStatic s -> GT s r -- PEPE be careful with equality
+templateTerm (Term x) = S(templateTerm <$> x)
+templateTerm (Var n)  = GenVar n
 
 
-zonkTerm :: (RWTerm s) => GT_ eq s t -> TermStatic s
+zonkTerm :: (TermShape s) => GT_ eq s t -> TermStatic s
 zonkTerm (MutVar r) = error "zonkTerm: No vars" 
 zonkTerm (GenVar n) = Var n
 zonkTerm (S y) = Term (fmap zonkTerm y)
 zonkTerm (CtxVar n) = trace "dooyoo" $ Var n
 
-zonkTermG :: (RWTerm s, Functor s, Functor f) => f (GT_ eq s r) -> f (TermStatic s)
+zonkTermG :: (TermShape s, Functor s, Functor f) => f (GT_ eq s r) -> f (TermStatic s)
 zonkTermG   = fmap zonkTerm
 
-instTermG :: (RWTerm s, Traversable f, Functor s) => 
+instTermG :: (TermShape s, Traversable f, Functor s) => 
             f (TermStatic s) -> ST r (f (GT s r))
-instTermG = fmap snd . autoInstG_ . fmap mkTemplate
+instTermG = fmap snd . autoInstG_ . fmap templateTerm
 
 --------------------------------
 -- * Duplication of Terms
@@ -564,46 +510,39 @@ dupTerm (S t) = fmap S $ mapM dupTerm t
 dupTerm x = return x
 
 --dupTermWithSubst subst tt x | trace "dupTermWithSubst" False = undefined
-dupTermWithSubst :: (Eq (GT s r), RWTerm s) => 
+dupTermWithSubst :: (Eq (GT s r), TermShape s) => 
                     Subst s r -> [GT s r] -> GT s r 
                  -> ST r (Subst s r, [GT s r], GT s r)
 dupTermWithSubst subst tt t@MutVar{} = do
     t'        <- dupTerm t
     let dict   = [(t,t')]
-        subst' = liftSubst (fmap (replaceAll dict)) subst
-        tt'    = fmap (replaceAll dict) tt
+        subst' = liftSubst (fmap (replace dict)) subst
+        tt'    = fmap (replace dict) tt
     return (subst', tt', t')
 
 dupTermWithSubst subst tt t@S{} = do
-    let mutvars= collect_ isMutVar t
+    let mutvars= collect isMutVar t
     newvars   <- mapM dupTerm mutvars
     let dict   = zip mutvars newvars
-        t'     = replaceAll dict t
-        tt'    = fmap (replaceAll dict) tt
-        subst' = liftSubst (fmap(replaceAll dict)) subst
+        t'     = replace dict t
+        tt'    = fmap (replace dict) tt
+        subst' = liftSubst (fmap(replace dict)) subst
     return (subst', tt', t')
 
 dupTermWithSubst subst tt x = return (subst, tt, x)
 
--- syntactic equality is primordial here
-replaceAll :: (Eq (GT s r), RWTerm s) => 
-              [(GT s r, GT s r)] -> GT s r -> GT s r
-replaceAll dict x = fromJust$ replaceAll' dict x
-   where replaceAll' dict (S t) = lookup (S t) dict `mplus` 
-                                  fmap S (mapM (replaceAll' dict) t) 
-         replaceAll' dict x = lookup x dict `mplus` return x
 
 ------------------------------
 -- * Obtaining the results
 ------------------------------
-run :: (RWTerm s, Show (s (GTE s r))) => (forall r.ST r (GTE s r)) -> TermStatic s
+run :: (TermShape s, Show (s (GTE s r))) => (forall r.ST r (GTE s r)) -> TermStatic s
 run c = runST (fmap zonkTerm c)
 
-runG :: (RWTerm s, Show (s (GTE s r)), Functor f) =>
+runG :: (TermShape s, Show (s (GTE s r)), Functor f) =>
          (forall r.ST r (f(GTE s r))) -> f(TermStatic s)
 runG c = runST ( (fmap2 zonkTerm c))
 
-runGG :: (RWTerm s, Show (s (GTE s r)), Functor f, Functor f1) =>
+runGG :: (TermShape s, Show (s (GTE s r)), Functor f, Functor f1) =>
          (forall r.ST r (f(f1(GTE s r)))) -> f(f1(TermStatic s))
 runGG c = runST ( (fmap3 zonkTerm c))
 

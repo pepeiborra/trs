@@ -27,13 +27,13 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , sequence, concat, concatMap )
 import GHC.Exts (unsafeCoerce#)
 
-data TermShape a = T !String [a]
+data BasicShape a = T !String [a]
     deriving Eq
 
-type TermST r = GTE TermShape r
-type Term = TermStatic TermShape
+type TermST r = GTE BasicShape r
+type Term = TermStatic BasicShape
 
-type RewRule = Rule TermShape
+type RewRule = Rule BasicShape
 
 term = (s.) . T
 term1 f t       = s$ T f [t]
@@ -43,7 +43,7 @@ term3 f t t' t''= s$ T f [t,t',t'']
 var  = Var 
 constant f = s (T f [])
 
-instance Ord a => Ord (TermShape a) where
+instance Ord a => Ord (BasicShape a) where
     (T s1 tt1) `compare` (T s2 tt2) = 
         case compare s1 s2 of
           EQ -> compare tt1 tt2
@@ -53,14 +53,14 @@ instance Ord a => Ord (TermShape a) where
 -- Instantiation of the relevant classes
 ---------------------------------------------------------
 
-instance Traversable TermShape where
+instance Traversable BasicShape where
     traverse f (T s tt) = T s <$> traverse f tt
-instance Functor TermShape where
+instance Functor BasicShape where
     fmap = fmapDefault
-instance Foldable TermShape where
+instance Foldable BasicShape where
     foldMap = foldMapDefault
 
-instance RWTerm TermShape where
+instance TermShape BasicShape where
   matchTerm (T s1 tt1) (T s2 tt2) = if s1==s2 && length tt1 == length tt2
               then Just (zip tt1 tt2)
               else Nothing
@@ -73,7 +73,7 @@ instance Eq (Term a) where
   t1 == t2 = (S t1) `equal` (S t2)
 -}
 
-instance Show a => Show (TermShape a) where 
+instance Show a => Show (BasicShape a) where 
     show (T s [])   = s
     show (T s [x,y]) | not (any isAlpha s)
                      = show x ++ ' ':s ++ ' ':show y
@@ -91,6 +91,6 @@ class Outputable a where
 ---------------------------------------------
 
 uc = unsafeCoerce#
-ucT t = uc t :: GTE TermShape r
---ucR r = uc r :: Rule TermShape
+ucT t = uc t :: GTE BasicShape r
+--ucR r = uc r :: Rule BasicShape
 

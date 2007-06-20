@@ -26,23 +26,25 @@ import Data.Foldable as Foldable
 import Data.Maybe
 import Data.Monoid
 import Data.Traversable as Traversable
-import Control.Monad       hiding (msum)
-import Control.Monad.Error hiding (msum)
+import Control.Monad       hiding (msum, mapM)
+import Control.Monad.Error (MonadError, Error(..))
 import Control.Monad.Fix
 import Control.Monad.Trans
+import Control.Monad.State (gets, modify, evalState)
 import Control.Monad.ST
 import qualified Control.Monad.ST as ST
 import Data.STRef
 import System.Mem.StableName
 import System.IO.Unsafe
-import Test.QuickCheck
+import Test.QuickCheck hiding (collect)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
 
 import GHC.Exts
 
-{-
-The datatype of 'Generic Terms', where the type variables have the following meaning:
+-- * Generic Terms
+{- | 
+     The datatype of 'Generic Terms', where the type variables have the following meaning:
    eq: This is a phantom variable used to switch between syntactic and semantic equality (I could have done the same with a separate newtype wrapper)
    s:  This is a type constructor for the structure of terms (See Terms.hs for an example)
    r:  This is the ST monad thread token
@@ -50,9 +52,9 @@ The datatype of 'Generic Terms', where the type variables have the following mea
 #ifdef __HADDOCK__
 data GT_ eq s r = 
    S (s(GT_ eq s r))
- | MutVar (STRef r (Maybe (GT_ eq s r)))
- | GenVar Int
- | CtxVar Int
+ | MutVar (STRef r (Maybe (GT_ eq s r)))  -- | A Mutable variable
+ | GenVar Int                             -- | A type scheme, univ. quantified variable 
+ | CtxVar Int                             -- | For internal use
 
 #else
 data GT_ (eq :: *) (s :: * -> *) (r :: *) = 
@@ -85,13 +87,6 @@ type Ptr_ eq s r = STRef r (Maybe (GT_ eq s r))
 type Ptr s r     = STRef r (Maybe (GT s r))
 type GTm m s r   = m (ST r) (GT s r)
 
-data TermStatic_ s i = Term (s (TermStatic s)) | Var i
-  deriving (Eq)
-type TermStatic s = TermStatic_ s Int
-
-s :: s(TermStatic s) -> TermStatic s
-s      = Term
-
 -- ** MutVars
 fresh	  :: ST r (GT_ eq s r)
 readVar   :: STRef s a -> ST s a
@@ -114,22 +109,22 @@ isCtxVar _ = False
 isTerm S{} = True
 isTerm _   = False 
 
--- | Ought to call colGT before this to make sure all the variables have
---   been dereferenced 
-collect_   :: Foldable s  => (GT_ eq s r -> Bool) -> GT_ eq s r -> [GT_ eq s r]
-collect_ p (S x) = foldr (\t gg -> collect_ p t ++ gg) [] x
-collect_ p x = if p x then [x] else []
+-- -------------------------------------------
+-- * Static Terms
+-- --------------------------------------------
+-- | The datatype of static terms, terms with no mutable vars
+--   A generic term is converted to a static term with @zonkTerm@
+--   and the other way around with @instTerm@
+data TermStatic_ s i = Term (s (TermStatic s)) | Var i
+  deriving (Show)
+type TermStatic s = TermStatic_ s Int
 
-vars :: Foldable s => GT_ eq s r -> [GT_ eq s r]
-vars = collect_ (\x->isGenVar x || isMutVar x)
+s :: s(TermStatic s) -> TermStatic s
+s      = Term
 
-noCVars, noGVars, noMVars :: Foldable s => GT_ eq s r -> Bool
-noGVars = null . collect_ isGenVar
-noMVars = null . collect_ isMutVar 
-noCVars = null . collect_ isCtxVar 
-
+---------------------------------------------
 -- * Positions. Indexing over subterms.
-
+---------------------------------------------
 type Position = [Int]
 subtermAt :: (Functor m, MonadPlus m, Traversable s) => GT_ eq s r -> Position -> m (GT_ eq s r)
 subtermAt t (0:_) = return t
@@ -173,7 +168,7 @@ updateAt' x pos x' = go x pos x' >>= \ (t',a) -> a >>= \v->return (t',v)
 -----------------------------
 -- * The Class of Match-ables
 -----------------------------
-class (Traversable s) => RWTerm s where
+class (Traversable s) => TermShape s where
     matchTerm     :: s x -> s x -> Maybe [(x,x)]
 
 -- | Match two static terms
@@ -197,28 +192,20 @@ type Subst_ eq s r = SubstG (GT_ eq s r)
 --emptyS = Subst [GenVar n | n <- [0..]]
 emptyS = Subst mempty
 
-mkVarsForTerm :: Foldable s => GT_ eq s r -> ST r (Subst_ eq s r)
-mkVarsForTerm t | null vars_t = return emptyS
-                | otherwise   = do
-    newvars <- replicateM (topvar+1) fresh 
-    return (Subst newvars)
-   where vars_t = vars t
-         topvar = maximum [ i | GenVar i <- vars_t ]
-
 ------------------------
 -- * The Omega type class 
 ------------------------
 -- |"Omega is just a Type Class constraint synonym" 
 #ifdef __HADDOCK__
-class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s) => Omega m s r
+class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), TermShape s) => Omega m s r
 #else
-class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s) => 
+class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), TermShape s) => 
     Omega (m :: (* -> *) -> * -> *) (s :: * -> *) r
 #endif
 class (Omega m s r, MonadPlus (m (ST r))) => OmegaPlus m s r 
 
-instance ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), RWTerm s) => Omega m s r
-instance ( MonadError (TRSException) (m (ST r)), MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), RWTerm s) => OmegaPlus m s r
+instance ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), TermShape s) => Omega m s r
+instance ( MonadError (TRSException) (m (ST r)), MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), TermShape s) => OmegaPlus m s r
 
 -----------------------
 -- * Exceptions
@@ -286,7 +273,7 @@ instance (Show (s (GT_ eq s r))) => Show (GT_ eq s r) where
         where unsafeAll = unsafePerformIO . unsafeSTToIO 
 
 -- Oops. Does this instance of Ord honor Semantic equality?
-instance (Eq(GTE s r), RWTerm s, Ord (s (GTE s r))) => Ord (GTE s r) where
+instance (Eq(GTE s r), TermShape s, Ord (s (GTE s r))) => Ord (GTE s r) where
     compare (S t1) (S t2)
      | S t1 == S t2 = EQ
      | otherwise    = compare t1 t2
