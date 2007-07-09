@@ -50,16 +50,16 @@ import GHC.Exts
    r:  This is the ST monad thread token
 -}
 #ifdef __HADDOCK__
-data GT_ eq s r = 
-   S (s(GT_ eq s r))
- | MutVar (STRef r (Maybe (GT_ eq s r)))  -- | A Mutable variable
+data GT_ mode r s = 
+   S (s(GT_ mode r s))
+ | MutVar (STRef r (Maybe (GT_ eq r s)))  -- | A Mutable variable
  | GenVar Int                             -- | A type scheme, univ. quantified variable 
  | CtxVar Int                             -- | For internal use
 
 #else
-data GT_ (eq :: *) (s :: * -> *) (r :: *) = 
-   S (s(GT_ eq s r))
- | MutVar (STRef r (Maybe (GT_ eq s r)))
+data GT_ (eq :: *)  (r :: *) (s :: * -> *) = 
+   S (s(GT_ eq r s))
+ | MutVar (STRef r (Maybe (GT_ eq r s)))
  | GenVar Int
  | CtxVar Int
 #endif
@@ -67,31 +67,41 @@ data GT_ (eq :: *) (s :: * -> *) (r :: *) =
 --  defined here, but in the Core module
 data Syntactic  -- denotes pure syntactic equality
 data Semantic   -- denotes syntactic equality modulo variables
+data Basic      -- denotes a Basic Narrowing derivation
 
-type GT s r  = GT_ Syntactic s r
-type GTE s r = GT_ Semantic s r
+type GT r s  = GT_ Syntactic r s
+type GTE r s = GT_ Semantic r s
 
-genVar :: Int -> GTE s r
+genVar :: Int -> GTE r s
 genVar = GenVar
 
 -- This pair of functions provides the bridge between GT_ Syntactic and GT_ Semantic types of terms
 -- I really should have used a wrapper newtype for this instead of the 
 --  phantom variable trick. 
-idGT :: GTE s r -> GT s r
+idGT :: GT_ mode r s -> GT r s
 idGT = unsafeCoerce#
 
-eqGT :: GT s r -> GTE s r
+eqGT :: GT_ mode r s -> GTE r s
 eqGT = unsafeCoerce#
 
-type Ptr_ eq s r = STRef r (Maybe (GT_ eq s r))
-type Ptr s r     = STRef r (Maybe (GT s r))
-type GTm m s r   = m (ST r) (GT s r)
+basicGT :: GT_ mode r s -> GT_ Basic r s
+basicGT = unsafeCoerce#
+
+freeGT :: GT_ mode r s -> GT_ mode2 r s
+freeGT = unsafeCoerce#
+
+isGT :: GT r s -> GT r s
+isGT x = x
+
+type Ptr_ eq r s = STRef r (Maybe (GT_ eq r s))
+type Ptr r s     = STRef r (Maybe (GT r s))
+type GTm m r s   = m (ST r) (GT r s)
 
 -- ** MutVars
-fresh	  :: ST r (GT_ eq s r)
+fresh	  :: ST r (GT_ eq r s)
 readVar   :: STRef s a -> ST s a
 write     :: STRef s a -> a -> ST s ()
-isEmptyVar:: GT_ eq s r -> ST r (Bool)
+isEmptyVar:: GT_ eq r s -> ST r (Bool)
 
 fresh     = newSTRef Nothing >>= return . MutVar
 readVar r = readSTRef r
@@ -99,7 +109,7 @@ write r x = writeSTRef r x
 isEmptyVar (MutVar r) = liftM isNothing (readVar r)
 
 -- ** Accesors
-isGenVar, isMutVar, isCtxVar, isTerm :: GT_ eq s r -> Bool
+isGenVar, isMutVar, isCtxVar, isTerm :: GT_ eq r s -> Bool
 isGenVar GenVar{} = True
 isGenVar _ = False
 isMutVar MutVar{} = True
@@ -115,18 +125,47 @@ isTerm _   = False
 -- | The datatype of static terms, terms with no mutable vars
 --   A generic term is converted to a static term with @zonkTerm@
 --   and the other way around with @instTerm@
-data TermStatic_ s i = Term (s (TermStatic s)) | Var i
-  deriving (Show)
-type TermStatic s = TermStatic_ s Int
+data TermStatic_ i s = Term (s (TermStatic_ i s)) | Var i
+--  deriving (Show)
+type TermStatic s = TermStatic_ Int s
 
 s :: s(TermStatic s) -> TermStatic s
 s      = Term
+
+-- --------------------------
+-- * Basic Shape of Terms
+-- --------------------------
+
+data BasicShape a = T !String [a]
+    deriving Eq
+
+type TermST r = GTE r BasicShape
+type Term = TermStatic BasicShape
+
+type RewRule = Rule BasicShape
+
+
+---------------------------------------------------------
+-- Instantiation of BasicShape classes
+---------------------------------------------------------
+
+instance Traversable BasicShape where
+    traverse f (T s tt) = T s <$> traverse f tt
+instance Functor BasicShape where
+    fmap = fmapDefault
+instance Foldable BasicShape where
+    foldMap = foldMapDefault
+
+instance TermShape BasicShape where
+  matchTerm (T s1 tt1) (T s2 tt2) = if s1==s2 && length tt1 == length tt2
+              then Just (zip tt1 tt2)
+              else Nothing
 
 ---------------------------------------------
 -- * Positions. Indexing over subterms.
 ---------------------------------------------
 type Position = [Int]
-subtermAt :: (Functor m, MonadPlus m, Traversable s) => GT_ eq s r -> Position -> m (GT_ eq s r)
+subtermAt :: (Functor m, MonadPlus m, Traversable s) => GT_ eq r s -> Position -> m (GT_ eq r s)
 subtermAt t (0:_) = return t
 subtermAt (S t) (i:is) = join . fmap (flip subtermAt is . snd) 
                        . maybe mzero return 
@@ -139,7 +178,7 @@ subtermAt _ _ = mzero
 -- | Updates the subterm at the position given 
 --   Note that this function does not guarantee success. A failure to substitute anything
 --   results in the input term being returned untouched
-updateAt  :: (Traversable s) => GT_ eq s r -> Position -> GT_ eq s r -> GT_ eq s r
+updateAt  :: (Traversable s) => GT_ eq r s -> Position -> GT_ eq r s -> GT_ eq r s
 updateAt _ (0:_) st' = st'
 updateAt (S t) (i:is) st' = S . fmap (\(j,st) -> if i==j then updateAt st is st' else st) 
                           . unsafeZipG [1..] 
@@ -150,7 +189,7 @@ updateAt x _ _ = x
 
 -- | Like updateAt, but returns a tuple with the new term, and the previous subterm at position pos
 updateAt'  :: (Functor m, MonadPlus m, Traversable s) => 
-             GT_ eq s r -> Position -> GT_ eq s r -> m (GT_ eq s r, GT_ eq s r)
+             GT_ eq r s -> Position -> GT_ eq r s -> m (GT_ eq r s, GT_ eq r s)
 updateAt' x pos x' = go x pos x' >>= \ (t',a) -> a >>= \v->return (t',v)
   where
     go x (0:_) x'       = return (x', return x)
@@ -184,34 +223,21 @@ matchStatic _ _ = Nothing
 ----------------------
 newtype SubstG a = Subst {subst::[a]}
    deriving (Foldable, Functor, Traversable)
---newtype Subst s r = Subst {subst::[GT s r]}
+--newtype Subst r s = Subst {subst::[GT r s]}
 
-type Subst s r = SubstG (GT s r)
-type Subst_ eq s r = SubstG (GT_ eq s r)
+type Subst r s     = SubstG (GT r s)
+type Subst_ eq r s = SubstG (GT_ eq r s)
+type SubstM x      = SubstG (Maybe x)
 
 --emptyS = Subst [GenVar n | n <- [0..]]
 emptyS = Subst mempty
-
-------------------------
--- * The Omega type class 
-------------------------
--- |"Omega is just a Type Class constraint synonym" 
-#ifdef __HADDOCK__
-class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), TermShape s) => Omega m s r
-#else
-class ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), TermShape s) => 
-    Omega (m :: (* -> *) -> * -> *) (s :: * -> *) r
-#endif
-class (Omega m s r, MonadPlus (m (ST r))) => OmegaPlus m s r 
-
-instance ( MonadError (TRSException) (m (ST r)), MonadTrans m, Monad (m (ST r)), Functor (m (ST r)), TermShape s) => Omega m s r
-instance ( MonadError (TRSException) (m (ST r)), MonadTrans m, MonadPlus (m (ST r)), Functor (m (ST r)), TermShape s) => OmegaPlus m s r
 
 -----------------------
 -- * Exceptions
 -----------------------
 data TRSException = Match (MatchException)
                   | Unify (UnifyException)
+                  | Stuck
   deriving (Show,Eq)
 data MatchException = GenErrorMatch
                     | ShapeErrorMatch
@@ -238,7 +264,7 @@ instance Eq UnifyException where
   ShapeErrorUnify _ _ == ShapeErrorUnify _ _ = True
   _ ==  _ = False
 
-instance Error (TRSException) where
+instance Error TRSException where
   noMsg    = Match GenErrorMatch
   strMsg _ = Match GenErrorMatch
 
@@ -257,23 +283,26 @@ occursError     = Unify OccursError
 liftSubst f (Subst s) = Subst (f s)
 
 varNames = "XYZWJIKHW"
-showVar n = if n < length varNames 
-                         then [varNames !! n] 
-                         else ('v' : show n)
-instance (Show (s (TermStatic s))) => Show (TermStatic s) where
-    show (Term s) = show s
-    show (Var  i) = showVar i 
+showsVar p n = if n < length varNames 
+                         then ([varNames !! n] ++)
+                         else ('v' :) . showsPrec p n
 
-instance (Show (s (GT_ eq s r))) => Show (GT_ eq s r) where
+instance (Show (s (TermStatic s))) => Show (TermStatic s) where
+    showsPrec p (Term s) = showsPrec p s
+    showsPrec p (Var  i) = showsVar p i 
+
+instance (Show (s (GT_ eq r s))) => Show (GT_ eq r s) where
     show (S s)      = show s
-    show (GenVar n) = showVar n
+    show (GenVar n) = showsVar 0 n "" --TODO 
     show (CtxVar c) = '[' : show c ++ "]" 
-    show (MutVar r) = "?" ++ (show . hashStableName . unsafePerformIO . makeStableName$ r) ++ ":=" ++ (show$  unsafeAll $ ( readSTRef r))
+    show (MutVar r) = "?" ++ (show . hashStableName . unsafePerformIO . makeStableName$ r) 
+                          ++ ":=" ++ (show$  unsafeAll $ ( readSTRef r))
 --        where unsafeAll = unsafePerformIO . ST.unsafeSTToIO . lazyToStrictST
-        where unsafeAll = unsafePerformIO . unsafeSTToIO 
+        where unsafeAll = unsafePerformIO . ST.unsafeSTToIO 
 
 -- Oops. Does this instance of Ord honor Semantic equality?
-instance (Eq(GTE s r), TermShape s, Ord (s (GTE s r))) => Ord (GTE s r) where
+--instance (Eq(GTE r s), TermShape s, Ord (s (GTE r s))) => Ord (GTE r s) where
+instance (Eq(GT r s), TermShape s, Ord (s (GT r s))) => Ord (GT r s) where
     compare (S t1) (S t2)
      | S t1 == S t2 = EQ
      | otherwise    = compare t1 t2
@@ -286,27 +315,27 @@ instance (Eq(GTE s r), TermShape s, Ord (s (GTE s r))) => Ord (GTE s r) where
     compare _ CtxVar{} = GT
     compare CtxVar{} _ = LT
 
-instance Show (s(GT s r)) => Show (Subst s r) where
+instance Show (s(GT r s)) => Show (Subst r s) where
     show = show . subst
 
 instance Show (a) => Show (RuleG (a)) where
     show (a:->b) = show a ++ " -> " ++ show b
 --    showList  = unlines . map show
 {-
-instance Show(GTE s r) => Show(GT s r) where
+instance Show(GTE r s) => Show(GT r s) where
     show = show . eqGT  
 
-instance (Functor s, Show(s(GTE s r))) => Show(s(GT s r)) where
+instance (Functor s, Show(s(GTE r s))) => Show(s(GT r s)) where
     show = show . fmap eqGT 
 -}
-instance Arbitrary(GTE s r) => Arbitrary(GT s r) where
-    arbitrary = fmap idGT arbitrary 
+--instance Arbitrary(GTE r s) => Arbitrary(GT r s) where
+--    arbitrary = fmap idGT arbitrary 
 
 ----------
 -- * Rules
 ----------
 type Rule s  = RuleG (TermStatic s)
-type RuleI s r = RuleG (GT  s r)
+type RuleI r s = RuleG (GT r s)
 data RuleG a = a :-> a
 
 instance (Eq (RuleG a),Ord a) => Ord (RuleG a) where
@@ -323,6 +352,6 @@ instance Foldable RuleG where
 instance Functor RuleG where
   fmap = fmapDefault
 
---swap :: Rule s r -> Rule s r
+--swap :: Rule r s -> Rule r s
 swap (lhs:->rhs) = rhs:->lhs
 

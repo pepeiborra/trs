@@ -1,4 +1,5 @@
 module TRS ( module TRS.Core 
+           , module TRS.Term
 	   , module TRS.Types )  where
 
 import TRS.Types( TermStatic, TermStatic_(..), s, matchStatic
@@ -9,6 +10,8 @@ import TRS.Types( TermStatic, TermStatic_(..), s, matchStatic
 		, RWTerm(..), Omega, OmegaPlus
                 , noMVars, noGVars
 		)
+
+import TRS.Term
 		
 import TRS.Core ( instTerm, instTermG, zonkTerm, zonkTermG
                 , unify

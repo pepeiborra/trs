@@ -1,4 +1,5 @@
-{-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fallow-undecidable-instances -fallow-incoherent-instances -fallow-overlapping-instances -funbox-strict-fields#-}
+{-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC  -funbox-strict-fields#-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -16,10 +17,9 @@
 
 module TRS.Terms where
 import Control.Applicative
+import Control.Exception (assert)
 import Control.Monad hiding (mapM, sequence )
 import Data.Traversable
-import TRS.Types
-import TRS.Utils
 import Text.PrettyPrint
 import Data.Char (isAlpha)
 import Data.Foldable
@@ -27,13 +27,15 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , sequence, concat, concatMap )
 import GHC.Exts (unsafeCoerce#)
 
-data BasicShape a = T !String [a]
-    deriving Eq
+import TRS.Term  hiding (Term)
+import qualified TRS.Term as Class
+import TRS.Types
+import qualified TRS.Types (Term)
+import TRS.Utils
+import qualified TRS.Core as Core
+import TRS.Core (col, mutableTerm, mutableTermG, generalize_, generalizeG_
+                , noMVars, runL)
 
-type TermST r = GTE BasicShape r
-type Term = TermStatic BasicShape
-
-type RewRule = Rule BasicShape
 
 term = (s.) . T
 term1 f t       = s$ T f [t]
@@ -49,22 +51,37 @@ instance Ord a => Ord (BasicShape a) where
           EQ -> compare tt1 tt2
           x  -> x
 
----------------------------------------------------------
--- Instantiation of the relevant classes
----------------------------------------------------------
+-- ---------------------------------------
+-- TermStatic Term structure
+-- ---------------------------------------
+instance (TermShape s, Traversable s) => Class.Term (TermStatic_ Int) s where
+  Var i  `synEq` Var j  = i == j
+  Term s `synEq` Term t | Just pairs <- matchTerm s t
+                        = all (uncurry synEq) pairs
+  _      `synEq` _      = False 
+  isVar Var{} = True 
+  isVar _     = False
+  mkVar       = Var 
+  varId(Var i)= i
+  subTerms (Term tt) = toList tt
+  subTerms _         = []
+  fromSubTerms (Term t) tt = Term $ modifySpine t tt
+  fromSubTerms t _     = t
+  mkGTM mkVar (Term t) = S `liftM` (mkGTM mkVar `mapM` t)
+  mkGTM mkVar        x = mkVar x
+  fromGTM mkVar (S y)  = Term `liftM` (fromGTM mkVar `mapM` y)
+  fromGTM mkVar var    = mkVar var
 
-instance Traversable BasicShape where
-    traverse f (T s tt) = T s <$> traverse f tt
-instance Functor BasicShape where
-    fmap = fmapDefault
-instance Foldable BasicShape where
-    foldMap = foldMapDefault
+instance TermShape s => Eq (TermStatic s) where
+  t1 == t2 = runST (do
+   [t1',t2'] <- mapM (mutableTerm >=> generalize_) [t1,t2]
+   return (t1' `synEq` t2'))
 
-instance TermShape BasicShape where
-  matchTerm (T s1 tt1) (T s2 tt2) = if s1==s2 && length tt1 == length tt2
-              then Just (zip tt1 tt2)
-              else Nothing
-
+instance TermShape s => Eq (Rule s) where
+  s1 == s2 = runST (do
+   [l1:->r1,l2:->r2] <- mapM (mutableTermG >=> generalizeG_) [s1,s2]
+   return (l1 `synEq` l2 && r1 `synEq` r2))
+   
 ---------------------------------
 -- Auxiliary code
 ---------------------------------
@@ -91,6 +108,6 @@ class Outputable a where
 ---------------------------------------------
 
 uc = unsafeCoerce#
-ucT t = uc t :: GTE BasicShape r
+ucT t = uc t :: GTE r BasicShape
 --ucR r = uc r :: Rule BasicShape
 

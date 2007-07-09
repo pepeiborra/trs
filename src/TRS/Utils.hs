@@ -19,20 +19,77 @@ import Control.Applicative
 import Control.Arrow
 import Control.Monad.State hiding (mapM, sequence)
 import Control.Monad.List (ListT(..))
+import qualified Control.Monad.LogicT as LogicT
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
+import Control.Monad.LogicT.SFKT (SFKT)
+import Data.List (group, sort)
 import Data.Traversable
 import Data.Foldable
+import qualified Prelude
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
-                      , sequence, and )
+                      , sequence, and, elem )
 
 import qualified Debug.Trace
 import Control.Exception
+
+snub :: Ord a => [a] -> [a]
+snub = map head . group . sort
+
+g `at` f = \x y -> g (f x) (f y)
 
 inBounds _ [] = False
 inBounds 0 _  = True
 inBounds i (x:xs) = inBounds (i-1) xs
 
+x `isSubsetOf` y = all (`elem` y) x
+
 both f = first f . second f
+
+------------------------------------------------------------------------
+--
+-- Monadic versions of functions on lists
+-- (stolen from http://www.cee.hw.ac.uk/DART/software/rank2-HW/)
+
+-- Assumes that xs and xy have already been nub-ed.
+unionByM :: Monad m => (a -> a -> m Bool) -> [a] -> [a] -> m [a]
+unionByM p xs ys =
+    go xs ys
+    where go xs' [] = return xs'
+	  go xs' (y':ys') =
+	      do b <- elemByM p y' xs'
+		 if b then go xs' ys' else go (y':xs') ys'
+
+elemByM :: Monad m => (a -> a -> m Bool) -> a -> [a] -> m Bool
+elemByM _ _ [] = return False
+elemByM p x (y:ys) =
+    do b <- p x y
+       if b then return True else elemByM p x ys
+
+
+nubByM f l = nubByM' l [] where
+  nubByM' [] _ = return []
+  nubByM' (x:xs) ls = trace "nubByM'" $ do
+    b <- elemByM f x ls
+    if b then nubByM' xs ls else (x:) <$> nubByM' xs (x:ls)
+    
+
+nubByM1 :: Monad m => (a -> a -> m Bool) -> [a] -> m [a]
+nubByM1 _ [] = return []
+nubByM1 p (x:xs) =
+    do ys <- nubByM1 p xs
+       b <- elemByM p x ys
+       if b then return ys else return (x:ys)
+
+deleteByM :: Monad m => (a -> a -> m Bool) -> a -> [a] -> m [a]
+deleteByM _ _ [] = return []
+deleteByM p x (y:ys) =
+    do xs <- deleteByM p x ys
+       b <- p x y
+       if b then return xs else return (y : xs)
+
+-- -----------------------------------------------------------
+
+secondM f (x, y) = f y >>= \y' -> return (x,y')
 
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'
@@ -109,12 +166,6 @@ size = length . toList
 modifySpine t xx = assert (xx >=: toList t) $  mapM (\_-> pop) t `evalState` xx
   where pop = gets head >>= \v -> modify tail >> return v
 
---fmap2 = (fmap.) . fmap
-fmap2 f x = fmap (fmap  f) x
-fmap3 f x = fmap (fmap2 f) x 
-
-concatMap2 f = concat . concat . fmap (fmap f)
-
 successes :: (MonadPlus m, Functor m) => [m a] -> m [a]
 successes cc = fmap concat $ sequence $ map (\c->fmap unit c `mplus` return []) cc
     where unit x = [x]
@@ -127,6 +178,9 @@ interleave f g x = let
         indexed f default_f i (j,x) = if i==j then f x else default_f x
      in map (\f->mapM f (unsafeZipG [0..] x)) indexed_fs
 
+#if __GLASGOW_HASKELL__ < 607
+f >=> g = \ x -> f x >>= g
+#endif
 ----------------------------------------------------------
 -- A monad isomorphic to ListT 
 -- Only the monadError instance is different
@@ -163,6 +217,20 @@ tryListT a (ListT m) = ListT$ do
 
 try1 m a = let ListT m1 = m a in  
            ListT$ (m1 >>= \v -> return (if null v then [a] else v))
+----------------------------------------------------------
+-- A monad isomorphic to ErrorT 
+-- Only the monadPlus instance is different
+----------------------------------------------------------
+newtype ErrorT' e m a = ErrorT_ {unErrorT :: ErrorT e m a}
+  deriving (Monad, MonadError e, MonadIO, MonadTrans, MonadFix, Functor)
+
+runErrorT' = runErrorT . unErrorT
+
+instance (Error e, MonadPlus m) => MonadPlus (ErrorT' e m) where
+  mzero = ErrorT_ mzero
+  ErrorT_ (ErrorT m1) `mplus` ErrorT_ (ErrorT m2) = (ErrorT_ . ErrorT) 
+                                                    (m1 `mplus` m2) 
+
 ----------------------------------------
 -- The brilliant FunctorN class
 --  supercedes all fmap, fmap2, fmap3..
@@ -187,10 +255,29 @@ instance TraversableN a b a b where
 instance (Traversable f, TraversableN a b c d) => TraversableN a b (f c) (f d) where
   gmapM f = mapM (gmapM f)
 
----------------------------------------------------------
+-- -------------------------------------
+-- MonadComp: Composing Monads weirdly
+-- -------------------------------------
+
+newtype MCompT (t1 :: (* -> *) -> * -> *) (t2 :: (* -> *) -> * -> *) (m :: * -> *) a = MCompT {unMCompT :: t1 (t2 m) a}
+  deriving (MonadError e, MonadPlus, Monad, Functor) --, LogicT (MCompT t1 t2))
+
+-- Cant really define a MonadTrans instance!!!
+--instance (MonadTrans t1, MonadTrans t2) => MonadTrans (MCompT t1 t2) where 
+instance (Error e, MonadTrans t1) => MonadTrans (MCompT t1 (ErrorT e)) where 
+   lift m = MCompT (lift (lift m))
+instance (Error e, MonadTrans t1) => MonadTrans (MCompT t1 (ErrorT' e)) where 
+   lift m = MCompT (lift (lift m))
+instance (MonadTrans t1) => MonadTrans (MCompT t1 ListT) where 
+   lift m = MCompT (lift (lift m))
+instance (MonadTrans t1) => MonadTrans (MCompT t1 SFKT) where 
+   lift m = MCompT (lift (lift m))
+-- instance (MonadTrans t1, MonadTrans t2) => MonadTrans (MCompT t1 t2) 
+----------------------------------------
 
 forEach = flip map
-lift2 x = lift$ lift x
+lift2 x = lift (lift  x)
+lift3 x = lift (lift2 x)
 mtry f x = f x `mplus` x
 
 atLeast _ []   = False
@@ -211,9 +298,24 @@ runErrorT_ =  fmap noErrors . runErrorT
 noErrors (Left msg) = error msg
 noErrors (Right x)  = x
 
+handleError :: MonadError e m =>  (e -> m a) -> m a -> m a
+handleError = flip catchError
+
 trace msg x = 
 #ifdef DEBUG 
   Debug.Trace.trace msg x 
 #else 
   x 
 #endif
+
+instance (Monad m, Error e) => MonadError e (SFKT m) where
+    throwError _ = mzero
+    catchError m f = LogicT.ifte m return (f undefined)
+
+{-# INLINE msum' #-}
+msum' :: (LogicT.LogicT t, MonadPlus (t m), Monad m) => [t m a] -> t m a
+msum' = Prelude.foldr LogicT.interleave mzero
+
+(>>-) :: (Monad m, MonadPlus (t m), LogicT.LogicT t) =>
+	    t m a -> (a -> t m b) -> t m b
+(>>-) = LogicT.bindi

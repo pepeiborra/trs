@@ -30,13 +30,13 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
 
 -- | What is a context? A term with a hole.
 --   The hole is represented by the constructor CtxVar
-type Context s r = GT s r
+type Context = GT_
 
 -- A CtxVar carries an index, which must be unique
 emptyC = CtxVar 0
 
 -- | Fill a hole in a context
-fill,(|>) :: Traversable t => Context t r -> GT t r -> GT t r
+fill,(|>) :: Traversable s => Context mode r s -> GT_ mode r s -> GT_ mode r s
 fill (S ct) x = S (fmap fill' ct)
     where fill' (CtxVar 0) = x
           fill' (CtxVar i) = CtxVar (i-1)
@@ -51,16 +51,15 @@ fill x y = --trace ("Warning2! " ++ show x ++ " |> " ++ show y)
 
 -- | Returns a list of subterms and the corresponding contexts
 --   | forall subterm ctx . (subterm, ctx) <- contexts t ==> ctx |> subterm = t
-contexts :: Traversable t => GT t r -> [(GT t r, Context t r)]
-contexts (S t) = [contexts i | i <- [1..size t]]
-    where 
-      shift_t    = shiftC 1 (S t)
-      contexts i = first (shiftC (-1)) $ swap$ fromJust$ updateAt' shift_t [i] (CtxVar 0)
-      swap (x,y) = (y,x)
+-- contexts :: Traversable s => GT r s -> [(GT r s, Context r s)]
+contexts (S t) = [(shiftC (-1) t_i,  t') 
+                      | i <- [1..size t]
+                      , (t',t_i) <- updateAt' (shiftC 1 (S t)) [i] (CtxVar 0)]
+
 contexts _ = []
 
--- | Shift the indexes of the contexts inside
---shiftC :: Functor t => GT t r -> GT t r
+-- | Shift the indexes of the context vars
+--shiftC :: Functor t => GT  r s -> GT  r s
 shiftC n (S t) = S$ fmap (shiftC n) t
 shiftC n (CtxVar i) = CtxVar $! (i + n)
 shiftC _ x = x
