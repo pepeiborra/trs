@@ -29,7 +29,7 @@ import System.IO.Unsafe
 import GHC.Exts
 
 import qualified TRS.Core as Core
-import TRS.Core hiding (rewrite1, rewrite, narrow1, narrowFull, narrowFullBounded, run)
+import TRS.Core hiding (narrow1', rewrite1, rewrite, narrow1, narrowFull, narrowFullBounded, run)
 import TRS.Types hiding (s)
 import qualified TRS.Types as TRS
 import TRS.Term hiding (collect)
@@ -187,7 +187,7 @@ prop_autoInst p = runST (do
     (s2,p2) <- autoInst_old p'
     return (idGT p1 == p2 {-TODO && s1 == s2-}))
 -}
-autoInst_old :: TermShape s => GT r s -> ST r (Subst r s, GT r s)
+-- autoInst_old :: TermShape s => GT r s -> ST r (Subst r s, GT r s)
 autoInst_old x@MutVar{} = return (emptyS, x)
 autoInst_old x
     | null gvars = return (emptyS, x)
@@ -343,13 +343,13 @@ peanoTRS2 = [ s(s(z)) +: s(x) :-> s(s(s(x)))
 
 four = y +: s(s(z))
 
-fourN1 = sndM $ narrow1 peanoTRS2 four
+fourN1 = snd `map` narrow1 peanoTRS2 four
 --fourNFix = runL (fixM (fmap snd $ narrow1 peanoTRS2) four)
-fourNFull = sndM $ narrowFull peanoTRS2 four
+fourNFull = snd `map` narrowFull peanoTRS2 four 
 
-fiveN = sndM $ narrow1 peanoTRS2 (s(four))
-noNarrowFull' = sndM $ narrowFull peanoTRS2 two
-noNarrow' = sndM$ narrow1 peanoTRS2 two
+fiveN = snd `map` narrow1 peanoTRS2 (s(four))
+noNarrowFull' = snd `map` narrowFull peanoTRS2 two
+noNarrow' = snd `map` narrow1 peanoTRS2 two
 
 testNarrowing = TestList [ [s(s(s(s(z)))), s(s(z))] ~=? fourN1
                          , [s(s(s(s(z)))), s(s(z))] ~=? fourNFull 
@@ -410,11 +410,10 @@ tpBackward1 = snd <$> narrow1 (map swap peanoTRS) (s(z) +: x)
 
 
 testNarrowIssue = TestLabel "Narrowing Issues" $ TestList 
-        [ u' ~?= Just (ts(ts(x)))
+        [ u' ~?= [ts(ts(x))]
         , tpForward1 ~?= [s(x)] 
         , snd <$> narrow1 trs_x t ~=? (snd <$> narrow1 trs_y t :: [PeanoT])
-        , runL(gsndM$ narrow1' trs_x' (templateTerm t')) ~=? 
-          (runL(gsndM$ narrow1' trs_y' (templateTerm t')) :: [TRS.Types.Term])
+        , snd <$> narrow1' trs_x' t' ~=? snd <$> narrow1' trs_y' t'
         ]
     where t = z +: y
           trs_x = [x :-> (z +: x)]
@@ -428,8 +427,8 @@ testNarrowIssue = TestLabel "Narrowing Issues" $ TestList
 ------------------------
 --propNarrow' :: PeanoT -> Bool
 propNarrow' x = let
-    aa = sndM(narrow1 peanoTRS x) 
-    bb = urunLIO$ sndM(narrow1' peanoTRS x)
+    aa = snd <$> narrow1  peanoTRS x
+    bb = snd <$> narrow1' peanoTRS x
     in (aa =|= bb)
 
 propNarrowFullNF x = isSNF peanoTRS x ==> (snd <$> narrowFull peanoTRS x) == [x]
