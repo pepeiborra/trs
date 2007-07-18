@@ -38,9 +38,13 @@ class Term t s => TRS t s m where
         unify        :: t s -> t s -> m(SubstM (t s))
         rewrite1     :: [Rule s] -> t s -> m(t s)
         narrow1      :: [Rule s] -> t s -> m(SubstM(t s), t s)
-        narrowFull   :: [Rule s] -> t s -> m(SubstM(t s), t s)
-        narrowFullBounded :: Monad m => (t s -> Bool) -> [Rule s] -> t s 
-                                    -> m(SubstM(t s), t s)
+
+class Term t s => TRSN t s where
+        narrow1'     :: [Rule s] -> t s -> [(SubstM(t s), t s)]
+        narrowFull   :: [Rule s] -> t s -> [(SubstM(t s), t s)]
+        narrowBasic  :: [Rule s] -> t s -> [(SubstM(t s), t s)]
+        narrowFullBounded :: (t s -> Bool) -> [Rule s] -> t s 
+                                    -> [(SubstM(t s), t s)]
 
 {-
 instance (TermShape s, Traversable s) => Term (s a) where

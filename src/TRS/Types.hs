@@ -225,7 +225,8 @@ newtype SubstG a = Subst {subst::[a]}
    deriving (Foldable, Functor, Traversable)
 --newtype Subst r s = Subst {subst::[GT r s]}
 
-type Subst r s     = SubstG (GT r s)
+type Subst r s     = SubstG (GTE r s)
+type SubstI r s    = SubstG (GT r s)
 type Subst_ eq r s = SubstG (GT_ eq r s)
 type SubstM x      = SubstG (Maybe x)
 
@@ -315,7 +316,7 @@ instance (Eq(GT r s), TermShape s, Ord (s (GT r s))) => Ord (GT r s) where
     compare _ CtxVar{} = GT
     compare CtxVar{} _ = LT
 
-instance Show (s(GT r s)) => Show (Subst r s) where
+instance Show (s(GTE r s)) => Show (Subst r s) where
     show = show . subst
 
 instance Show (a) => Show (RuleG (a)) where
@@ -336,6 +337,7 @@ instance (Functor s, Show(s(GTE r s))) => Show(s(GT r s)) where
 ----------
 type Rule s  = RuleG (TermStatic s)
 type RuleI r s = RuleG (GT r s)
+type Rule_ mode r s = RuleG (GT_ mode r s)
 data RuleG a = a :-> a
 
 instance (Eq (RuleG a),Ord a) => Ord (RuleG a) where

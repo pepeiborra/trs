@@ -79,9 +79,11 @@ instance TermShape s => Eq (TermStatic s) where
 
 instance TermShape s => Eq (Rule s) where
   s1 == s2 = runST (do
-   [l1:->r1,l2:->r2] <- mapM (mutableTermG >=> generalizeG_) [s1,s2]
+   [l1:->r1,l2:->r2] <- mapM (mutableTermStatic >=> generalizeG_) [s1,s2]
    return (l1 `synEq` l2 && r1 `synEq` r2))
-   
+    where
+      mutableTermStatic :: TermShape s => Rule s -> ST r (RuleI r s)
+      mutableTermStatic = mutableTermG
 ---------------------------------
 -- Auxiliary code
 ---------------------------------

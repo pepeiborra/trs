@@ -44,6 +44,13 @@ inBounds i (x:xs) = inBounds (i-1) xs
 x `isSubsetOf` y = all (`elem` y) x
 
 both f = first f . second f
+bi f h = first f . second h
+
+firstM  f (a, b) = f a >>= \a' -> return (a', b)
+secondM f (a, b) = f b >>= \b' -> return (a, b')
+
+biM :: Monad m =>  (a -> m b) -> (c -> m d) -> (a,c) -> m (b, d)
+biM f g = firstM f >=> secondM g
 
 ------------------------------------------------------------------------
 --
@@ -88,9 +95,6 @@ deleteByM p x (y:ys) =
        if b then return xs else return (y : xs)
 
 -- -----------------------------------------------------------
-
-secondM f (x, y) = f y >>= \y' -> return (x,y')
-
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'
 fixM :: MonadPlus m => (a -> m a) -> (a -> m a)

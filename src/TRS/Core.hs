@@ -1,4 +1,6 @@
-{-# OPTIONS_GHC -fglasgow-exts -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fglasgow-exts #-}
+{-# OPTIONS_GHC -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fallow-overlapping-instances #-}
 {-# OPTIONS_GHC -fno-monomorphism-restriction #-}
 {-# OPTIONS_GHC -fglasgow-exts  #-}
 
@@ -44,11 +46,14 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
 
 import TRS.Types hiding (Term)
-import TRS.Term  hiding (TRS(..))
+import TRS.Term  hiding (TRS(..), TRSN(..))
 import qualified TRS.Term as Term
 import {-# SOURCE #-} TRS.Terms
 import TRS.Context
 import TRS.Utils
+
+import TypePrelude
+import TypeCastGeneric
 
 import GHC.Exts (unsafeCoerce#)
 import Observe
@@ -95,10 +100,10 @@ mutableTerm t = do
 mutableTermG :: (Traversable f, Term t s) => f(t s) -> ST r (f(GT r s))
 mutableTermG = fmap snd . autoInstG_ . fmap templateTerm
 
-noCVars, noGVars, noMVars :: (TermShape s, Foldable s) => GT_ eq r s -> Bool
-noGVars = null . collect isGenVar
+noCVars, noGVars, noMVars :: (TermShape s, Foldable s) => GT_ mode r s -> Bool
+noGVars = null . collect isGenVar 
 noMVars = null . collect isMutVar 
-noCVars = null . collect isCtxVar 
+noCVars = null . collect isCtxVar
 
 mkVarsForTerm :: (TermShape s, Foldable s) => GT_ eq r s -> ST r (Subst_ eq r s)
 mkVarsForTerm t | null vars_t = return emptyS
@@ -115,114 +120,104 @@ mkVarsForTerm t | null vars_t = return emptyS
 -- Below we expose versions of the functions we have defined before
 --  which take have GTE types in signatures instead of GT. 
 
---liftGTE2 :: (GT r s -> GT r s -> a) -> GTE r s -> GTE r s -> a
-liftGTE2 f x y =  f (idGT x) (idGT y)
---liftGTE :: Functor f => (GT r s -> f(GT r s)) -> GTE r s -> f(GTE r s)
-liftGTE f = fmap eqGT . f . idGT
-fixRules :: (TermShape s, Functor s) => [Rule s] -> [RuleI r s]
+--fixRules :: (TermShape s, Functor s) => [Rule s] -> [Rule_ mode r s]
 fixRules = fmap2 templateTerm
 fixRulesB :: (TermShape s, Functor s) => [Rule s] -> [RuleG (GT_ Basic r s)]
-fixRulesB = fmap2 templateTerm
-
-adaptSubstitutionResult f rre t = fmap (second eqGT) $ f (fixRules rre) (idGT t)
+fixRulesB = fixRules
 
 unify	  :: Omega Semantic m r s => GTE r s -> GTE r s -> m (ST r) ()
-unify = liftGTE2 unify_
+unify = unify_
 
 match	  :: Omega Semantic m r s => GTE r s -> GTE r s -> m (ST r) ()
-match = liftGTE2 match_
+match = match_
 
 -- | Instantiates a type scheme with the given substitution
 instan	  :: TermShape s => Subst r s -> GTE r s -> ST r (GTE r s)
-instan s = liftGTE (instan_ s)
+instan = instan_
 
+-- |leftmost outermost
 rewrite1  :: OmegaPlus Semantic m r s => [Rule s] -> GTE r s -> m (ST r) (GTE r s)
-rewrite1 rre = liftGTE (rewrite1_ (fixRules rre))
+rewrite1 rre = rewrite1_ (fixRules rre)
 
+-- |leftmost outermost
 rewrite   :: OmegaPlus Semantic m r s => [Rule s] -> GTE r s -> m (ST r) (GTE r s)
-rewrite  rre = liftGTE (rewrite_ (fixRules rre))
+rewrite  rre = rewrite_ (fixRules rre)
 
+-- |leftmost outermost
 narrow1   :: OmegaPlus Semantic m r s => [Rule s] -> GTE r s -> 
              m (ST r) (Subst r s, GTE r s)
-narrow1 = adaptSubstitutionResult narrow1_
+narrow1 rr = narrow1_ (fixRules rr)
 
-narrow1',narrow1V 
-          :: (OmegaPlus Semantic m r s) => [Rule s] -> GTE r s -> 
-             m (ST r) (Subst r s, GTE r s)
-narrow1' = adaptSubstitutionResult narrow1'_
-narrow1V = adaptSubstitutionResult narrow1V_
+-- |leftmost outermost
+narrow1' :: (GoodShape s) => [Rule s] -> GTE r s -> ST r [(Subst r s, GTE r s)]
+narrow1' rr = narrow1'_ (fixRules rr)
 
-narrowFull:: (OmegaPlus Semantic m r s) => [Rule s] -> GTE r s -> 
-             m (ST r) (Subst r s, GTE r s)
-narrowFull = adaptSubstitutionResult narrowFull_
-{-
-narrowFull2 :: (OmegaPlus Semantic m r s) => [Rule s] -> GTE r s -> 
-             m (ST r) (Subst r s, GTE r s)
--}
-narrowFull2 rr term = map (eqGT . snd) <$> narrowFull2_ (fixRulesB rr) (templateTerm term)
+-- |leftmost outermost, in variables too
+narrow1V :: (GoodShape s) => [Rule s] -> GTE r s -> ST r [(Subst r s, GTE r s)]
+narrow1V rr = narrow1V_ (fixRules rr)
 
-narrow12' rr term = map (eqGT . snd) <$> narrow12'_ (fixRules rr) (templateTerm term)
+narrowFull:: (GoodShape s) => [Rule s] -> GTE r s -> 
+             ST r [(Subst r s, GTE r s)]
+narrowFull rr = narrowFull_ (fixRules rr)
 
-narrowBasic rr term = map (eqGT . snd) <$> narrowBasic_ (fixRules rr) (templateTerm term)
-narrowFullV:: (OmegaPlus Semantic m r s) =>
-              [Rule s] -> GTE r s -> m (ST r) (Subst r s, GTE r s)
-narrowFullV = adaptSubstitutionResult narrowFullV_
-narrowFullBounded  :: (OmegaPlus Semantic m r s) =>
+narrowBasic rr term = narrowBasic_ (fixRules rr) 
+                            (basicGT$ templateTerm term)
+
+narrowFullV:: GoodShape s => [Rule s] -> GTE r s -> ST r [(Subst r s, GTE r s)]
+narrowFullV rr = narrowFullV_ (fixRules rr)
+
+narrowFullBounded  :: GoodShape s => 
                       (GTE r s -> ST r Bool) -> [Rule s] -> GTE r s -> 
-                      m (ST r) (Subst r s, GTE r s)
-narrowFullBounded pred = adaptSubstitutionResult (narrowFullBounded_ (pred . eqGT))
-narrowFullBoundedV :: (OmegaPlus Semantic m r s) =>
+                      ST r [(Subst r s, GTE r s)]
+narrowFullBounded pred rr = narrowFullBounded_ (pred . eqGT) (fixRules rr)
+
+narrowFullBoundedV :: GoodShape s => 
                       (GTE r s -> ST r Bool) -> [Rule s] -> GTE r s -> 
-                      m (ST r) (Subst r s, GTE r s)
-narrowFullBoundedV pred = adaptSubstitutionResult (narrowFullBoundedV_ (pred . eqGT))
+                      ST r [(Subst r s, GTE r s)]
+narrowFullBoundedV pred rr = narrowFullBoundedV_ (pred . eqGT) (fixRules rr)
 
 -- | generalize builds a sigma type, i.e. a type scheme, by 
 --   replacing all mutvars in a term with GenVars
 generalize :: TermShape s => GTE r s -> ST r (GTE r s)
-generalize = liftGTE generalize_
+generalize = generalize_
 
 generalizeG::(TermShape s, Traversable f) => f(GTE r s) -> ST r (f(GTE r s))
-generalizeG = fmap2 eqGT . generalizeG_  . fmap idGT
+generalizeG = generalizeG_
 
-generalizeGG = fmap3 eqGT . generalizeGG_ . fmap2 idGT
+generalizeGG = generalizeGG_
 
 -- | autoInst instantitates a type scheme with fresh mutable vars
 --   Returns the instantiated term together with the new MutVars 
 --  (you need these to apply substitutions) 
-autoInst  :: (Prune Semantic, TermShape s) => GTE r s -> ST r (Subst r s, GTE r s)       
-autoInst t = fmap (second eqGT) $ autoInst_ (idGT t)
+autoInst  :: (TermShape s) => GTE r s -> ST r (Subst r s, GTE r s)       
+autoInst = autoInst_ 
 
------------------------------
--- * The underlying machinery
-------------------------------
--- |leftmost outermost
-rewrite1_ :: OmegaPlus Syntactic m r s => [RuleI r s] -> GT r s -> m (ST r) (GT r s)
-rewrite_  :: OmegaPlus Syntactic m r s => [RuleI r s] -> GT r s -> m (ST r) (GT r s)
-narrow1_  :: OmegaPlus Syntactic m r s => [RuleI r s] -> GT r s -> 
-             m (ST r) (Subst r s, GT r s)
-narrow1'_ :: (OmegaPlus Syntactic m r s) => [RuleI r s] -> GT r s -> 
-             m (ST r) (Subst r s, GT r s)
+rewrite1_ :: OmegaPlus mode m r s => [Rule_ mode r s] -> GT_ mode r s -> m (ST r) (GT_ mode r s)
+rewrite_  :: OmegaPlus mode m r s => [Rule_ mode r s] -> GT_ mode r s -> m (ST r) (GT_ mode r s)
+narrow1_  :: OmegaPlus mode m r s => [Rule_ mode r s] -> GT_ mode r s -> 
+             m (ST r) (Subst_ mode r s, GT_ mode r s)
+narrow1'_ :: (GoodShape s, Prune mode) => [Rule_ mode r s] -> GT_ mode r s 
+             -> ST r [(Subst_ mode r s, GT_ mode r s)]
 
 -- |leftmost outermost, on variables too (paramodulation)
-narrow1V_
-          :: (OmegaPlus Syntactic m r s) => [RuleI r s] -> GT r s -> 
-             m (ST r) (Subst r s, GT r s)
+narrow1V_ :: (GoodShape s, Prune mode) => [Rule_ mode r s] -> GT_ mode r s 
+             -> ST r [(Subst_ mode r s, GT_ mode r s)]
 
 -- |Unbounded Full Narrowing
-narrowFull_ :: (OmegaPlus Syntactic m r s) => [RuleI r s] -> GT r s -> 
-             m (ST r) (Subst r s, GT r s)
+narrowFull_ :: (Prune mode, Eq (GT_ mode r s), GoodShape s) => [Rule_ mode r s] -> GT_ mode r s -> 
+             ST r [(Subst_ mode r s, GT_ mode r s)]
 
 -- |Unbounded Full Paramodulation
-narrowFullV_ :: (OmegaPlus Syntactic m r s) =>
-              [RuleI r s] -> GT r s -> m (ST r) (Subst r s, GT r s)
+narrowFullV_ :: (Prune mode, GoodShape s) => 
+              [Rule_ mode r s] -> GT_ mode r s -> ST r [(Subst_ mode r s, GT_ mode r s)]
 
 -- | Bounded versions. The first argument is the bound checking predicate
-narrowFullBounded_ :: (OmegaPlus Syntactic m r s) =>
-                      (GT r s -> ST r Bool) -> [RuleI r s] -> GT r s -> 
-                      m (ST r) (Subst r s, GT r s)
-narrowFullBoundedV_:: (OmegaPlus Syntactic m r s) =>
-                      (GT r s -> ST r Bool) -> [RuleI r s] -> GT r s -> 
-                      m (ST r) (Subst r s, GT r s)
+narrowFullBounded_ :: (Prune mode, GoodShape s) =>
+                      (GT r s -> ST r Bool) -> [Rule_ mode r s] -> GT_ mode r s -> 
+                      ST r [(Subst_ mode r s, GT_ mode r s)]
+narrowFullBoundedV_:: (Prune mode, GoodShape s) =>
+                      (GT r s -> ST r Bool) -> [Rule_ mode r s] -> GT_ mode r s -> 
+                      ST r [(Subst_ mode r s, GT_ mode r s)]
 
 generalize_ ::(Prune mode, TermShape s) => GT_ mode r s -> ST r (GT_ mode r s)
 generalizeG_::(Prune mode, TermShape s,Traversable f) => 
@@ -236,13 +231,18 @@ autoInstG_:: (Traversable s, Traversable f, TermShape s, Prune mode) =>
 
 
 -- * Basic primitives
-unify_	  :: Omega mode m r s => GT_ mode r s   -> GT_ mode r s -> m (ST r) ()
+unify_	  :: Omega mode m r s => GT_ mode r s -> GT_ mode r s -> m (ST r) ()
 match_	  :: Omega mode m r s => GT_ mode r s -> GT_ mode r s -> m (ST r) ()
+
+-----------------------------
+-- * The underlying machinery
+------------------------------
 
 class Prune (mode :: *) where prune :: GT_ mode r s  -> ST r (GT_ mode r s)
 instance Prune Basic     where prune x = pruneBasic_ x
 instance Prune Syntactic where prune x = prune_ x
 instance Prune Semantic  where prune x = prune_ x
+instance TypeEq Syntactic mode HTrue => Prune mode where prune x = prune_ x
 
 {-# INLINE prune_ #-}
 prune_ (typ @ (MutVar ref)) =
@@ -334,7 +334,10 @@ class Instan term subst monad | term -> monad where
   instan_ :: subst -> term -> monad term
   
 instance (Prune mode, Traversable s) => Instan (GT_ mode r s) (Subst_ mode r s) (ST r) where
-  instan_ sub = prune >=> instan_ sub . DontCol >=> col . unDontCol
+  instan_ sub t = do --prune >=> instan_ sub . DontCol >=> col . unDontCol  
+      t1 <- prune t
+      DontCol t2 <- instan_ sub (DontCol t1)
+      col t2
 
 newtype DontCol a = DontCol {unDontCol::a}
 instance (Prune mode, Traversable s) => Instan (DontCol(GT_ mode r s)) (Subst_ mode r s) (ST r) where
@@ -476,7 +479,7 @@ zonkTermS' = zonkTermUnsafe
 --rewrite1_ _ t | assert (noMVars t) False = undefined
 rewrite1_ rules (S t)
       | otherwise
-      = rewriteTop (S t) `mplus` (fmap S$ someSubterm (rewrite1_ rules) t) 
+      = rewriteTop (S t) `mplus` (S <$> someSubterm (rewrite1_ rules) t) 
         where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
 	        (freshv, lhs') <- lift$ autoInst_ lhs
 	        match_ lhs' t
@@ -503,8 +506,8 @@ unsafeNarrowTop, unsafeNarrowTopV
     :: OmegaPlus Syntactic m r s => [RuleI r s] -> Context r s -> GT r s
                             -> m (ST r) (Subst r s, GT r s)
 -}
-narrowTop  rules ct t = assert (all noMVars [t,ct])$ unsafeNarrowTop rules ct t
-narrowTopV rules ct t = assert (all noMVars [t,ct])$ unsafeNarrowTopV rules ct t
+narrowTop  rules ct t = assert (all noMVars [t, ct])$ unsafeNarrowTop rules ct t
+narrowTopV rules ct t = assert (all noMVars [t, ct])$ unsafeNarrowTopV rules ct t
 unsafeNarrowTop   = unsafeNarrowTopG narrowTop1
 unsafeNarrowTopV  = unsafeNarrowTopG narrowTop1V
 
@@ -515,16 +518,16 @@ unsafeNarrowTopG narrowTop1 rules ct t = msum$ forEach rules $ \r -> do
                t''              <- narrowTop1 t' r
                return (vars, ct'|>t'')
 
--- narrowTop1, narrowTop1V :: OmegaPlus Syntactic m r s => GT r s -> RuleI r s -> m (ST r) (GT r s)
+narrowTop1, narrowTop1V :: OmegaPlus mode m r s => GT_ mode r s -> Rule_ mode r s 
+                        -> m (ST r) (GT_ mode r s)
 narrowTop1V t r@(lhs:->rhs) = do
                assert (noGVars t) (return ())
                assert (noMVars lhs) (return ())
                assert (noMVars rhs) (return ())
-               assert (vars rhs `isSubsetOf` vars lhs) (return ())
+               assert (vars (idGT rhs) `isSubsetOf` vars (idGT lhs)) (return ())
                (lhsv, lhs') <- lift$ autoInst_ lhs
                unify_ lhs' t
-               trace ("narrowing fired: t=" ++ show (zonkTermS' t) ++ 
-                      ", rule=" ++ show (fmap zonkTermS' r)
+               trace ("narrowing fired: t=" ++ st t ++ ", rule=" ++ sr r
 --                   ++   ", rho= " ++ show (zonkTermS lhsv)
                       )(return ()) 
                rhs'  <- lift$ instan_ lhsv rhs
@@ -534,145 +537,52 @@ narrowTop1V t r@(lhs:->rhs) = do
 narrowTop1 t@S{} r = narrowTop1V t r
 narrowTop1 _ _     = mzero -- throwError "No narrowing at vars"
 
-
--- narrowTopB1, narrowTopB1V :: OmegaPlus Syntactic m r s => GT r s -> RuleI r s -> m (ST r) (GT r s)
-narrowTopB1V t r@(lhs:->rhs) = do
-               assert (noGVars t) (return ())
-               assert (noMVars lhs) (return ())
-               assert (noMVars rhs) (return ())
-               (lhsv, lhs') <- lift$ autoInst_ lhs
-               unify_ lhs' t
-{-               trace ("narrowing fired: t=" ++ show (zonkTermS' t) ++ 
-                      ", rule=" ++ show (fmap zonkTermS' r)
---                   ++   ", rho= " ++ show (zonkTermS lhsv)
-                      )(return ()) 
--}             DontCol rhs' <- lift$ instan_ lhsv (DontCol rhs)
-               assert (noGVars rhs') (return ())
-               return rhs'
-
-narrowTopB1 t@S{} r = narrowTopB1V t r
-narrowTopB1 _ _     = mzero -- throwError "No narrowing at vars"
-
-
 -------------------------------
 -- * The Full Narrowing Framework
 -------------------------------
 narrow1'_ = narrowFullBase narrowTop'  (const (return True)) 
-narrow12'_ = narrowFullBase2 narrowTop'  (const (return True)) 
 narrow1V_ = narrowFullBase narrowTopV' (const (return True)) 
 
 narrowFull_  = narrowFullBase narrowTop' (const (return False))
-narrowFull2_ = narrowFullBase2 f (const (return False))
-    where 
---   f :: TermShape s =>  [RuleI r s] -> Context r s -> Subst r s -> GT r s
---        -> forall r1. LogicT'.SG r1 (ST r) (Subst r s, GT r s)
-     f rr c su t = narrowTop'' rr c su t
-
-narrowBasic_ = narrowBasicBase narrowTopB (const (return False))
+narrowBasic_ rules = narrowFull_ (fmap2 basicGT rules) . basicGT
 
 narrowFullV_ = narrowFullBase narrowTopV' (const (return False))
 narrowFullBounded_  = narrowFullBase narrowTop'
 narrowFullBoundedV_ = narrowFullBase narrowTopV'
-{-
-narrowFullBase :: (OmegaPlus Syntactic m r s) =>
-              ([RuleI r s] -> Context r s -> Subst r s -> GT r s
-                          -> m (ST r) (Subst r s, GT r s)) 
-            -> (GT r s -> ST r Bool)
-            -> [RuleI r s] -> GT r s 
-            -> m (ST r) (Subst r s, GT r s)
--}
-narrowFullBase _ done [] t = -- trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
-                          lift (done t) >>= guard >> return (emptyS,t)
-narrowFullBase narrowTop1base done rules t = do 
-     assert (noMVars t) (return ())
-     (subst0,t0) <- lift$ autoInst_ t
-     try search(subst0, t0) >>= lift . secondM col 
-  where 
-          search (subst,t) = lift (done t) >>= guard . not >> 
-                             step emptyC subst t >>= try search
-          step cs subst t = -- trace ("narrowFull step: " ++ show t) $
-                   narrowTop1base rules cs subst t 
-             `mplus`              
-                   (msum$ forEach (contexts t) $ \(ts,cs1) -> 
-                       step (cs|>cs1) subst ts)
 
 {-
-narrowFullBase2 :: forall r s. (TermShape s, Show (s(GT r s))) =>
+narrowFullBase :: forall r s. (TermShape s, Show (s(GT r s))) =>
               ([RuleI r s] -> Context r s -> Subst r s -> GT r s
                -> forall r1. LogicT'.SG r1 (ST r) (Subst r s, GT r s))
             -> (GT r s -> ST r Bool)
             -> [RuleI r s] -> GT r s 
             -> ST r [(Subst r s, GT r s)]
 -}
-newtype T2 a b = T2 {unT2::(a,b)} deriving Show 
-liftT2 f (T2 (_,a)) (T2 (_,b)) = a `f` b
-instance Eq b  => Eq (T2 a b)  where (==) = liftT2 (==)
-instance Ord b => Ord (T2 a b) where compare = liftT2 compare
 
 newtype Ind = Ind Int deriving (Num,Enum, Eq)
 instance Show Ind where show (Ind i) = " (" ++ show i ++ ") "
 
-narrowFullBase2 _ done [] t = -- trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
+narrowFullBase _ done [] t = -- trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
                            return []
-narrowFullBase2 narrowTop1base done rules t = do 
+narrowFullBase narrowTop1base done rules t = do 
      assert (noMVars t) (return ())
      (subst0,t0) <- autoInst_ t
      -- nubByM (semEq `at` snd) =<< 
---        <$> (runListT . runErrorT' . execWriterT)
-     LogicT.runM Nothing
---        <$> (LogicT.runM Nothing . runErrorT' . execWriterT)
---     either (error . show) concat <$> (runErrorT' . runListT . execWriterT)
-                                (search (Ind 0) (subst0, t0))
+     LogicT.runM Nothing (search (Ind 0) (subst0, t0))
   where   
 --   search :: (Subst r s, GT r s) -> LogicT'.SR r1 (ST r) (T2(Subst r s) (GT r s))
-   search ind (subst,t) = trace ("narrowFull search: " ++ show ind  ++ show t) $ 
-       LogicT.ifte' (step emptyC subst t)
-                    (\x@(sub',t') -> trace ("branch " ++ show ind ++ show t') $ 
+   search ind (subst,t) = trace ("narrowFull search: " ++ show ind  ++ st t) $ 
+       LogicT.ifte  (step emptyC subst t)
+                    (\x@(sub',t') -> trace ("branch " ++ show ind ++ st t') $ 
                                lift (done (idGT t)) >>- \isDone -> 
                                if isDone then return (sub',t') else 
                                    search (succ ind) x)
-                    (trace ("leaf" ++ show ind ++ show t) $ 
+                    (trace ("leaf" ++ show ind ++ st t) $ 
                          return (subst,t))
-   step cs subst t = trace ("narrowFull step: " ++ show t) $
+   step cs subst t = trace ("narrowFull step: " ++ st t) $
                    (narrowTop1base rules cs subst t
              `LogicT.interleave`
                    msum' (forEach (contexts t) $ \(ts,cs1) ->
-                     step (cs|>cs1) subst ts))
-
-narrowBasicBase :: (Prune mode, Functor f, TermShape s1) =>
-  ([f (GT_ Basic r s)]
-   -> Context Basic r1 s1
-   -> Subst_ Basic r1 s1
-   -> GT_ Basic r1 s1
-   -> LogicT.SFKT
-        (ST r1) (Subst_ Basic r1 s1, GT_ Basic r1 s1))
-  -> (GT r1 s1 -> ST r1 Bool)
-  -> [f (GT_ mode r s)]
-  -> GT_ eq r1 s1
-  -> ST r1 [(SubstG (GT_ mode r1 s1), GT_ mode r1 s1)]
-
-narrowBasicBase _ done [] t = -- trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
-                           return []
-narrowBasicBase narrowTop1base done rules t = do 
-     assert (noMVars t) (return ())
-     (subst0,t0) <- autoInst_ (basicGT t)
-     results <- LogicT.runM Nothing (search (Ind 0) (subst0, t0))
-     mapM (secondM (col . freeGT) . first (fmap freeGT)) results
-  where   
---   search :: Ind -> (Subst r s, GT r s) -> LogicT.SFKT (ST r) (Subst r s, GT r s)
-   search ind (subst,t) = -- trace ("narrowFull search: " ++ show ind  ++ show t) $ 
-      lift (done (idGT t)) >>- \isDone -> 
-      guard (not isDone) >>- \_ -> 
-      LogicT.ifte' (step emptyC subst t)
-                  (\x -> --trace ("branch " ++ show ind ++ show (snd x)) $ 
-                         search (succ ind) x)
-                  (--trace ("leaf" ++ show ind ++ show t) $ 
-                         return (subst,t))
-   step cs subst t = -- trace ("narrowFull step: " ++ show t) $
-                   (narrowTop1base (basicGT `fmap2` rules) cs subst t
-             `LogicT.interleave`
-                   msum' (forEach (contexts t) $ \(ts,cs1) -> do
-                     guard (not (isMutVar ts))
                      step (cs|>cs1) subst ts))
 
 {-
@@ -682,8 +592,6 @@ narrowTop', narrowTopV' :: OmegaPlus Syntactic m r s =>
                         -> m (ST r) (Subst r s, GT r s)
 -}
 narrowTop'  = narrowTopBase narrowTop1
-narrowTop'' = narrowTopBase' narrowTop1
-narrowTopB  = narrowTopBase narrowTopB1
 narrowTopV' = narrowTopBase narrowTop1V
 
 -- narrowTopBase' _ _ _ _  t | trace ("NarrowTop' " ++ show t) False = undefined
@@ -694,14 +602,6 @@ narrowTopBase narrowTop1 rules ct subst t = msum$ forEach rules $ \r -> do
                t'' <- narrowTop1 t' r
                ct'' <- lift$ col ct'
                return (subst', ct''|>t'')
-
-narrowTopBase' _ _ ct _ t | assert(noGVars t)  False = undefined
-narrowTopBase' _ _ ct _ t | assert(noGVars ct) False = undefined
-narrowTopBase' narrowTop1 rules ct subst t = msum'$ forEach rules $ \r -> do
-               (subst', [ct'], t') <- lift$ dupTermWithSubst subst [ct] t
-               narrowTop1 t' r >>- \t'' -> 
-                lift (col ct') >>- \ct'' -> 
-                return (subst', ct''|>t'')
 
 --------------------------------
 -- * Duplication of Terms
@@ -818,31 +718,32 @@ runLIO = stToIO . runListT'
 -- ---------------------------------------------------
 -- TRS instances
 -- ---------------------------------------------------
-instance (Term t s, Show (s(TermStatic s))) => Term.TRS t s [] where
+instance (Term t s, GoodShape s) => Term.TRS t s [] where
   rewrite  rr t    = runL (rewrite rr (templateTerm t))
   rewrite1 rr t    = runL (rewrite1 rr (templateTerm t))
   narrow1  rr t    = runLWithSubst (narrow1    rr (templateTerm t))
-  narrowFull rr t  = runLWithSubst (narrowFull rr (templateTerm t))
-  narrowFullBounded pred rr t = 
-      runLWithSubst (narrowFullBounded ((pred <$>). zonkTerm') rr (templateTerm t))  
 
-instance (Term t s, Show (s (TermStatic s))) => Term.TRS t s Maybe where
+instance (Term t s, GoodShape s) => Term.TRSN t s where
+  narrow1'    rr t = runSTWithSubst (narrow1' rr (templateTerm t))
+  narrowBasic rr t = runSTWithSubst (bi (fmap freeGT) freeGT `fmap2` narrowBasic rr (templateTerm t))
+  narrowFull rr t  = runSTWithSubst (narrowFull rr (templateTerm t))
+  narrowFullBounded pred rr t = 
+      runSTWithSubst (narrowFullBounded ((pred <$>). zonkTerm') rr (templateTerm t))  
+
+instance (Term t s, GoodShape s) => Term.TRS t s Maybe where
   rewrite  rr t    = runM (rewrite rr (templateTerm t))
   rewrite1 rr t    = runM (rewrite1 rr (templateTerm t))
   narrow1  rr t    = runMWithSubst (narrow1    rr (templateTerm t))
-  narrowFull rr t  = runMWithSubst (narrowFull rr (templateTerm t))
-  narrowFullBounded pred rr t = 
-      runMWithSubst (narrowFullBounded ((pred <$>). zonkTerm') rr (templateTerm t))
 
 instance OmegaPlus Semantic t r s => Term.TRS (GT_ Semantic r) s (t (ST r)) where
   rewrite       = rewrite
   rewrite1      = rewrite1
   narrow1    rr = (first (zonkTerm <$>) <$>) . narrow1 rr
-  narrowFull rr = (first (zonkTerm <$>) <$>) . narrowFull rr
-  narrowFullBounded pred rr t = do 
-      (Subst subst, t') <- narrowFullBounded (return . pred) rr t
-      subst'            <- lift (zonkTerm' `mapM` subst)
-      return (Subst (Just <$> subst'), t')
+
+runSTWithSubst :: (Term t s, Omega Semantic (ListT') r s) =>
+                          (forall r. ST r [(Subst r s, GTE r s)])
+                      -> [(SubstM (t s), t s)]
+runSTWithSubst m = runST (mapM (biM zonkSubst zonkTerm') =<< m)
 
 runLWithSubst :: (Term t s, Omega Semantic (ListT') r s) =>
                           (forall r. ListT' (ST r) (Subst r s, GTE r s))
@@ -854,24 +755,27 @@ runMWithSubst :: (Term t s, Omega Semantic MaybeT r s) =>
                       -> Maybe (SubstM (t s),t s)
 runMWithSubst m = runST (runMaybeT (runWithSubst m))
 
-runWithSubst m = do 
-                     (Subst subst, t) <- m
-                     t'     <- lift $ zonkTerm' t
-                     subst' <- lift $ mapM col subst
-                     return (Subst (zonkTerm <$> subst'), t')
+runWithSubst ::  (Term t s, Omega mode m r s) =>
+                          (m (ST r) (Subst r s, GT_ mode r s))
+                      -> m (ST r) (SubstM (t s),t s)
+runWithSubst m = lift . biM zonkSubst zonkTerm' =<< m
 
+zonkSubst = mapM (fmap zonkTerm . col)
 
-------------------------
--- * The Omega type class 
-------------------------
+--------------------------------------
+-- * The Omega type class and friends
+--------------------------------------
 -- |"Omega is just a Type Class constraint synonym" 
+class (TermShape s, Show (s (TermStatic s))) => GoodShape s
+instance (TermShape s, Show (s (TermStatic s))) => GoodShape s
+
 #ifdef __HADDOCK__
 class ( MonadError (TRSException) (t (ST r)), MonadTrans t, Monad (t (ST r)), Functor (t (ST r)), TermShape s) => Omega mode t r s
 #else
 class ( MonadError (TRSException) (t (ST r)), MonadTrans t, Monad (t (ST r)), Functor (t (ST r)), TermShape s, Prune mode) => 
     Omega mode (t :: (* -> *) -> * -> *) r (s :: * -> *)
 #endif
-class (Omega mode t r s, MonadPlus (t (ST r)),Show (s (TermStatic s))) => 
+class (Omega mode t r s, MonadPlus (t (ST r)), GoodShape s) => 
     OmegaPlus mode t r s 
 
 instance ( MonadError (TRSException) (t (ST r)), MonadTrans t, Monad (t (ST r)), Functor (t (ST r)), TermShape s, Prune mode) => Omega mode t r s
@@ -905,3 +809,6 @@ toList2 = map toList . toList
 concatMap2 f = concat . concat . fmap (fmap f)
 sequence2 = sequence . fmap sequence
 sequence3 = sequence . fmap sequence2
+
+st = show . zonkTermS'
+sr = show . fmap zonkTermS'
