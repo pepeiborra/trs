@@ -4,7 +4,7 @@ license: AllRightsReserved
 license-file: ""
 copyright:
 maintainer:
-build-depends: base -any, mtl, GHoodOff, QuickCheck
+build-depends: base -any, mtl, GHoodOff, QuickCheck, LogicT, pretty, TypePrelude
 stability:
 homepage:
 package-url:
@@ -17,12 +17,13 @@ extra-source-files:
 extra-tmp-files:
 exposed-modules: 
   TRS
+  TRS.Core
+  TRS.Context
   TRS.Utils 
   TRS.Terms
+  TRS.Term
   TRS.Types
 other-modules: 
-  TRS.Core 
-  TRS.Context
 buildable: True
 cc-options:
 ld-options:
