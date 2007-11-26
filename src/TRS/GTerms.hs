@@ -176,7 +176,8 @@ instance VarMonad (STV r) (GT_ mode r s) where
           write table_ref table'
           return var
 -}
-instance (Show (s (GT_ eq r s))) => Show (GT_ eq r s) where
+
+instance (Show (s (GT_ mode r s))) => Show (GT_ mode r s) where
     show (S s)      = show s
     show (GenVar n) = showsVar 0 n "" --TODO 
     show (CtxVar c) = '[' : show c ++ "]" 

@@ -67,6 +67,16 @@ instance (Show (s(TermStatic_ i s)), Show i) => Show (TermStatic_ i s) where
   showsPrec p (Term s) = showsPrec p s
   showsPrec p (Var i)  = ("Var" ++) . showsPrec p i
 
+
+varNames = "XYZWJIKHW"
+showsVar p n = if n < length varNames 
+                         then ([varNames !! n] ++)
+                         else ('v' :) . showsPrec p n
+
+instance (Show (s (TermStatic s))) => Show (TermStatic s) where
+    showsPrec p (Term s) = showsPrec p s
+    showsPrec p (Var  i) = showsVar p i 
+
 instance (Eq (TermStatic s), Ord (s(TermStatic s))) => Ord (TermStatic s) where
   compare (Term s) (Term t) = compare s t
   compare Term{} _          = GT
@@ -110,6 +120,7 @@ instance TermShape BasicShape where
 -----------------------------
 -- * The Class of Match-ables
 -----------------------------
+
 class (Traversable s) => TermShape s where
     matchTerm     :: s x -> s x -> Maybe [(x,x)]
 
@@ -182,15 +193,6 @@ occursError     = Unify OccursError
 --------------------------------
 -- Other Instances and base operators
 --------------------------------
-
-varNames = "XYZWJIKHW"
-showsVar p n = if n < length varNames 
-                         then ([varNames !! n] ++)
-                         else ('v' :) . showsPrec p n
-
-instance (Show (s (TermStatic s))) => Show (TermStatic s) where
-    showsPrec p (Term s) = showsPrec p s
-    showsPrec p (Var  i) = showsVar p i 
 --    showList  = unlines . map show
 {-
 instance Show(GTE r s) => Show(GT r s) where

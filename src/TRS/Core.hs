@@ -27,10 +27,12 @@ module TRS.Core (
   generalize,
   generalizeG,
   generalizeGG,
+  narrowFull, narrowFullBounded,
   run, runG, runG', runGG, runIO,
   runE, runEG, runEGG, runEIO,
   runM, runMG, runMGG, runMIO,
   runL, runLG, runLGG, runLIO,
+  runSTWithSubst,
   zonkSubst, isRenaming,
   semEq, semEq', semEqG
  -- for testing:
@@ -584,10 +586,10 @@ narrowTop1 _ _     = mzero -- throwError "No narrowing at vars"
 --narrow1'_ = narrowFullBase narrowTop'  (const (return True)) 
 narrow1V_ = narrowFullBase narrowTopV' (const (return True)) 
 
-narrowFull_  = narrowFullBase narrowTop' (const (return False))
+narrowFull_  = narrowFullBounded_ (const (return False))
 narrowBasic_ rules = narrowFull_ (fmap2 basicGT rules) . basicGT
 
-narrowFullV_ = narrowFullBase narrowTopV' (const (return False))
+narrowFullV_ = narrowFullBoundedV_ (const (return False))
 narrowFullBounded_  = narrowFullBase narrowTop'
 narrowFullBoundedV_ = narrowFullBase narrowTopV'
 
@@ -613,11 +615,14 @@ narrowFullBase narrowTop1base done rules t = do
        LogicT.ifte  (step emptyC subst t)
                     (\x@(sub',t') -> trace ("branch " ++ show ind ++ st t') $ 
                                lift (done (idGT t)) >>- \isDone -> 
-                               if isDone then return (sub',t') else 
+                               if isDone 
+                                then trace ("done" ++ st t') $
+                                     return (sub',t') 
+                                else 
                                    search (succ ind) x)
                     (trace ("leaf" ++ show ind ++ st t) $ 
                     return (subst,t))
-   step cs subst t = trace ("narrowFull step: " ++ st t) $
+   step cs subst t = trace ("narrowFull step: " ++ st cs ++ brackets (st t)) $
                    (narrowTop1base rules cs subst t
              `LogicT.interleave`
                    msum' (forEach (contexts t) $ \(ts,cs1) ->
@@ -899,3 +904,5 @@ st = show . zonkTermS'
 sr ::  (Functor f, TermShape s, Show (f (TermStatic s))) =>
       f (GT_ mode r s) -> String
 sr = show . fmap zonkTermS'
+
+brackets text = '[' : text ++ "]"
