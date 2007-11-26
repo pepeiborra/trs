@@ -463,9 +463,12 @@ semEq x y = do
     (_,x') <- autoInst x
     (_,y') <- autoInst y
     let xy_vars = collect isMutVar x' ++ collect isMutVar y'
-    runMaybeT $ unify x' y'
-    mapM col xy_vars
-    andM [ (maybe True isVar <$> readVar v)
+    unified <- runMaybeT (unify x' y' >> return ())
+    if isNothing unified 
+       then return False
+       else do
+         mapM col xy_vars
+         andM [ (maybe True isVar <$> readVar v)
                        | MutVar v <- xy_vars]
 
 -- TODO Rewrite as in semEq
