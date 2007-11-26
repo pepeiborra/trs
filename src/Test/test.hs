@@ -21,7 +21,7 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
 import Test.HUnit
 import Test.QuickCheck ( Arbitrary(..), (==>), collect, elements
                        , frequency, Property, Smart(..), variant
-                       , sized, CoArbitrary(..), oneof, Gen)
+                       , sized, CoArbitrary(..), oneof, Gen, forAll)
 import Test.QuickCheck.Test
 import Text.PrettyPrint
 import Text.Show.Functions
@@ -254,6 +254,13 @@ propReSemEq s' t' = runST $ do
        return $ new == old
         where types = (s' :: PeanoT, t' :: PeanoT)
 
+testSemEq s t | False, Var _ <- s = undefined
+testSemEq s' t' = runST $ do
+       let [s,t] = map templateTerm [s',t']
+       new <- s  `semEq` t
+       return new
+        where types = (s' :: PeanoT, t' :: PeanoT)
+
 {-
 propReSemEq s t = runST$ do
     let [n_s, n_t] = map (length . collect isGenVar) [s,t]
@@ -338,7 +345,7 @@ noNarrow' = snd `map` narrow1 peanoTRS2 two
 testNarrowing = TestList [ [s(s(s(s(z)))), s(s(z))] ~=? fourN1
                          , [s(s(s(s(z)))), s(s(z))] ~=? fourNFull 
                          , [] ~=? noNarrow'
-                         , [] ~=? noNarrowFull'
+                         , [two] ~=? noNarrowFull'
                          , testAngryTerm
                          , testNarrowIssue
                          , snd <$> narrow1 [g (g x) :-> x] (f (g x) x) ~?= [f x (g x)]
@@ -363,7 +370,7 @@ angryTermFull  = sndM $narrowFull buTRS angryTerm
 --angryTermFullv = sndM $narrowFullV buTRS angryTerm
 
 testAngryTerm = TestLabel "Angry Term narrowing" $ 
-                TestList [ angryTermFull  ~?= [] 
+                TestList [ angryTermFull  ~?= [angryTerm] 
                     --   , angryTermFullv ~?= [c] 
                          ]
 
@@ -416,9 +423,10 @@ propNarrow' x = let
     bb = snd <$> narrow1' peanoTRS x
     in (aa =|= bb)
 -}
--- TODO This test fails to find valid test data
-propNarrowFullNF x = isSNF peanoTRS x ==> (snd <$> narrowFull peanoTRS x) == []
-                     where types = (x :: PeanoT)
+propNarrowFullNF   = forAll (arbitraryPeano (map Var [0..2]) 3) $ \x ->
+                     isSNF peanoTRS x ==> 
+                     (snd <$> narrowFull peanoTRS x) == [x]
+       where types = (x :: PeanoT)
 
 a =|= b = a `intersect` b == a && b `intersect` a == b
 {-

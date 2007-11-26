@@ -600,8 +600,8 @@ narrowFullBase :: (Prune mode, Show (s (TermStatic s)), TermShape s) =>
                -> (GT r s -> ST r Bool) -> [t] -> GT_ mode r s 
                -> ST r [(Subst_ mode r s, GT_ mode r s)]
 
-narrowFullBase _ done [] t = -- trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
-                           return []
+--narrowFullBase _ done [] t = -- trace ("narrowFull " ++ show t ++ " with empty TRS")$ 
+--                           return []
 narrowFullBase narrowTop1base done rules t = do 
      assert (noMVars t) (return ())
      (subst0,t0) <- autoInst t
@@ -616,7 +616,7 @@ narrowFullBase narrowTop1base done rules t = do
                                if isDone then return (sub',t') else 
                                    search (succ ind) x)
                     (trace ("leaf" ++ show ind ++ st t) $ 
-                         if ind==0 then mzero else return (subst,t))
+                    return (subst,t))
    step cs subst t = trace ("narrowFull step: " ++ st t) $
                    (narrowTop1base rules cs subst t
              `LogicT.interleave`

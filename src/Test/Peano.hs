@@ -118,7 +118,7 @@ arbitraryPeano [] 0   = return z
 arbitraryPeano vars 0 = frequency [(1,return z), (1, elements vars)]
 arbitraryPeano vars size | size2 <- size `div` 2 =
   frequency [ (2,liftM2 (+:) (arbitraryPeano vars size2) (arbitraryPeano vars size2))
-            , (2,liftM s (arbitraryPeano vars size))]
+            , (4,liftM s (arbitraryPeano vars (pred size)))]
 
 
 instance Arbitrary (RuleS Peano) where
