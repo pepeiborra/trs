@@ -12,6 +12,7 @@ import Control.Applicative
 import Control.Arrow hiding (pure)
 import Control.Monad (guard, unless, replicateM, mplus, foldM)
 import Control.Monad.Error (runErrorT)
+import MaybeT (runMaybeT)
 import Control.Monad.List (ListT(..), liftM, liftM2, lift)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, notElem
@@ -28,16 +29,17 @@ import Debug.Trace
 import System.IO.Unsafe
 import GHC.Exts
 
+import TRS hiding (s, collect)
+import qualified TRS
+import TRS.Core hiding (run)
 import qualified TRS.Core as Core
-import TRS.Core hiding (narrow1', rewrite1, rewrite, narrow1, narrowFull, narrowFullBounded, run)
-import TRS.Types hiding (s)
-import qualified TRS.Types as TRS
-import TRS.Term hiding (collect)
-import qualified TRS.Term
 import TRS.Terms
 import TRS.Utils
 import TRS.Signature
 import TRS.Context
+import TRS.GTerms
+import TRS.Tyvars
+import Test.Peano
 
 htests = TestList
         [ TestLabel "testRewriting" testRewriting
@@ -53,75 +55,18 @@ qtests = [("Semantic Equality", q propSemanticEquality)
          ,("Generalize"       , q propGeneralize)
          ,("AutoInst Mutvars" , q propAutoInstMutVars)
          ,("AutoInstGMutvars" , q propAutoInstGMutVars)
+         ,("AutoInstGMutvars2" , q propAutoInstGMutVars2)
          ,("Reimpl. collect"  , q propReCollect)
 --         ,("Reimpl. vars"     , q propReVars)
          ,("Re. mutableTerm"  , q propReMutable)
          ,("Reimpl. semEq", q propReSemEq)
+         ,("Full Narrowing Normal Forms", q propNarrowFullNF)
+         ,("Reimpl. contexts" , q propContexts)
+         ,("Contexts Identity", q propCIdentity)
+         ,("Contexts Transitivity", q propCTransiti)
+         ,("dup(t) == t", q propDuplication1)
          ]
     where q = quickCheck'
-
-------------------------
--- The Terms dataType
-------------------------
-type PeanoT = TermStatic Peano
-type PeanoM r = GTE r Peano 
-
-data Peano a = a :+ a
-             | Succ a
-             | Zero
-    deriving (Eq, Ord)
-
-prec_succ = 3
-prec_plus = 1
-
-instance Show x => Show (Peano x) where
-  showsPrec p (Succ x) = showParen (p>prec_succ) $ 
-                         ("s " ++ ) . showsPrec (succ prec_succ) x
-  showsPrec p Zero     = ('0' : )
-  showsPrec p (a :+ b) = showParen (p>prec_plus) 
-                       $ showsPrec (succ prec_plus) a 
-                       . (" + " ++) 
-                       . showsPrec (succ prec_plus) b
-
-instance Enum (PeanoT) where
-   succ(x) = s(x)
---   pred(s(Succ x)) = x
-   toEnum n = iterate succ z !! n
-
--- helper constructors
-x +: y = TRS.s (x :+ y)
-s = TRS.s . Succ
-z = TRS.s Zero
-
-instance Traversable Peano where
-    traverse f Zero = pure Zero
-    traverse f (Succ a) = Succ <$> f a
-    traverse f (a :+ b) = (:+) <$> f a <*> f b
-
-instance Functor Peano where
-    fmap = fmapDefault
-instance Foldable Peano where
-    foldMap = foldMapDefault
-
-instance TermShape Peano where 
-    matchTerm Zero Zero = Just []
-    matchTerm (Succ x) (Succ y) = Just [(x,y)]
-    matchTerm (a :+ b) (c :+ d) = Just [(a,c),(b,d)]
-    matchTerm x y = Nothing
-
-p (Succ _) = "succ"
-p (_ :+ _) = "+"
-p Zero     = "0"
-
-----------------------------
--- Peano numbers
-----------------------------
-peanoTRS = [ x +: s(y) :-> s(x +: y)
-           , y +: z    :-> y        ]
-peanoTRS'= [ s x +: y :-> s(x +: y)
-           , z   +: y :-> y         ]
-
-(x,y) = (Var 0, Var 1)
 
 -------------------------
 -- Testing Equality
@@ -134,7 +79,8 @@ propSemanticEquality (Smart _ t) = let
     in new_term == t
 --        where types = t :: PeanoT
 
-propRuleEquality :: Rule Peano -> Bool
+
+propRuleEquality :: RuleS Peano -> Bool
 propRuleEquality t@(l1:->r1) = t == t
 
 rule1 = x +: y :-> x
@@ -146,7 +92,7 @@ rule2 = x +: y :-> y
 
 propGeneralize t_ = runST (do
     t   <- mutableTerm t_
-    t'  <- generalize_ t
+    t'  <- generalize t
     t `semEq` t')
         where types = t_ :: PeanoT
 
@@ -163,22 +109,22 @@ propAutoInstGMutVars l r =
 propAutoInstGMutVars2 l r =
   not(null (vars l) && null (vars r)) ==> collect (length$ vars l ++ vars r) $ 
     runST (do
-       (_,[l,r]) <- autoInstG_ [templateTerm l, templateTerm r]
-       return (isGT l)
+       (_,[l,r]) <- autoInstG [templateTerm l, templateTerm r]
        return (noGVars l))
         where types = l :: PeanoT
 --------------------------------------
 -- Proving reimplementations correct
 --------------------------------------
 propReCollect p_ f | p <- eqGT$ templateTerm p_ 
-                   = (templateTerm <$> TRS.Term.collect f p_) == 
+                   = (templateTerm <$> TRS.collect f p_) == 
                      collect_ (f . fromJust . zonkTerm) p
        where types = p_ :: PeanoT
                   
 -- | Ought to call colGT before this to make sure all the variables have
 --   been dereferenced 
 collect_   :: Foldable s  => (GT_ eq r s -> Bool) -> GT_ eq r s -> [GT_ eq r s]
-collect_ p (S x) = foldr (\t gg -> collect_ p t ++ gg) [] x
+collect_ p (S x) | p (S x) = S x : concatMap (collect_ p) x -- foldr (\t gg -> collect_ p t ++ gg) [] x
+collect_ p (S x) = concatMap (collect_ p) x -- foldr (\t gg -> collect_ p t ++ gg) [] x
 collect_ p x = if p x then [x] else []
 {-
 prop_autoInst p = runST (do
@@ -197,10 +143,10 @@ autoInst_old x
                              if gv`elem`gvars then fresh else return gv) 
                           []
                           (map GenVar [0..succ n_newvars])
-           x' <- instan_ freshv x 
+           x' <- instan freshv x 
 --           assert (noGVars x') (return ())
            x' `seq` return (freshv, x')
-    where gvars = TRS.Term.collect isGenVar x
+    where gvars = TRS.collect isGenVar x
           n_newvars :: Int
           n_newvars = maximum [ n | GenVar n <- [GenVar 10]]
 
@@ -211,7 +157,7 @@ propReMutable p = runST (do
         where types = p :: PeanoT
 
 --mutableTerm' :: (TermShape s, Functor s) => TermStatic s -> ST r (GT r s)
-mutableTerm' = (snd <$>) . autoInst_ . templateTerm' 
+mutableTerm' = (snd <$>) . autoInst . templateTerm' 
 
 
 --templateTerm' :: Functor s =>  TermStatic s -> GT r s -- PEPE be careful with equality
@@ -270,20 +216,44 @@ equal_rule s1 s2 = fmap(either (return False) id) $ runErrorT$ do
 
 
 -- |Semantic equality (equivalence up to renaming of vars) 
-semEq_old :: (TermShape s) => GT r s -> GT r s -> ST r Bool
+semEq_old :: (GoodShape s) => GTE r s -> GTE r s -> ST r Bool
 semEq_old x y = fmap (either (return False) id) $ runErrorT $ do
-    (theta_x, x') <- lift$ autoInst_ x
-    (theta_y, y') <- lift$ autoInst_ y
-    unify_ x' y'
-    theta_x' <- lift (mapM col theta_x) 
-    theta_y' <- lift (mapM col theta_y)
-    return (none isTerm theta_x' && none isTerm theta_y')
+    (theta_x, x') <- lift$ autoInst x
+    (theta_y, y') <- lift$ autoInst y
+    unify x' y'
+    theta_x' <- lift (mapM2 col theta_x) 
+    theta_y' <- lift (mapM2 col theta_y)
+    return (none (fromMaybe False . fmap isTerm) theta_x' && 
+            none (fromMaybe False . fmap isTerm) theta_y')
   where none = (not.) . any
 
+semEq_old' :: (GoodShape s) => GTE r s -> GTE r s -> ST r Bool
+semEq_old' x y = do
+    (_,x') <- second eqGT <$> autoInst x
+    (_,y') <- second eqGT <$> autoInst y
+    let xy_vars = TRS.collect isMutVar x' ++ TRS.collect isMutVar y'
+    runMaybeT $ unify x' y'
+    mapM col xy_vars
+    andM [ (maybe True isVar <$> readVar v)
+                       | MutVar v <- xy_vars]
+
+
+propReSemEq1 s t | False, Var _ <- s = undefined
+propReSemEq1 s' t' = runST $ do
+       let [s,t] = map templateTerm [s',t']
+       new <- s  `semEq` t
+       old <- s `semEq_old'` t
+       return $ new == old
+        where types = (s' :: PeanoT, t' :: PeanoT)
+
 propReSemEq s t | False, Var _ <- s = undefined
-propReSemEq s t = 
-       (s == t) == runST(templateTerm s `semEq_old` templateTerm t)
-        where types = (s :: PeanoT, t :: PeanoT)
+propReSemEq s' t' = runST $ do
+       let [s,t] = map templateTerm [s',t']
+       new <- s  `semEq` t
+       old <- s `semEq_old` t
+       return $ new == old
+        where types = (s' :: PeanoT, t' :: PeanoT)
+
 {-
 propReSemEq s t = runST$ do
     let [n_s, n_t] = map (length . collect isGenVar) [s,t]
@@ -298,6 +268,19 @@ propReSemEq s t = runST$ do
          s  `semEq` s' == s  `semEq_old` s' &&
          t  `semEq` t' == t  `semEq_old` t')
 -}
+
+----------------------------
+-- Peano numbers
+----------------------------
+peanoTRS = [ x +: s(y) :-> s(x +: y)
+           , y +: z    :-> y        ]
+peanoTRS'= [ s x +: y :-> s(x +: y)
+           , z   +: y :-> y         ]
+
+x :: forall s. TermStatic s
+x = Var 0
+y = Var 1
+
 --------------------------
 -- Testing Reductions
 --------------------------
@@ -310,7 +293,7 @@ testRewriting = TestLabel "Test Rewriting" $ TestList
         , testRewNoRules ]
 
 -- Testing rewriting
-two   = s(s(z))
+two   = s(s(z)) :: PeanoT
 five  = s(s(s(two)))
 seven = two +: five
 
@@ -334,11 +317,12 @@ sillyRules = [ z :-> s(z), z :-> s(s(z)) ]
 testRewriting5 = test (assert True) --TODO
 
 -- Corner cases
-testRewNoRules = TestLabel "No Rules" $ rewrite [] seven ~?= [seven]
-
+testRewNoRules = TestLabel "No Rules" $ 
+                 (rewrite ([] :: [Rule TermStatic Peano]) seven) ~?= [seven]
+  
 -- Testing Narrowing
 peanoTRS2 = [ s(s(z)) +: s(x) :-> s(s(s(x)))
-             , z +: s(x) :-> s(x)
+            , z +: s(x) :-> s(x)
             ]
 
 four = y +: s(s(z))
@@ -379,7 +363,7 @@ angryTermFull  = sndM $narrowFull buTRS angryTerm
 --angryTermFullv = sndM $narrowFullV buTRS angryTerm
 
 testAngryTerm = TestLabel "Angry Term narrowing" $ 
-                TestList [ angryTermFull  ~?= [angryTerm] 
+                TestList [ angryTermFull  ~?= [] 
                     --   , angryTermFullv ~?= [c] 
                          ]
 
@@ -388,7 +372,7 @@ testAngryTerm = TestLabel "Angry Term narrowing" $
 --------------------------
 
 isSNF' rr = (fmap null . runListT') 
-         . ( (Core.narrow1 rr =<<) . lift . generalize_)
+         . ( ({-Core.-}narrow1 rr =<<) . lift . generalize)
 isSNF rr = isNothing . narrow1 rr 
 
 u = ts(x + y)
@@ -410,10 +394,10 @@ tpBackward1 = snd <$> narrow1 (map swap peanoTRS) (s(z) +: x)
 
 
 testNarrowIssue = TestLabel "Narrowing Issues" $ TestList 
-        [ u' ~?= [ts(ts(x))]
+        [ u' ~?= [ts(ts(y)),ts(ts(ts(y))),ts(y),ts(x)]
         , tpForward1 ~?= [s(x)] 
         , snd <$> narrow1 trs_x t ~=? (snd <$> narrow1 trs_y t :: [PeanoT])
-        , snd <$> narrow1' trs_x' t' ~=? snd <$> narrow1' trs_y' t'
+--        , snd <$> narrow1' trs_x' t' ~=? snd <$> narrow1' trs_y' t'
         ]
     where t = z +: y
           trs_x = [x :-> (z +: x)]
@@ -426,12 +410,15 @@ testNarrowIssue = TestLabel "Narrowing Issues" $ TestList
 -- Narrowing Properties
 ------------------------
 --propNarrow' :: PeanoT -> Bool
+{-
 propNarrow' x = let
     aa = snd <$> narrow1  peanoTRS x
     bb = snd <$> narrow1' peanoTRS x
     in (aa =|= bb)
-
-propNarrowFullNF x = isSNF peanoTRS x ==> (snd <$> narrowFull peanoTRS x) == [x]
+-}
+-- TODO This test fails to find valid test data
+propNarrowFullNF x = isSNF peanoTRS x ==> (snd <$> narrowFull peanoTRS x) == []
+                     where types = (x :: PeanoT)
 
 a =|= b = a `intersect` b == a && b `intersect` a == b
 {-
@@ -461,7 +448,7 @@ testEquality = TestLabel "test equality" $
 -----------------------------------------------
 contexts' (S t) = --(CtxVar 0, S t) : 
                  catMaybes (map (context (S t) c) [0..size t - 1])
-    where c = (length . TRS.Term.collect isCtxVar) (S t)
+    where c = (length . TRS.collect isCtxVar) (S t)
 --          context :: Traversable t => GT t r -> Int -> Int -> Maybe (GT t r,Context t r)
           context (S t) depth i 
              | (a, t') <- first (msum . toList) . unzipG $
@@ -489,20 +476,14 @@ propCTransiti x_ = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts x
 --------------------------
 -- Other properties
 -------------------------
-propDuplication1, propDuplication2 :: PeanoT -> Bool
+propDuplication1 :: PeanoT -> Bool
 propDuplication1 t = runST (do 
                         t1           <- mutableTerm t 
-                        (vars',_,t') <- dupTermWithSubst emptyS [] (idGT t1)
-                        Just t''     <- zonkTerm <$> col t'
-                        return$ t == t'' && t1 `semEq'` t')
-
-propDuplication2 t = runST (do 
-                        t1   <- mutableTerm t 
-                        (Subst vars',_,t') <- dupTermWithSubst emptyS [] (idGT t1)
-                        mapM (\(MutVar r) -> write r (Just$ GenVar 1)) vars'
-                        Just t'' <- zonkTerm <$> col t' 
-                        return$ t == t'')
-
+                        (vars',_,t') <- dupTermWithSubst emptySubstM [] (idGT t1)
+                        t''          <- zonkTerm' =<< col t'
+                        semeq        <- t1 `semEq` t'
+                        return$ t `synEq` t'' && semeq )
+                             
 ---------------
 -- helpers
 ---------------
@@ -522,31 +503,6 @@ gsndM = gen . sndM
 -- ----------------
 -- Generators
 -- ----------------
-instance Arbitrary (PeanoT) where
-    arbitrary = sized$ arbitraryPeano (map Var [0..2])
-    shrink (Term (a :+ b)) = [a,b]
-    shrink x = []
-
-instance CoArbitrary PeanoT where
-    coarbitrary (Var i)  = variant 0 . coarbitrary i
-    coarbitrary (Term f) = variant 1 . coarbitrary (toList f)
-
-arbitraryPeano [] 0   = return z
-arbitraryPeano vars 0 = frequency [(1,return z), (1, elements vars)]
-arbitraryPeano vars size | size2 <- size `div` 2 =
-  frequency [ (2,liftM2 (+:) (arbitraryPeano vars size2) (arbitraryPeano vars size2))
-            , (2,liftM s (arbitraryPeano vars size))]
-
-
-instance Arbitrary (Rule Peano) where
-  arbitrary = arbitraryRule
-  shrink (a :-> b) = (:->) <$> (shrink a) <*> (shrink b)
-
---arbitraryRule :: (Arbitrary (GT_ eq r s), Eq (GT_ eq r s))
-arbitraryRule = do
-  l <- arbitrary
-  r <- sized$ arbitraryPeano (vars l)
-  return (l:->r)
 
 arbitraryLLCS sig size = do
   Symbol f arity <- elements (defined sig)
@@ -556,7 +512,7 @@ arbitraryLLCS sig size = do
   rhs <- arbitraryTerm (defined sig ++ constructors sig) size
   return (lhs :-> rhs)
 
-arbitraryTerm :: [Symbol String] -> Int -> Gen TRS.Types.Term
+arbitraryTerm :: [Symbol String] -> Int -> Gen BasicTerm
 arbitraryTerm sig 0 = Var <$> arbitrary
 arbitraryTerm sig size = do 
   Symbol c arity <- elements sig

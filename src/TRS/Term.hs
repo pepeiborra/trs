@@ -3,7 +3,7 @@ module TRS.Term where
 
 import Control.Applicative
 import Control.Arrow (first, second)
-import Control.Monad (replicateM, liftM, mplus)
+import Control.Monad (replicateM, liftM, mplus, forM, when)
 import Control.Monad.State (gets, modify, evalState)
 import Control.Monad.Identity (runIdentity)
 import Data.List (nub, nubBy, elemIndex)
@@ -13,16 +13,20 @@ import Data.Traversable (Traversable, mapM)
 import Prelude hiding (mapM)
 
 import {-# SOURCE#-} TRS.Core (col, Prune)
+import TRS.GTerms
+import TRS.Rules
+import TRS.Tyvars
 import TRS.Types hiding (Term)
+import TRS.Substitutions
 import TRS.Utils
 
 -- ---------------------------------------
 -- * The class of terms
 -- ----------------------------------------
-class TermShape s => Term t s where
+class TermShape s => Term t (s :: * -> *) where
         isVar        :: t s -> Bool
         mkVar        :: Int -> t s
-        varId        :: t s -> Int
+        varId        :: t s -> Maybe Int
         subTerms     :: t s -> [t s]
         fromSubTerms :: t s -> [t s] -> t s
         synEq        :: t s -> t s -> Bool  -- |syntactic equality
@@ -33,17 +37,34 @@ class TermShape s => Term t s where
         fromGT       :: (GT_ eq r s -> t s) -> GT_ eq r s -> t s
         fromGT mkV t = runIdentity (fromGTM (return . mkV) t) 
 
+applySubst   :: Term t s => SubstM (t s) -> t s -> t s
+applySubst (Subst s) t = mutateTerm f t where 
+     f t' | Just i <- varId t', i`inBounds` s, Just v <- s !! i = v
+          | otherwise = mutateTerm f t'
+
+mutateTerm f t  = (fromSubTerms t . map f . subTerms) t
+mutateTermM f t = (fmap (fromSubTerms t) . mapM f . subTerms) t
+
+-- TODO: TEST THAT THIS RULE FIRES
+{-# RULES "castTerm/identity" castTerm = id #-}
+castTerm :: forall t1 t2 s r . (Term t1 s, Term t2 s, Term (GT_ Semantic r) s) => t1 s -> t2 s
+castTerm t = zonkTermUnsafe (templateTerm t :: GTE r s)
+
 class Term t s => TRS t s m where
-        rewrite      :: [Rule s] -> t s -> m(t s)
+        rewrite      :: Term t1 s => [Rule t1 s] -> t s -> m(t s)
         unify        :: t s -> t s -> m(SubstM (t s))
-        rewrite1     :: [Rule s] -> t s -> m(t s)
-        narrow1      :: [Rule s] -> t s -> m(SubstM(t s), t s)
+        rewrite1     :: Term t1 s => [Rule t1 s] -> t s -> m(t s)
+        narrow1      :: Term t1 s => [Rule t1 s] -> t s -> m(SubstM(t s), t s)
 
 class Term t s => TRSN t s where
-        narrow1'     :: [Rule s] -> t s -> [(SubstM(t s), t s)]
-        narrowFull   :: [Rule s] -> t s -> [(SubstM(t s), t s)]
-        narrowBasic  :: [Rule s] -> t s -> [(SubstM(t s), t s)]
-        narrowFullBounded :: (t s -> Bool) -> [Rule s] -> t s 
+--        narrow1'     :: Term t1 s => [Rule t1 s] -> t s -> [(SubstM(t s), t s)]
+        narrowFull   :: Term t1 s => [Rule t1 s] -> t s -> [(SubstM(t s), t s)]
+        -- | Basic Narrowing
+        narrowBasic  :: Term t1 s => [Rule t1 s] -> t s -> [(SubstM(t s), t s)]
+        -- | Full Narrowing restricted by a predicate.
+        --   Stops as soon as the predicate is positive or the 
+        --   derivation finishes
+        narrowFullBounded :: Term t1 s => (t s -> Bool) -> [Rule t1 s] -> t s 
                                     -> [(SubstM(t s), t s)]
 
 {-
@@ -64,21 +85,27 @@ collect pred t = nubBy synEq ([t' | t' <- t : subTerms t, pred t'] ++
 --                 foldr (\t' gg -> collect pred t' ++ gg) [] (subTerms t)
 
 -- * Syntactic equality
-newtype SynEqTerm (t :: (* -> *) -> *) s = SynEq {unSynEq::t s} deriving Show
+newtype SynEqTerm (t :: (* -> *) -> *) s = SynEq {unSynEq::t s} --deriving Show
 instance Term t s => Eq (SynEqTerm t s) where SynEq t1 == SynEq t2 = t1 `synEq` t2
 
--- | Do not confuse with substitution application. @replace@ makes no 
+instance Show (t s) => Show (SynEqTerm t s) where 
+    showsPrec p (SynEq t) = ("SynEqTerm " ++) . showsPrec p t
+
+-- | Replace (syntactically) subterms using the given dictionary
+--   Do not confuse with substitution application. @replace@ makes no 
 --   effort at avoiding variable capture
--- 
 --   (you could deduce that from the type signature)
 replace :: (Term t s) => [(t s,t s)] -> t s -> t s
 replace []    = id
-replace subst = fromJust . go (first SynEq <$> subst)
+replace dict = fromJust . go 
   where 
-    go subst t = lookup (SynEq t) subst `mplus`
-                 (fromSubTerms t <$> mapM (go subst) (subTerms t))
+    dict' = first SynEq <$> dict
+    go t  = lookup (SynEq t) dict' `mplus` mutateTermM go t
      
-
+-- ¿mutateTermM en Maybe no debería fallar con un Nothing? 
+-- No falla, porque, viendo un termino como un arbol,
+--  go siempre tiene éxito en las hojas, y por induccion en
+--  todos los nodos 
 --------------------------------------------------------------------------
 -- * Out and back of GT, purely
 --------------------------------------------------------------------------
@@ -86,20 +113,24 @@ replace subst = fromJust . go (first SynEq <$> subst)
 zonkTerm :: Term t s => GT_ mode r s -> Maybe (t s)
 zonkTerm = fromGTM zonkVar
 
--- | Replaces any mut. var with its current substitution, or a GenVar if none
+-- | Replaces any mut. var with its current substitution, or a (clean) GenVar if none
 zonkTerm' :: (Prune mode, Term (GT_ mode r) s, Term t s) => GT_ mode r s -> ST r (t s)
 zonkTerm' t = do
   t' <- col t
   let mvars        = [r | MutVar r <- collect isMutVar t]
       n_gvars      = length$ collect isGenVar t
-      f (MutVar r) = do
-                v <- readVar r
-                case v of 
-                  Nothing -> return$ mkVar (fromJust(elemIndex r mvars) + n_gvars)
-                  Just x  -> zonkTerm' x
+  forM mvars $ \v -> 
+       readVar' v >>= \x -> case x of
+--          DontKnow -> write v (GenVar $ fromJust(elemIndex v mvars) + n_gvars)
+            Empty i  -> write v (GenVar i)
+            Mutable _ t-> return ()
+  let f (MutVar r) = do
+                Just v <- readVar r
+                zonkTerm' v
       f v = return$ fromJust (zonkVar v) 
   fromGTM f t'
 
+zonkTermUnsafe :: (Term t s, Term (GT_ mode r) s) => GT_ mode r s -> t s
 zonkTermUnsafe t = 
   let mvars        = [r | MutVar r <- collect isMutVar t]
       n_gvars      = length$ collect isGenVar t
@@ -107,10 +138,12 @@ zonkTermUnsafe t =
       f v = fromJust (zonkVar v) 
    in fromGT f t
 
+zonkVar :: Term t s => GT_ mode r s -> Maybe (t s)
 zonkVar (MutVar r) = Nothing -- error "zonkTerm: No vars" 
 zonkVar (GenVar n) = Just $ mkVar n
 zonkVar (CtxVar n) = Just $ mkVar n
 zonkVar x = seq x $ error "ouch!: zonkVar" 
 
-templateTerm :: Term t s => t s -> GT_ eq r s
-templateTerm = mkGT (GenVar . varId)
+templateTerm :: Term t s => t s -> GTE r s
+templateTerm = mkGT (GenVar . fromJust . varId)
+

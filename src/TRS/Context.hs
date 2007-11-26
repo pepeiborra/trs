@@ -19,10 +19,11 @@ import Control.Arrow
 import Data.Foldable
 import Data.Maybe
 import Data.Traversable
+import Debug.Trace
+
 import TRS.Utils
 import TRS.Types
-
-import Debug.Trace
+import TRS.GTerms
 
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, notElem, sum)

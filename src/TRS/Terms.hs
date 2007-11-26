@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fallow-overlapping-instances #-}
 {-# OPTIONS_GHC  -funbox-strict-fields#-}
 
 -----------------------------------------------------------------------------
@@ -27,13 +28,14 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , sequence, concat, concatMap )
 import GHC.Exts (unsafeCoerce#)
 
-import TRS.Term  hiding (Term)
-import qualified TRS.Term as Class
+import TRS.GTerms
+import TRS.Rules
 import TRS.Types
-import qualified TRS.Types (Term)
 import TRS.Utils
+import TRS.Term
+import qualified TRS.Term as Class
 import qualified TRS.Core as Core
-import TRS.Core (col, mutableTerm, mutableTermG, generalize_, generalizeG_
+import TRS.Core ( mutableTerm, mutableTermG, generalize, generalizeG
                 , noMVars, runL)
 
 
@@ -44,12 +46,6 @@ term3 f t t' t''= s$ T f [t,t',t'']
 
 var  = Var 
 constant f = s (T f [])
-
-instance Ord a => Ord (BasicShape a) where
-    (T s1 tt1) `compare` (T s2 tt2) = 
-        case compare s1 s2 of
-          EQ -> compare tt1 tt2
-          x  -> x
 
 -- ---------------------------------------
 -- TermStatic Term structure
@@ -62,7 +58,8 @@ instance (TermShape s, Traversable s) => Class.Term (TermStatic_ Int) s where
   isVar Var{} = True 
   isVar _     = False
   mkVar       = Var 
-  varId(Var i)= i
+  varId(Var i)= Just i
+  varId _     = Nothing
   subTerms (Term tt) = toList tt
   subTerms _         = []
   fromSubTerms (Term t) tt = Term $ modifySpine t tt
@@ -72,17 +69,18 @@ instance (TermShape s, Traversable s) => Class.Term (TermStatic_ Int) s where
   fromGTM mkVar (S y)  = Term `liftM` (fromGTM mkVar `mapM` y)
   fromGTM mkVar var    = mkVar var
 
-instance TermShape s => Eq (TermStatic s) where
+--instance TermShape s => Eq (TermStatic s) where
+instance (Class.Term t s, TermShape s) => Eq (t s) where
   t1 == t2 = runST (do
-   [t1',t2'] <- mapM (mutableTerm >=> generalize_) [t1,t2]
+   [t1',t2'] <- mapM (mutableTerm >=> generalize) [t1,t2]
    return (t1' `synEq` t2'))
 
-instance TermShape s => Eq (Rule s) where
+instance (Class.Term t s, TermShape s) => Eq (RuleG (t s)) where
   s1 == s2 = runST (do
-   [l1:->r1,l2:->r2] <- mapM (mutableTermStatic >=> generalizeG_) [s1,s2]
+   [l1:->r1,l2:->r2] <- mapM (mutableTermStatic >=> generalizeG) [s1,s2]
    return (l1 `synEq` l2 && r1 `synEq` r2))
     where
-      mutableTermStatic :: TermShape s => Rule s -> ST r (RuleI r s)
+      mutableTermStatic :: forall s r. (Class.Term t s, TermShape s) => RuleG (t s) -> ST r (RuleI r s)
       mutableTermStatic = mutableTermG
 ---------------------------------
 -- Auxiliary code
@@ -91,19 +89,7 @@ instance TermShape s => Eq (Rule s) where
 instance Eq (Term a) where 
   t1 == t2 = (S t1) `equal` (S t2)
 -}
-
-instance Show a => Show (BasicShape a) where 
-    show (T s [])   = s
-    show (T s [x,y]) | not (any isAlpha s)
-                     = show x ++ ' ':s ++ ' ':show y
-    show (T s tt)   = render (text s <> parens( hcat$ punctuate comma (map (text.show) tt)))
---    showList []     = ""
---    showList (t:tt) = show t ++ ' ' : showList tt
  
---sh = text . show
-
-class Outputable a where
-  ppr :: a -> Doc
 
 ---------------------------------------------
 -- Other stuff for using in the ghci debugger
