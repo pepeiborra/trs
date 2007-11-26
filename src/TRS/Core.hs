@@ -794,7 +794,8 @@ instance (Term t s, GoodShape s) => Term.TRSN t s where
                                         narrowBasic rr (templateTerm t))
   narrowFull rr t  = runSTWithSubst (narrowFull rr (templateTerm t))
   narrowFullBounded pred rr t = 
-      runSTWithSubst (narrowFullBounded ((pred <$>). zonkTerm') rr (templateTerm t))  
+      let pred' = return . pred <=< zonkTerm' <=< dupTerm in
+      runSTWithSubst (narrowFullBounded pred' rr (templateTerm t))  
 
 instance (Term t s, GoodShape s) => Term.TRS t s Maybe where
   {-# SPECIALIZE instance Term.TRS (TermStatic_ Int) BasicShape Maybe #-}
