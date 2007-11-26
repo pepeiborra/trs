@@ -102,34 +102,11 @@ instance Eq (GT r s) => Eq (GT_ Basic r s) where
 
 type Subst r s = Subst_ Semantic r s
 type Subst_ mode r s    = TRS.Substitutions.SubstM (GT_ mode r s)
-type RawSubst mode r s  = TRS.Substitutions.SubstG (GT_ mode r s)
+--type RawSubst mode r s  = TRS.Substitutions.SubstG (GT_ mode r s)
+type Rule_ mode r s = Rule (GT_ mode r) s
 
 templateTerm :: Term t s => t s -> GT_ mode r s
 templateTerm = freeGT . Term.templateTerm
-
--- --------------------
--- GT Term structure
--- --------------------
-instance (TermShape s, Foldable s) => Term (GT_ eq r) s where
-  {-# SPECIALIZE instance Term (GT_ eq r) BasicShape #-}
-  isVar S{}      = False
-  isVar _        = True
-  mkVar          = GenVar
-  varId (GenVar i) = Just i
-  varId (CtxVar i) = Just i
-  varId (MutVar i) = Nothing -- error "unexpected mutvar"
-  subTerms (S x) = toList x
-  subTerms _     = []
-  synEq (MutVar r1) (MutVar r2) = r1 == r2 
-  synEq (GenVar n) (GenVar m)   = m==n
-  synEq (CtxVar n) (CtxVar m)   = m==n
-  synEq (S x) (S y) | Just pairs <- matchTerm x y 
-                    = all (uncurry synEq) pairs 
-  synEq _ _         = False
-  fromSubTerms (S t) tt = S $ modifySpine t tt
-  fromSubTerms t _      = t
-  fromGTM _      = return . unsafeCoerce#
-  mkGTM _        = return . unsafeCoerce#
 
 mutableTerm :: Term t s => t s -> ST r (GT r s)
 --mutableTerm = mkGTM . templateTerm  WRONG!
@@ -371,7 +348,7 @@ newtype DontCol a = DontCol {unDontCol::a}
 instance (Prune mode, Traversable s) => Instan (DontCol(GT_ mode r s)) (Subst_ mode r s) (ST r) where
   instan s (DontCol x) = DontCol <$> instanDontCol x
     where
-     sub = fromSubst s
+     sub = fromSubstM s
      instanDontCol x = do
          { case x of 
 	    GenVar n | n `atLeast` sub, Just val <- sub !! n -> return val
@@ -382,7 +359,7 @@ instance (Prune mode, Traversable s) => Instan (DontCol(GT_ mode r s)) (Subst_ m
 {-
 instance (Prune mode, Traversable s) => Instan (GT_ mode r s) (SubstI mode r s) (ST r) where
   instan s x = do
-    let sub = fromSubst s
+    let sub = fromSubstM s
     x' <- prune x
     case x' of
       GenVar n | Just val <- lookup n sub -> col $! val
@@ -392,7 +369,7 @@ instance (Prune mode, Traversable s) => Instan (GT_ mode r s) (SubstI mode r s) 
 instance (Prune mode, Traversable s) => 
     Instan (GT_ mode r s) (Subst_ mode r s) (ST r) where
   instan sub x = 
-      do { let vv = fromSubst sub
+      do { let vv = fromSubstM sub
          ; x' <- prune x 
 	 ; case x' of 
 	    GenVar n | n `atLeast` vv
@@ -447,10 +424,11 @@ nubSyntactically = map unSynEq . nub . map SynEq
                         ST r (SubstM (GT_ Semantic r BasicShape), GT_ Semantic r BasicShape) #-}
 {-# SPECIALIZE autoInst :: GT_ Basic r BasicShape -> 
                         ST r (SubstM (GT_ Basic r BasicShape), GT_ Basic r BasicShape) #-}
-autoInst :: (Prune mode, TermShape s) => GT_ mode r s -> ST r (Subst_ mode r s, GT_ mode r s)       
-autoInst x@MutVar{} = return (emptyS, x)
+autoInst :: (Prune mode, TermShape s) => 
+            GT_ mode r s -> ST r (Subst_ mode r s, GT_ mode r s)       
+autoInst x@MutVar{} = return (mempty, x)
 autoInst x
-    | null vv = return (emptyS, x)
+    | null vv = return (mempty, x)
     | otherwise  = do
            subst <- mkSubstM vv <$> mapM mutVar vv
            x'    <- instan subst x
@@ -460,7 +438,7 @@ autoInst x
 
 autoInstG:: (Traversable s, Traversable f, TermShape s, Prune mode) =>
                f(GT_ mode r s) -> ST r (Subst_ mode r s, f(GT_ mode r s))
-autoInstG xx | null vv = return (emptyS, xx)
+autoInstG xx | null vv = return (mempty, xx)
               | otherwise = do
   subst <- mkSubstM vv <$> mapM mutVar vv
   xx' <- instan subst `mapM` xx
@@ -468,14 +446,13 @@ autoInstG xx | null vv = return (emptyS, xx)
   return (subst, xx')
     where vv = snub [ i | GenVar i <- concatMap vars xx]
 
-{-
-autoInstGG ::  (Instan (GT_ t r s) (SubstM (GT_ mode r s1)) (ST r)),
+
+autoInstGG ::  (Instan (GT_ t r s) (Subst_ mode r s1) (ST r),
                  Traversable f,TermShape s) =>
-               f [GT_ t r s] -> ST r (SubstM (GT_ mode r s1)), f [GT_ t r s])
--}
-autoInstGG xx | null vv = return (mkSubst [], xx)
-               | otherwise = do
-  subst <- mkSubstM vv <$> mapM newVar vv
+               f [GT_ t r s] -> ST r (Subst_ mode r s1, f [GT_ t r s])
+autoInstGG xx | null vv = return (mempty, xx)
+              | otherwise = do
+  subst <- mkSubstM vv <$> mapM mutVar vv
   xx'   <- instan subst `mapM2` xx
   return (subst, xx')
     where vv = snub [ i | GenVar i <- concatMap2 vars xx]
@@ -500,7 +477,7 @@ semEqG x y = do
 
 -- isRenaming :: Subst_ mode r s -> ST r Bool
 isRenaming :: (Term t s, GoodShape s) => SubstM (t s) -> Bool
-isRenaming vv = all isVar [v | Just v <- toList vv]
+isRenaming vv = all isVar [v | Just v <- fromSubstM vv]
 --semEqG x y = return$ synEq x y
 
 ---------------------------------------------------------------
@@ -690,15 +667,15 @@ dupTerm (MutVar r) = fmap MutVar (dupVar r)
 dupTerm (S t) = fmap S $ mapM dupTerm t
 dupTerm x = return x
 
-dupTermWithSubst :: (Functor subst, Functor list,  TermShape s) =>
-                   subst(list(GT_ eq r s)) -> [GT_ eq r s] -> GT_ eq r s
-                -> ST r (subst(list(GT_ eq r s)), [GT_ eq r s], GT_ eq r s)
+dupTermWithSubst :: (Functor subst,  TermShape s) =>
+                   subst(GT_ eq r s) -> [GT_ eq r s] -> GT_ eq r s
+                -> ST r (subst(GT_ eq r s), [GT_ eq r s], GT_ eq r s)
 
 --dupTermWithSubst subst tt x | trace "dupTermWithSubst" False = undefined
 dupTermWithSubst subst tt t@MutVar{} = do
     t'        <- dupTerm t
     let dict   = [(t,t')]
-        subst' = fmap2 (replace dict) subst
+        subst' = fmap (replace dict) subst
         tt'    = fmap (replace dict) tt
     return (subst', tt', t')
 
@@ -708,7 +685,7 @@ dupTermWithSubst subst tt t@S{} = do
     let dict   = zip mutvars newvars
         t'     = replace dict t
         tt'    = fmap (replace dict) tt
-        subst' = fmap2(replace dict) subst
+        subst' = fmap (replace dict) subst
     return (subst', tt', t')
 
 dupTermWithSubst subst tt x = return (subst, tt, x)
@@ -801,11 +778,11 @@ instance (Term t s, GoodShape s) => Term.TRS t s [] where
   rewrite  rr t    = runL (rewrite rr (templateTerm t))
   rewrite1 rr t    = runL (rewrite1 rr (templateTerm t))
   narrow1  rr t    = runLWithSubst (narrow1 rr (templateTerm t))
-  unify t t'       = runLGG (manualUnify (templateTerm t) (templateTerm t'))
+  unify t t'       = runLG (manualUnify (templateTerm t) (templateTerm t'))
 
 instance (Term t s, GoodShape s) => Term.TRSN t s where
 --  narrow1'    rr t = runSTWithSubst (narrow1' rr (templateTerm t))
-  narrowBasic rr t = runSTWithSubst ((fmap2 freeGT *** freeGT) `fmap2` 
+  narrowBasic rr t = runSTWithSubst ((fmap freeGT *** freeGT) `fmap2` 
                                         narrowBasic rr (templateTerm t))
   narrowFull rr t  = runSTWithSubst (narrowFull rr (templateTerm t))
   narrowFullBounded pred rr t = 
@@ -813,7 +790,7 @@ instance (Term t s, GoodShape s) => Term.TRSN t s where
 
 instance (Term t s, GoodShape s) => Term.TRS t s Maybe where
   {-# SPECIALIZE instance Term.TRS (TermStatic_ Int) BasicShape Maybe #-}
-  unify t t'       = runMGG (manualUnify (templateTerm t) (templateTerm t'))
+  unify t t'       = runMG (manualUnify (templateTerm t) (templateTerm t'))
   rewrite  rr t    = runM (rewrite rr (templateTerm t))
   rewrite1 rr t    = runM (rewrite1 rr (templateTerm t))
   narrow1  rr t    = runMWithSubst (narrow1    rr (templateTerm t))
@@ -825,7 +802,7 @@ instance OmegaPlus Semantic t r s =>
   unify t t'    = manualUnify' (templateTerm t) (templateTerm t')
   rewrite       = rewrite
   rewrite1      = rewrite1
-  narrow1    rr = (first (fmap (>>= zonkTerm)) <$>) . narrow1 rr
+  narrow1    rr = narrow1 rr
 
 runSTWithSubst :: (Term t s, Omega Semantic (ListT') r s) =>
                           (forall r. ST r [(Subst r s, GTE r s)])
@@ -849,7 +826,7 @@ runWithSubst m = lift . biM zonkSubst zonkTerm' =<< m
 
 zonkSubst :: (Prune mode, Term t s) =>
              (Subst_ mode r s) -> ST r (SubstM (t s))
-zonkSubst = fmap2 join . mapM2 (fmap(zonkTerm) . col)
+zonkSubst = fmap SubstM . fmap2(>>= zonkTerm) . mapM2 col . fromSubstM
 
 manualUnify :: Omega mode m r s => 
                GT_ mode r s -> GT_ mode r s -> m (ST r) (Subst_ mode r s)
@@ -858,13 +835,23 @@ manualUnify t u = do
   unify t' u'
   return subst
 
+-- I know, I'm going to burn in hell...
 manualUnify' :: Omega mode m r s => 
                GT_ mode r s -> GT_ mode r s -> m (ST r) (Subst_ mode r s)
 manualUnify' t u = do
   (_,[t',u']) <- lift$ autoInstG [t,u]
-  let vars     = collect isMutVar =<< [t',u']
+  let mvars = [ v | MutVar v <- collect isMutVar t, t <- [t',u']]
+  mvars_indexes <- lift$ catMaybes <$> forM mvars getUnique
+  let skolem_offset = maximum mvars_indexes
   unify t' u'
-  return (mkSubstM (fromJust . varId <$> vars) vars)
+  indexes <- lift$ forM mvars $ \v -> 
+             readVar' v >>= \x -> 
+             return$ case x of
+               Skolem  -> fromJust(elemIndex v mvars) + skolem_offset
+               Empty i -> i
+               Mutable (Just i) _ -> i
+               Mutable Nothing  _ -> fromJust(elemIndex v mvars) + skolem_offset
+  return (mkSubstM indexes (map MutVar mvars))
 
 --------------------------------------
 -- * The Omega type class and friends

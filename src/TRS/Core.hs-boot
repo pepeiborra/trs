@@ -1,7 +1,7 @@
 module TRS.Core where
 
 import TRS.Types
-import TRS.GTerms
+import {-# SOURCE #-} TRS.GTerms
 
 import Data.Foldable
 import Data.Traversable

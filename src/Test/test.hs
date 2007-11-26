@@ -221,10 +221,10 @@ semEq_old x y = fmap (either (return False) id) $ runErrorT $ do
     (theta_x, x') <- lift$ autoInst x
     (theta_y, y') <- lift$ autoInst y
     unify x' y'
-    theta_x' <- lift (mapM2 col theta_x) 
-    theta_y' <- lift (mapM2 col theta_y)
-    return (none (fromMaybe False . fmap isTerm) theta_x' && 
-            none (fromMaybe False . fmap isTerm) theta_y')
+    theta_x' <- lift (mapM col theta_x) 
+    theta_y' <- lift (mapM col theta_y)
+    return (none (fromMaybe False . fmap isTerm) (fromSubstM theta_x') && 
+            none (fromMaybe False . fmap isTerm) (fromSubstM theta_y'))
   where none = (not.) . any
 
 semEq_old' :: (GoodShape s) => GTE r s -> GTE r s -> ST r Bool

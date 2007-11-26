@@ -8,12 +8,12 @@ import Control.Monad.State (gets, modify, evalState)
 import Control.Monad.Identity (runIdentity)
 import Data.List (nub, nubBy, elemIndex)
 import Data.Foldable (toList, Foldable)
-import Data.Maybe (fromMaybe, fromJust)
+import Data.Maybe (fromMaybe, fromJust, catMaybes)
 import Data.Traversable (Traversable, mapM)
 import Prelude hiding (mapM)
 
 import {-# SOURCE#-} TRS.Core (col, Prune)
-import TRS.GTerms
+import {-# SOURCE#-} TRS.GTerms
 import TRS.Rules
 import TRS.Tyvars
 import TRS.Types hiding (Term)
@@ -38,7 +38,8 @@ class TermShape s => Term t (s :: * -> *) where
         fromGT mkV t = runIdentity (fromGTM (return . mkV) t) 
 
 applySubst   :: Term t s => SubstM (t s) -> t s -> t s
-applySubst (Subst s) t = mutateTerm f t where 
+applySubst sm t = mutateTerm f t where 
+     s = fromSubstM sm
      f t' | Just i <- varId t', i`inBounds` s, Just v <- s !! i = v
           | otherwise = mutateTerm f t'
 
@@ -119,11 +120,14 @@ zonkTerm' t = do
   t' <- col t
   let mvars        = [r | MutVar r <- collect isMutVar t]
       n_gvars      = length$ collect isGenVar t
+  mvars_indexes <- catMaybes <$> forM mvars getUnique
+  let skolem_offset = n_gvars + maximum mvars_indexes
   forM mvars $ \v -> 
        readVar' v >>= \x -> case x of
---          DontKnow -> write v (GenVar $ fromJust(elemIndex v mvars) + n_gvars)
+            Skolem   -> write v (GenVar $ fromJust(elemIndex v mvars) + 
+                                          skolem_offset)
             Empty i  -> write v (GenVar i)
-            Mutable _ t-> return ()
+            Mutable{}-> return ()
   let f (MutVar r) = do
                 Just v <- readVar r
                 zonkTerm' v

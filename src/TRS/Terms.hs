@@ -38,6 +38,7 @@ import qualified TRS.Core as Core
 import TRS.Core ( mutableTerm, mutableTermG, generalize, generalizeG
                 , noMVars, runL)
 
+type RuleI r s      = Rule (GT r)       s
 
 term = (s.) . T
 term1 f t       = s$ T f [t]

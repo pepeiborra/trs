@@ -45,6 +45,8 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
 
 import TRS.Utils
 
+type Unique = Int
+
 -- -------------------------------------------
 -- * Static Terms
 -- --------------------------------------------
@@ -120,6 +122,7 @@ matchStatic (Term x) (Term y)
 matchStatic (Var v) (Term y) = return [(v,y)]
 matchStatic _ _ = Nothing
 
+{-
 -----------------------------------------
 -- * The Vars monad
 -----------------------------------------
@@ -127,12 +130,11 @@ matchStatic _ _ = Nothing
 {- | A monad providing variables with identity
      mkVar i == mkVar i
 -}
-type Unique = Int
 class Monad m => VarMonad m v | m -> v where
   getVar    :: Unique -> m v
   newUnique :: m Unique
   fresh     :: m v
-
+-}
 -----------------------
 -- * Exceptions
 -----------------------

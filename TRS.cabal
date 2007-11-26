@@ -19,10 +19,14 @@ exposed-modules:
   TRS.Terms
   TRS.Term
   TRS.Types
+  TRS.Substitutions
+  TRS.GTerms
+  TRS.Rules
+  TRS.Tyvars
 other-modules: 
   MaybeT
 buildable: True
 extensions: CPP
 hs-source-dirs: src
 ghc-prof-options: -prof -auto-all
-ghc-options: -fglasgow-exts -O
+ghc-options: -fglasgow-exts -O2

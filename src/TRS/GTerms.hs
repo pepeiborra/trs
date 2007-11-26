@@ -23,6 +23,7 @@ import TRS.Substitutions
 import TRS.Types
 import TRS.Utils
 import TRS.Tyvars
+import TRS.Term
 
 type TermST r = GTE r BasicShape
 type Ptr mode r s = Ptr_ r (GT_ mode r s)
@@ -64,6 +65,9 @@ genVar = GenVar
 mutVar :: Int -> ST r (GT_ mode r s)
 mutVar = fmap MutVar . newVar
 
+fresh :: ST r (GT_ mode r s)
+fresh = fmap MutVar skolem
+
 -- This pair of functions provides the bridge between GT_ Syntactic and GT_ Semantic types of terms
 -- I really should have used a wrapper newtype for this instead of the 
 --  phantom variable trick. 
@@ -92,6 +96,30 @@ isCtxVar CtxVar{} = True
 isCtxVar _ = False
 isTerm S{} = True
 isTerm _   = False 
+
+-- --------------------
+-- GT Term structure
+-- --------------------
+instance (TermShape s, Foldable s) => Term (GT_ eq r) s where
+  {-# SPECIALIZE instance Term (GT_ eq r) BasicShape #-}
+  isVar S{}      = False
+  isVar _        = True
+  mkVar          = GenVar
+  varId (GenVar i) = Just i
+  varId (CtxVar i) = Just i
+  varId (MutVar i) = Nothing -- error "unexpected mutvar"
+  subTerms (S x) = toList x
+  subTerms _     = []
+  synEq (MutVar r1) (MutVar r2) = r1 == r2 
+  synEq (GenVar n) (GenVar m)   = m==n
+  synEq (CtxVar n) (CtxVar m)   = m==n
+  synEq (S x) (S y) | Just pairs <- matchTerm x y 
+                    = all (uncurry synEq) pairs 
+  synEq _ _         = False
+  fromSubTerms (S t) tt = S $ modifySpine t tt
+  fromSubTerms t _      = t
+  fromGTM _      = return . unsafeCoerce#
+  mkGTM _        = return . unsafeCoerce#
 
 ---------------------------------------------
 -- * Positions. Indexing over subterms.
