@@ -121,7 +121,7 @@ zonkTerm' t = do
   let mvars        = [r | MutVar r <- collect isMutVar t]
       n_gvars      = length$ collect isGenVar t
   mvars_indexes <- catMaybes <$> forM mvars getUnique
-  let skolem_offset = n_gvars + maximum mvars_indexes
+  let skolem_offset = n_gvars + maximum (0:mvars_indexes)
   forM mvars $ \v -> 
        readVar' v >>= \x -> case x of
             Skolem   -> write v (GenVar $ fromJust(elemIndex v mvars) + 

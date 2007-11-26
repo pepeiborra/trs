@@ -851,7 +851,7 @@ manualUnify' t u = do
   (_,[t',u']) <- lift$ autoInstG [t,u]
   let mvars = [ v | MutVar v <- collect isMutVar t, t <- [t',u']]
   mvars_indexes <- lift$ catMaybes <$> forM mvars getUnique
-  let skolem_offset = maximum mvars_indexes
+  let skolem_offset = maximum (0 : mvars_indexes)
   unify t' u'
   indexes <- lift$ forM mvars $ \v -> 
              readVar' v >>= \x -> 
