@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
-{-# OPTIONS_GHC -fglasgow-exts  #-}
+{-# OPTIONS_GHC -fbang-patterns  #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -609,7 +609,7 @@ narrowFullBase narrowTop1base done rules t = do
      LogicT.runM Nothing (search (Ind 0) (subst0, t0))
   where   
 --   search :: (Subst r s, GT r s) -> LogicT'.SR r1 (ST r) (T2(Subst r s) (GT r s))
-   search ind (subst,t) = trace ("narrowFull search: " ++ show ind  ++ st t) $ 
+   search !ind (subst,t) = trace ("narrowFull search: " ++ show ind  ++ st t) $ 
        LogicT.ifte  (step emptyC subst t)
                     (\x@(sub',t') -> trace ("branch " ++ show ind ++ st t') $ 
                                lift (done (idGT t)) >>- \isDone -> 
