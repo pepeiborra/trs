@@ -4,12 +4,14 @@
 {-# OPTIONS_GHC -cpp #-}
 module TRS.GTerms where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.ST as ST
 import Control.Arrow
 import Data.Foldable as Foldable
 import Data.Traversable as Traversable
 import qualified Data.IntMap as IntMap
+import Data.Maybe
 import Data.Monoid
 import Data.Traversable
 import Data.Foldable
@@ -25,8 +27,7 @@ import TRS.Utils
 import TRS.Tyvars
 import TRS.Term
 
-type TermST r = GTE r BasicShape
-type Ptr mode r s = Ptr_ r (GT_ mode r s)
+type Ptr user mode r s = Ptr_ r (GT_ user mode r s)
 
 -- * Generic Terms
 {- | 
@@ -37,18 +38,20 @@ type Ptr mode r s = Ptr_ r (GT_ mode r s)
 -}
 
 #ifdef __HADDOCK__
-data GT_ mode r s = 
-   S (s(GT_ mode r s))
- | MutVar (Ptr mode r s)  -- | A Mutable variable
- | GenVar Int                             -- | A type scheme, univ. quantified variable 
- | CtxVar Int                             -- | For internal use
-
-#else
-data GT_ (mode :: *)  (r :: *) (s :: * -> *) = 
-   S (s(GT_ mode r s))
- | MutVar (Ptr mode r s)
- | GenVar Int
+data GT_ user mode r s = 
+   S (s(GT_ user mode r s))
+ | MutVar (Maybe user) (Ptr user mode r s) -- | A Mutable variable
+ | GenVar (Maybe user) Int                 -- | A type scheme, univ. quantified variable 
  | CtxVar Int
+ | Skolem (Maybe user) Int                 -- | For internal use
+  
+#else
+data GT_ (user :: *) (mode :: *)  (r :: *) (s :: * -> *) = 
+   S (s(GT_ user mode r s))
+ | MutVar {note_::Maybe user, ref::Ptr user mode r s}
+ | GenVar {note_::Maybe user, unique::Int}
+ | CtxVar {unique::Int}
+ | Skolem {note_::Maybe user, unique::Int}
 #endif
 -- 'Witness' types for equality. The actual Eq instances for GT_ are not 
 --  defined here, but in the Core module
@@ -56,38 +59,54 @@ data Syntactic  -- denotes pure syntactic equality
 data Semantic   -- denotes syntactic equality modulo variables
 data Basic      -- denotes a Basic Narrowing derivation
 
-type GT r s  = GT_ Syntactic r s
-type GTE r s = GT_ Semantic r s
+type GT user r s  = GT_ user Syntactic r s
+type GTE user r s = GT_ user Semantic r s
 
-genVar :: Int -> GTE r s
-genVar = GenVar
+genVar :: Int -> GT_ mode user r s
+genVar = GenVar Nothing
 
-mutVar :: Int -> ST r (GT_ mode r s)
-mutVar = fmap MutVar . newVar
+mutVar :: Maybe user -> Int -> ST r (GT_ user mode r s)
+mutVar note = fmap (MutVar note) . newVar
 
-fresh :: ST r (GT_ mode r s)
-fresh = fmap MutVar skolem
+skolem :: Int -> GT_ user mode r s
+skolem = Skolem Nothing
+
+fresh :: ST r (GT_ user mode r s)
+fresh = fmap (MutVar Nothing) freshVar
+
+note S{} = Nothing
+note CtxVar{} = Nothing
+note t = note_ t
+
+setNote :: user -> GT_ user mode r s -> GT_ user mode r s
+setNote _ t@S{} = t
+setNote _ t@CtxVar{} = t
+setNote note t = t{note_=Just note}
+
 
 -- This pair of functions provides the bridge between GT_ Syntactic and GT_ Semantic types of terms
 -- I really should have used a wrapper newtype for this instead of the 
 --  phantom variable trick. 
-idGT :: GT_ mode r s -> GT r s
+idGT :: GT_ user mode r s -> GT user r s
 idGT = unsafeCoerce#
 
-eqGT :: GT_ mode r s -> GTE r s
+eqGT :: GT_ user mode r s -> GTE user r s
 eqGT = unsafeCoerce#
 
-basicGT :: GT_ mode r s -> GT_ Basic r s
+basicGT :: GT_ user mode r s -> GT_ user Basic r s
 basicGT = unsafeCoerce#
 
-freeGT :: GT_ mode r s -> GT_ mode2 r s
+freeGT :: GT_ user mode r s -> GT_ user mode2 r s
 freeGT = unsafeCoerce#
 
-isGT :: GT r s -> GT r s
+isGT :: GT user r s -> GT user r s
 isGT x = x
 
+isGTE :: GTE user r s -> GTE user r s
+isGTE = id
+
 -- ** Accesors
-isGenVar, isMutVar, isCtxVar, isTerm :: GT_ eq r s -> Bool
+isGenVar, isMutVar, isCtxVar, isTerm :: GT_ user eq r s -> Bool
 isGenVar GenVar{} = True
 isGenVar _ = False
 isMutVar MutVar{} = True
@@ -97,35 +116,45 @@ isCtxVar _ = False
 isTerm S{} = True
 isTerm _   = False 
 
+isUnboundVar MutVar{ref=ptr} = maybe (return True) isUnboundVar =<< readVar ptr
+isUnboundVar v = return (isVar v)
+
+-- ** Predicates
+noCVars, noGVars, noMVars :: (TermShape s, Foldable s) => GT_ user mode r s -> Bool
+noGVars = null . collect isGenVar 
+noMVars = null . collect isMutVar 
+noCVars = null . collect isCtxVar
+
 -- --------------------
 -- GT Term structure
 -- --------------------
-instance (TermShape s, Foldable s) => Term (GT_ eq r) s where
-  {-# SPECIALIZE instance Term (GT_ eq r) BasicShape #-}
-  isVar S{}      = False
-  isVar _        = True
-  mkVar          = GenVar
-  varId (GenVar i) = Just i
-  varId (CtxVar i) = Just i
-  varId (MutVar i) = Nothing -- error "unexpected mutvar"
-  subTerms (S x) = toList x
-  subTerms _     = []
-  synEq (MutVar r1) (MutVar r2) = r1 == r2 
-  synEq (GenVar n) (GenVar m)   = m==n
-  synEq (CtxVar n) (CtxVar m)   = m==n
+instance TermShape s => Term (GT_ user mode r) s user where
+  {-# SPECIALIZE instance Term (GT_ () eq r) BasicShape () #-}
+  isVar S{}          = False
+  isVar _            = True
+  mkVar              = genVar
+  varId (GenVar _ i) = Just i
+  varId (CtxVar i)   = Just i
+  varId (MutVar _ i) = Nothing -- error "unexpected mutvar"
+  subTerms (S x) = Just x
+  subTerms _     = Nothing
+  synEq MutVar{ref=n}    MutVar{ref=m}    = m==n
+  synEq GenVar{unique=n} GenVar{unique=m} = m==n
+  synEq Skolem{unique=n} Skolem{unique=m} = m==n
+  synEq CtxVar{unique=n} CtxVar{unique=m} = m==n
   synEq (S x) (S y) | Just pairs <- matchTerm x y 
                     = all (uncurry synEq) pairs 
   synEq _ _         = False
-  fromSubTerms (S t) tt = S $ modifySpine t tt
-  fromSubTerms t _      = t
-  fromGTM _      = return . unsafeCoerce#
-  mkGTM _        = return . unsafeCoerce#
+  build          = S
+  fromGTM _      = return . return . unsafeCoerce#
+  toGTM _        = return . return . unsafeCoerce#
 
 ---------------------------------------------
 -- * Positions. Indexing over subterms.
 ---------------------------------------------
 type Position = [Int]
-subtermAt :: (Functor m, MonadPlus m, Traversable s) => GT_ eq r s -> Position -> m (GT_ eq r s)
+subtermAt :: (Functor m, MonadPlus m, Traversable s) => 
+             GT_ user eq r s -> Position -> m (GT_ user eq r s)
 subtermAt t (0:_) = return t
 subtermAt (S t) (i:is) = join . fmap (flip subtermAt is . snd) 
                        . maybe mzero return 
@@ -138,7 +167,7 @@ subtermAt _ _ = mzero
 -- | Updates the subterm at the position given 
 --   Note that this function does not guarantee success. A failure to substitute anything
 --   results in the input term being returned untouched
-updateAt  :: (Traversable s) => GT_ eq r s -> Position -> GT_ eq r s -> GT_ eq r s
+updateAt  :: (Traversable s) => GT_ user eq r s -> Position -> GT_ user eq r s -> GT_ user eq r s
 updateAt _ (0:_) st' = st'
 updateAt (S t) (i:is) st' = S . fmap (\(j,st) -> if i==j then updateAt st is st' else st) 
                           . unsafeZipG [1..] 
@@ -149,7 +178,7 @@ updateAt x _ _ = x
 
 -- | Like updateAt, but returns a tuple with the new term, and the previous subterm at position pos
 updateAt'  :: (Functor m, MonadPlus m, Traversable s) => 
-             GT_ eq r s -> Position -> GT_ eq r s -> m (GT_ eq r s, GT_ eq r s)
+             GT_ user eq r s -> Position -> GT_ user eq r s -> m (GT_ user eq r s, GT_ user eq r s)
 updateAt' x pos x' = go x pos x' >>= \ (t',a) -> a >>= \v->return (t',v)
   where
     go x (0:_) x'       = return (x', return x)
@@ -163,8 +192,8 @@ updateAt' x pos x' = go x pos x' >>= \ (t',a) -> a >>= \v->return (t',v)
     go x [] x' = return (x', return x)
     go x _ _   = mzero
 {-
-type STV r a = STRef r (IntMap.IntMap Unique (GT_ mode r s)) -> ST r a
-instance VarMonad (STV r) (GT_ mode r s) where
+type STV r a = STRef r (IntMap.IntMap Unique (GT_ user mode r s)) -> ST r a
+instance VarMonad (STV r) (GT_ user mode r s) where
   getVar u table_ref = do
       table <- readSTRef table_ref
       mb_var <- IntMap.lookup u table
@@ -177,30 +206,37 @@ instance VarMonad (STV r) (GT_ mode r s) where
           return var
 -}
 
-instance (Show (s (GT_ mode r s))) => Show (GT_ mode r s) where
+instance (Show (s (GT_ user mode r s)), Show user) => Show (GT_ user mode r s) where
     show (S s)      = show s
-    show (GenVar n) = showsVar 0 n "" --TODO 
-    show (CtxVar c) = '[' : show c ++ "]" 
-    show (MutVar r) = "?" ++ (show . hashStableName . unsafePerformIO . makeStableName$ r) 
-                          ++ ":=" ++ (show$  unsafeAll $ ( readSTRef r))
+    show GenVar{unique=n,note_=nt} = showsVar 0 n (showNote nt) --TODO 
+    show CtxVar{unique=n} = brackets (show n)
+    show Skolem{unique=n,note_=nt} = hash (show n ++ showNote nt)
+    show MutVar{ref=r,note_=nt}    = "?" ++ (show . hashStableName 
+                                            . unsafePerformIO . makeStableName$ r) 
+                                  ++ showNote nt
+                                  ++ ":=" ++ (show$  unsafeAll $ ( readSTRef r))
 --        where unsafeAll = unsafePerformIO . ST.unsafeSTToIO . lazyToStrictST
         where unsafeAll = unsafePerformIO . ST.unsafeSTToIO 
+
+showNote Nothing = ""
+showNote (Just t)= parens (show t)
+
 {-
-instance Show (s(GTE r s)) => Show (SubstG (GTE r s)) where
+instance Show (s(GTE user r s)) => Show (SubstG (GTE user r s)) where
     show = show . subst
 -}
 -- Oops. Does this instance of Ord honor Semantic equality?
---instance (Eq(GTE r s), TermShape s, Ord (s (GTE r s))) => Ord (GTE r s) where
-instance (Eq(GT r s), TermShape s, Ord (s (GT r s))) => Ord (GT r s) where
+--instance (Eq(GTE user r s), TermShape s, Ord (s (GTE user r s))) => Ord (GTE user r s) where
+instance (Eq(GT user r s), TermShape s, Ord (s (GT user r s))) => Ord (GT user r s) where
     compare (S t1) (S t2)
      | S t1 == S t2 = EQ
      | otherwise    = compare t1 t2
     compare S{} _ = GT
     compare _ S{} = LT
     compare MutVar{} MutVar{} = EQ
-    compare (GenVar m) (GenVar n) = compare m n
     compare GenVar{} MutVar{} = GT
     compare MutVar{} GenVar{} = LT
     compare _ CtxVar{} = GT
     compare CtxVar{} _ = LT
+    compare m n = (compare `on` unique) m n
 

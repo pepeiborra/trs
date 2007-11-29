@@ -1,20 +1,32 @@
 module TRS.GTerms where
 
+import Control.Monad.ST
 import TRS.Tyvars
+import TRS.Types
+import {-#SOURCE#-}TRS.Term
 
-type Ptr mode r s = Ptr_ r (GT_ mode r s)
+type Ptr user mode r s = Ptr_ r (GT_ user mode r s)
 
-data GT_ (mode :: *)  (r :: *) (s :: * -> *) = 
-   S (s(GT_ mode r s))
- | MutVar (Ptr mode r s)
- | GenVar Int
- | CtxVar Int
+data GT_ (user :: *) (mode :: *)  (r :: *) (s :: * -> *) = 
+   S (s(GT_ user mode r s))
+ | MutVar {note_::Maybe user, ref::Ptr user mode r s}
+ | GenVar {note_::Maybe user, unique::Int}
+ | CtxVar {unique::Int}
+ | Skolem {note_::Maybe user, unique::Int}
 
 data Syntactic  -- denotes pure syntactic equality
 data Semantic   -- denotes syntactic equality modulo variables
 data Basic      -- denotes a Basic Narrowing derivation
 
-type GT r s  = GT_ Syntactic r s
-type GTE r s = GT_ Semantic r s
+type GT user r s  = GT_ user Syntactic r s
+type GTE user r s = GT_ user Semantic r s
 
-isGenVar, isMutVar, isCtxVar, isTerm :: GT_ eq r s -> Bool
+genVar, skolem :: Int -> GT_ user mode r s
+isGenVar, isMutVar, isCtxVar, isTerm :: GT_ user mode r s -> Bool
+fresh   :: ST r (GT_ user mode r s)
+isGT    :: GT user r s -> GT user r s
+note    :: GT_ user mode r s -> Maybe user
+setNote :: user -> GT_ user mode r s -> GT_ user mode r s
+
+
+instance TermShape s =>  Term (GT_ user mode r) s user

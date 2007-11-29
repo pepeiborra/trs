@@ -6,15 +6,12 @@ import Data.Foldable
 import Data.Traversable
 
 import TRS.Types
-import {-#SOURCE#-}TRS.GTerms
-
 ----------
 -- * Rules
 ----------
 data RuleG a = a :-> a
 
 type Rule t (s :: * -> *) = RuleG (t s)
-type RuleS s        = Rule TermStatic   s
 
 infix 1 :->
 

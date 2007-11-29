@@ -43,52 +43,24 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
 
 
-import TRS.Utils
+import TRS.Utils hiding ( parens )
 
 type Unique = Int
 
--- -------------------------------------------
--- * Static Terms
--- --------------------------------------------
--- | The datatype of static terms, terms with no mutable vars
---   A generic term is converted to a static term with @zonkTerm@
---   and the other way around with @instTerm@
-data TermStatic_ i s = Term (s (TermStatic_ i s)) | Var i
---  deriving (Show)
-type TermStatic s = TermStatic_ Int s
+-----------------------------
+-- * The Class of Match-ables
+-----------------------------
 
-s :: s(TermStatic s) -> TermStatic s
-s      = Term
-
-liftS f (Term t) = Term (f t)
-liftS2 (*) (Term t) (Term v) = Term (t*v)
-
-instance (Show (s(TermStatic_ i s)), Show i) => Show (TermStatic_ i s) where
-  showsPrec p (Term s) = showsPrec p s
-  showsPrec p (Var i)  = ("Var" ++) . showsPrec p i
+class (Traversable s) => TermShape s where
+    matchTerm     :: s x -> s x -> Maybe [(x,x)]
 
 
-varNames = "XYZWJIKHW"
-showsVar p n = if n < length varNames 
-                         then ([varNames !! n] ++)
-                         else ('v' :) . showsPrec p n
-
-instance (Show (s (TermStatic s))) => Show (TermStatic s) where
-    showsPrec p (Term s) = showsPrec p s
-    showsPrec p (Var  i) = showsVar p i 
-
-instance (Eq (TermStatic s), Ord (s(TermStatic s))) => Ord (TermStatic s) where
-  compare (Term s) (Term t) = compare s t
-  compare Term{} _          = GT
-  compare (Var i) (Var j)   = compare i j
 -- --------------------------
 -- * Basic Shape of Terms
 -- --------------------------
 
 data BasicShape a = T !String [a]
     deriving Eq
-
-type BasicTerm = TermStatic BasicShape
 
 instance Show a => Show (BasicShape a) where 
     show (T s [])   = s
@@ -116,22 +88,6 @@ instance TermShape BasicShape where
   matchTerm (T s1 tt1) (T s2 tt2) = if s1==s2 && length tt1 == length tt2
               then Just (zip tt1 tt2)
               else Nothing
-
------------------------------
--- * The Class of Match-ables
------------------------------
-
-class (Traversable s) => TermShape s where
-    matchTerm     :: s x -> s x -> Maybe [(x,x)]
-
--- | Match two static terms
---   1st arg is the template
-matchStatic (Term x) (Term y) 
-  | Nothing <- matchTerm x y = Nothing
-  | Just pairs <- matchTerm x y
-  = concatMapM (uncurry matchStatic) pairs
-matchStatic (Var v) (Term y) = return [(v,y)]
-matchStatic _ _ = Nothing
 
 {-
 -----------------------------------------

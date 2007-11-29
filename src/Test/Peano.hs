@@ -1,19 +1,27 @@
+{-# OPTIONS_GHC -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fallow-overlapping-instances #-}
+
 module Test.Peano where
 
-import TRS hiding (s)
-import qualified TRS
+import TRS
 import TRS.GTerms (GTE)
+import Test.TermRef
 
 import Control.Applicative
-import Control.Monad
+import Control.Monad hiding ( sequence )
 import Data.Foldable
+import Data.List
+import Data.Maybe
 import Data.Traversable
 import Test.QuickCheck
+import Prelude hiding ( sequence ) 
 ------------------------
 -- The Terms dataType
 ------------------------
-type PeanoT = TermStatic Peano
-type PeanoM r = GTE r Peano 
+type PeanoT = TermRef Peano
+newtype PeanoV = Refs PeanoT 
+    deriving (Show, Eq)
+type PeanoM r = GTE () r Peano 
 
 data Peano a = a :+ a
              | Succ a
@@ -55,12 +63,15 @@ instance Enum (PeanoT) where
    toEnum n = iterate succ z !! n
 
 -- helper constructors
-x +: y = TRS.s (x :+ y)
-s = TRS.s . Succ
-z = TRS.s Zero
-x *: y = TRS.s (x :* y)
-fact x = TRS.s . Fact x
-p = TRS.s . Pred
+x +: y   = t (x     :+ y)
+x &+: y  = t (Ref x :+ y)
+x +:& y  = t (x     :+ Ref y)
+x &+:& y = t (Ref x :+ Ref y)
+s = t . Succ
+z = t Zero
+x *: y = t (x :* y)
+fact x = t . Fact x
+p = t . Pred
 
 isSum (Term(x :+ y)) = True
 isSum _ = False
@@ -88,7 +99,7 @@ instance TermShape Peano where
     matchTerm x y = Nothing
 
 
-instance Num (TermStatic Peano) where
+instance Num (TermRef Peano) where
   fromInteger i = iterate s z !! (fromIntegral i)
   (+) = (+:)
   (*) = (*:)
@@ -100,33 +111,54 @@ p Zero     = "0"
 -}
 
 instance Arbitrary (PeanoT) where
-    arbitrary = sized$ arbitraryPeano (map Var [0..2])
+    arbitrary = sized$ arbitraryPeano (map Var [0..2]) False
 -- instance Shrink PeanoT where
     shrink (Term(a :+ b)) = a : b : [a' +: b' | a' <- shrink a, b' <- shrink b]
     shrink (Term(Succ a)) = [a]
     shrink (Term(Pred a)) = [a]
     shrink (Term(a :* b)) = a : b : [a' *: b' | a' <- shrink a, b' <- shrink b]
     shrink (Term(Fact a b)) = a : b : [fact a' b' | a' <- shrink a, b' <- shrink b]
+    shrink (Ref t) = [t] ++ (Ref <$> shrink t)
     shrink x = []
+
+instance Arbitrary PeanoV where
+    arbitrary = Refs <$> sized (arbitraryPeano (map Var [0..2]) True)
+    shrink (Refs t) = Refs <$> shrink t
 
 instance CoArbitrary PeanoT where
     coarbitrary (Var i)  = variant 0 . coarbitrary i
     coarbitrary (Term f) = variant 1 . coarbitrary (toList f)
+    coarbitrary (Ref  t) = variant 2 . coarbitrary t
 
-
-arbitraryPeano [] 0   = return z
-arbitraryPeano vars 0 = frequency [(1,return z), (1, elements vars)]
-arbitraryPeano vars size | size2 <- size `div` 2 =
-  frequency [ (2,liftM2 (+:) (arbitraryPeano vars size2) (arbitraryPeano vars size2))
-            , (4,liftM s (arbitraryPeano vars (pred size)))]
-
+arbitraryPeano [] _ 0   = return z
+arbitraryPeano vars _ 0 = frequency [(1,return z), (1, elements vars)]
+arbitraryPeano vars refs size | size2 <- size `div` 2 =
+  frequency ([ (2,liftM2 (+:) (arbitraryPeano vars refs size2) 
+                              (arbitraryPeano vars refs size2))
+            , (4,liftM s (arbitraryPeano vars refs (pred size)))] ++
+             if not refs 
+                then []
+                else [(2,liftM ref (arbitraryPeano vars refs size))])
 
 instance Arbitrary (RuleS Peano) where
-  arbitrary = arbitraryRule
+  arbitrary =  do
+      l <- arbitrary
+      r <- sized$ arbitraryPeano (vars l) False
+      return (l:->r)
   shrink (a :-> b) = (:->) <$> (shrink a) <*> (shrink b)
 
+
+instance Arbitrary (SubstM PeanoT) where
+  arbitrary = do
+      tt <- arbitrary
+      return $ SubstM (Just <$> [ t | Refs t <- tt, not (isVar t)])
+  shrink (SubstM tt) =  (SubstM . filter isJust <$> map shrink tt)
+      where isVar Var{} = True
+            isVar (Ref Var{}) = True
+            isVar _ = False
+
 --arbitraryRule :: (Arbitrary (GT_ eq r s), Eq (GT_ eq r s))
-arbitraryRule = do
+arbitraryRule refs = do
   l <- arbitrary
-  r <- sized$ arbitraryPeano (vars l)
+  r <- sized$ arbitraryPeano (vars l) refs
   return (l:->r)

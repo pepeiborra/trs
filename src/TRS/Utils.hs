@@ -22,18 +22,30 @@ import Control.Monad.List (ListT(..))
 import qualified Control.Monad.LogicT as LogicT
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
 import Control.Monad.LogicT.SFKT (SFKT)
-import Data.List (group, sort)
+import Data.List (group, sort, sortBy, groupBy)
 import Data.Traversable
 import Data.Foldable
 import qualified Prelude
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
-                      , sequence, and, elem )
+                      , sequence, and, elem, concatMap )
 
 import qualified Debug.Trace
 import Control.Exception
 
+
+varNames = "XYZWJIKHW"
+showsVar p n = if fromIntegral n < length varNames 
+                         then ([varNames !! fromIntegral n] ++)
+                         else ('v' :) . showsPrec p n
+brackets = ('[' :) . (++ "]")
+parens   = ('(' :) . (++ ")")
+hash     = ('#' :) . (++ "#")
+---------------------------------------------------------
 snub :: Ord a => [a] -> [a]
 snub = map head . group . sort
+
+--snubBy :: Ord a => [a] -> [a]
+snubBy f = map head . groupBy (((==EQ).) . f) . sortBy f
 
 g `at` f = \x y -> g (f x) (f y)
 
@@ -310,6 +322,8 @@ instance (MonadTrans t1) => MonadTrans (MCompT t1 SFKT) where
 
 forEach = flip map
 
+return2 :: (Monad m, Monad n) => a -> m(n a)
+return2 = return . return
 
 fmap2 :: (Functor f1, Functor f) => (a -> b) -> f1 (f a) -> f1 (f b)
 fmap2 f x = fmap (fmap  f) x
@@ -327,12 +341,14 @@ f <$$$> x = fmap (fmap2 f) x
 mapM2 :: (Traversable t1, Traversable t, Monad m) =>
         (a -> m b) -> t1 (t a) -> m (t1 (t b))
 mapM2 f = mapM (mapM f)
-concat2 :: (Foldable t) => t [[a]] -> [a]
-concat2 = concat . concat
+liftMM :: (Monad m, Monad n) => (a -> b) -> m(n a) -> m(n b)
+liftMM = liftM . liftM
+concat2 :: (Foldable t, Foldable u, Functor t) => t (u [a]) -> [a]
+concat2 = concat . fmap concat
 toList2 :: (Foldable t1, Foldable t) => t1 (t a) -> [[a]]
 toList2 = map toList . toList
-concatMap2 :: (Functor f, Foldable f) => (a1 -> [a]) -> f [a1] -> [a]
-concatMap2 f = concat . concat . fmap (fmap f)
+concatMap2 :: (Foldable g, Foldable f) => (a1 -> [a]) -> f (g a1) -> [a]
+concatMap2 = concatMap . concatMap
 sequence2 :: (Traversable t, Traversable f, Monad m) => f (t (m a)) -> m (f (t a))
 sequence2 = sequence . fmap sequence
 sequence3 :: (Traversable f, Traversable t, Traversable f1, Monad m) =>
@@ -365,7 +381,7 @@ handleError :: MonadError e m =>  (e -> m a) -> m a -> m a
 handleError = flip catchError
 
 trace msg x = 
-#ifdef DEBUG 
+#ifdef DEBUGTRS
   Debug.Trace.trace msg x 
 #else 
   x 

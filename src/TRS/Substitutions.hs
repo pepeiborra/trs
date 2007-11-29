@@ -27,6 +27,7 @@ emptySubstM = mempty
 mkSubst = Subst
 
 mkSubstM :: [Int] -> [a] -> SubstM a
+mkSubstM [] _  = mempty
 mkSubstM ii vv = let
     table = Map.fromList (zip ii vv)
   in SubstM (map (`Map.lookup` table) [0 .. maximum ii])

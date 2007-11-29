@@ -33,25 +33,53 @@ import TRS.Rules
 import TRS.Types
 import TRS.Utils
 import TRS.Term
-import qualified TRS.Term as Class
-import qualified TRS.Core as Core
-import TRS.Core ( mutableTerm, mutableTermG, generalize, generalizeG
-                , noMVars, runL)
 
-type RuleI r s      = Rule (GT r)       s
+type RuleI user r s = Rule (GT user r) s
+type RuleS s        = Rule TermStatic  s
 
+-- -------------------------------------------
+-- * Static Terms
+-- --------------------------------------------
+-- | The datatype of static terms, terms with no mutable vars
+--   A generic term is converted to a static term with @zonkTerm@
+--   and the other way around with @instTerm@
+data TermStatic_ i s = Term (s (TermStatic_ i s)) | Var i
+--  deriving (Show)
+type TermStatic s = TermStatic_ Int s
+type BasicTerm = TermStatic BasicShape
+
+
+s :: s(TermStatic s) -> TermStatic s
+s = Term
+
+liftS f (Term t) = Term (f t)
+liftS2 (*) (Term t) (Term v) = Term (t*v)
+
+var  = Var 
+constant f = s (T f [])
 term = (s.) . T
 term1 f t       = s$ T f [t]
 term2 f t t'    = s$ T f [t,t']
 term3 f t t' t''= s$ T f [t,t',t'']
 
-var  = Var 
-constant f = s (T f [])
+
+instance (Integral i, Show (s(TermStatic_ i s)), Show i) => Show (TermStatic_ i s) where
+  showsPrec p (Term s) = showsPrec p s
+  showsPrec p (Var i)  = showsVar p i
+{-
+instance (Show (s (TermStatic s))) => Show (TermStatic s) where
+    showsPrec p (Term s) = showsPrec p s
+    showsPrec p (Var  i) = showsVar p i 
+-}
+instance (Eq (TermStatic s), Ord (s(TermStatic s))) => Ord (TermStatic s) where
+  compare (Term s) (Term t) = compare s t
+  compare Term{} _          = GT
+  compare (Var i) (Var j)   = compare i j
 
 -- ---------------------------------------
 -- TermStatic Term structure
 -- ---------------------------------------
-instance (TermShape s, Traversable s) => Class.Term (TermStatic_ Int) s where
+instance (TermShape s) => Term (TermStatic_ Int) s user where
   Var i  `synEq` Var j  = i == j
   Term s `synEq` Term t | Just pairs <- matchTerm s t
                         = all (uncurry synEq) pairs
@@ -61,28 +89,11 @@ instance (TermShape s, Traversable s) => Class.Term (TermStatic_ Int) s where
   mkVar       = Var 
   varId(Var i)= Just i
   varId _     = Nothing
-  subTerms (Term tt) = toList tt
-  subTerms _         = []
-  fromSubTerms (Term t) tt = Term $ modifySpine t tt
-  fromSubTerms t _     = t
-  mkGTM mkVar (Term t) = S `liftM` (mkGTM mkVar `mapM` t)
-  mkGTM mkVar        x = mkVar x
-  fromGTM mkVar (S y)  = Term `liftM` (fromGTM mkVar `mapM` y)
-  fromGTM mkVar var    = mkVar var
+  subTerms (Term tt) = Just tt
+  subTerms _         = Nothing
+  build              = Term 
 
---instance TermShape s => Eq (TermStatic s) where
-instance (Class.Term t s, TermShape s) => Eq (t s) where
-  t1 == t2 = runST (do
-   [t1',t2'] <- mapM (mutableTerm >=> generalize) [t1,t2]
-   return (t1' `synEq` t2'))
 
-instance (Class.Term t s, TermShape s) => Eq (RuleG (t s)) where
-  s1 == s2 = runST (do
-   [l1:->r1,l2:->r2] <- mapM (mutableTermStatic >=> generalizeG) [s1,s2]
-   return (l1 `synEq` l2 && r1 `synEq` r2))
-    where
-      mutableTermStatic :: forall s r. (Class.Term t s, TermShape s) => RuleG (t s) -> ST r (RuleI r s)
-      mutableTermStatic = mutableTermG
 ---------------------------------
 -- Auxiliary code
 ---------------------------------
@@ -97,6 +108,6 @@ instance Eq (Term a) where
 ---------------------------------------------
 
 uc = unsafeCoerce#
-ucT t = uc t :: GTE r BasicShape
+ucT t = uc t :: GTE user r BasicShape
 --ucR r = uc r :: Rule BasicShape
 

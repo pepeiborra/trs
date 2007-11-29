@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds #-}
 {-# OPTIONS_GHC -fno-monomorphism-restriction #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
+{-# LANGUAGE  DisambiguateRecordFields #-}
 
 module Test.Test where
 import Data.Char
@@ -10,7 +11,7 @@ import Data.Maybe
 import Data.Traversable
 import Control.Applicative
 import Control.Arrow hiding (pure)
-import Control.Monad (guard, unless, replicateM, mplus, foldM)
+import Control.Monad (guard, unless, replicateM, mplus, foldM, zipWithM)
 import Control.Monad.Error (runErrorT)
 import MaybeT (runMaybeT)
 import Control.Monad.List (ListT(..), liftM, liftM2, lift)
@@ -29,17 +30,18 @@ import Debug.Trace
 import System.IO.Unsafe
 import GHC.Exts
 
-import TRS hiding (s, collect)
+import TRS hiding (collect)
 import qualified TRS
-import TRS.Core hiding (run)
+import TRS.Core hiding (run, narrowFull, narrowFullBounded)
 import qualified TRS.Core as Core
-import TRS.Terms
 import TRS.Utils
 import TRS.Signature
 import TRS.Context
 import TRS.GTerms
 import TRS.Tyvars
+
 import Test.Peano
+import Test.TermRef
 
 htests = TestList
         [ TestLabel "testRewriting" testRewriting
@@ -56,6 +58,7 @@ qtests = [("Semantic Equality", q propSemanticEquality)
          ,("AutoInst Mutvars" , q propAutoInstMutVars)
          ,("AutoInstGMutvars" , q propAutoInstGMutVars)
          ,("AutoInstGMutvars2" , q propAutoInstGMutVars2)
+         ,("zonkSubst"        , q propZonkSubst)
          ,("Reimpl. collect"  , q propReCollect)
 --         ,("Reimpl. vars"     , q propReVars)
          ,("Re. mutableTerm"  , q propReMutable)
@@ -90,39 +93,48 @@ rule2 = x +: y :-> y
 -- Some axioms in the framework
 --------------------------
 
-propGeneralize t_ = runST (do
+propZonkSubst subst_ = runST (do
+    subst  <- templateGTE'  `mapM` subst_
+    subst' <- zonkSubst subst
+    and <$> zipWithM semEq_mb (fromSubstM subst) (fromSubstM subst'))
+      where types = subst_ :: SubstM PeanoT
+            semEq_mb (Just x) (Just y) = semEq x y
+            semEq_mb Nothing Nothing   = return True
+            semEq_mb _ _ = return False
+            
+propGeneralize (Refs t_) = runST (do
     t   <- mutableTerm t_
     t'  <- generalize t
     t `semEq` t')
         where types = t_ :: PeanoT
 
-propAutoInstMutVars t =
+propAutoInstMutVars (Refs t) =
   not(null (vars t)) ==> collect (length$ vars t) $ 
     runST (noGVars <$> mutableTerm t)
         where types = t :: PeanoT
 
-propAutoInstGMutVars l r =
+propAutoInstGMutVars (Refs l) (Refs r) =
   not(null (vars l) && null (vars r)) ==> collect (length$ vars l ++ vars r) $ 
     runST (all noGVars <$> mutableTermG (l:->r))
         where types = l :: PeanoT
 
-propAutoInstGMutVars2 l r =
+propAutoInstGMutVars2 (Refs l) (Refs r) =
   not(null (vars l) && null (vars r)) ==> collect (length$ vars l ++ vars r) $ 
     runST (do
        (_,[l,r]) <- autoInstG [templateTerm l, templateTerm r]
-       return (noGVars l))
+       return (noGVars (isGT l)))
         where types = l :: PeanoT
 --------------------------------------
 -- Proving reimplementations correct
 --------------------------------------
-propReCollect p_ f | p <- eqGT$ templateTerm p_ 
+propReCollect (Refs p_) f | p <- eqGT$ templateTerm p_ 
                    = (templateTerm <$> TRS.collect f p_) == 
                      collect_ (f . fromJust . zonkTerm) p
        where types = p_ :: PeanoT
                   
 -- | Ought to call colGT before this to make sure all the variables have
 --   been dereferenced 
-collect_   :: Foldable s  => (GT_ eq r s -> Bool) -> GT_ eq r s -> [GT_ eq r s]
+collect_   :: Foldable s  => (GT_ user eq r s -> Bool) -> GT_ user eq r s -> [GT_ user eq r s]
 collect_ p (S x) | p (S x) = S x : concatMap (collect_ p) x -- foldr (\t gg -> collect_ p t ++ gg) [] x
 collect_ p (S x) = concatMap (collect_ p) x -- foldr (\t gg -> collect_ p t ++ gg) [] x
 collect_ p x = if p x then [x] else []
@@ -133,7 +145,7 @@ prop_autoInst p = runST (do
     (s2,p2) <- autoInst_old p'
     return (idGT p1 == p2 {-TODO && s1 == s2-}))
 -}
--- autoInst_old :: TermShape s => GT r s -> ST r (Subst r s, GT r s)
+-- autoInst_old :: TermShape s => GT user r s -> ST r (Subst r s, GT user r s)
 autoInst_old x@MutVar{} = return (emptyS, x)
 autoInst_old x
     | null gvars = return (emptyS, x)
@@ -142,28 +154,28 @@ autoInst_old x
                     foldM (\rest gv -> liftM (:rest) $
                              if gv`elem`gvars then fresh else return gv) 
                           []
-                          (map GenVar [0..succ n_newvars])
+                          (map genVar [0..succ n_newvars])
            x' <- instan freshv x 
 --           assert (noGVars x') (return ())
            x' `seq` return (freshv, x')
     where gvars = TRS.collect isGenVar x
           n_newvars :: Int
-          n_newvars = maximum [ n | GenVar n <- [GenVar 10]]
+          n_newvars = maximum [ n | GenVar{unique=n} <- [genVar 10]]  --- ?????
 
-propReMutable p = runST (do
+propReMutable (Refs p) = runST (do
   p1 <- mutableTerm p
-  p2 <- mutableTerm' p
+  p2 <- mutableTerm_old p
   (p1 `semEq` p2))
         where types = p :: PeanoT
 
---mutableTerm' :: (TermShape s, Functor s) => TermStatic s -> ST r (GT r s)
-mutableTerm' = (snd <$>) . autoInst . templateTerm' 
+--mutableTerm' :: (TermShape s, Functor s) => TermStatic s -> ST r (GT user r s)
+mutableTerm_old = (snd <$>) . autoInst . templateTerm_old
 
 
---templateTerm' :: Functor s =>  TermStatic s -> GT r s -- PEPE be careful with equality
-templateTerm' (Term x) = S(templateTerm' <$> x)
-templateTerm' (Var n)  = GenVar n
-
+--templateTerm' :: Functor s =>  TermStatic s -> GT user r s -- PEPE be careful with equality
+templateTerm_old (Term x) = S(templateTerm_old <$> x)
+templateTerm_old (Var n)  = genVar n
+templateTerm_old (Ref x)  = templateTerm_old x
 
 {- TODO: prove all these
 
@@ -216,7 +228,7 @@ equal_rule s1 s2 = fmap(either (return False) id) $ runErrorT$ do
 
 
 -- |Semantic equality (equivalence up to renaming of vars) 
-semEq_old :: (GoodShape s) => GTE r s -> GTE r s -> ST r Bool
+semEq_old :: (GoodShape s) => GTE user r s -> GTE user r s -> ST r Bool
 semEq_old x y = fmap (either (return False) id) $ runErrorT $ do
     (theta_x, x') <- lift$ autoInst x
     (theta_y, y') <- lift$ autoInst y
@@ -227,7 +239,7 @@ semEq_old x y = fmap (either (return False) id) $ runErrorT $ do
             none (fromMaybe False . fmap isTerm) (fromSubstM theta_y'))
   where none = (not.) . any
 
-semEq_old' :: (GoodShape s) => GTE r s -> GTE r s -> ST r Bool
+semEq_old' :: (GoodShape s) => GTE user r s -> GTE user r s -> ST r Bool
 semEq_old' x y = do
     (_,x') <- second eqGT <$> autoInst x
     (_,y') <- second eqGT <$> autoInst y
@@ -235,29 +247,29 @@ semEq_old' x y = do
     runMaybeT $ unify x' y'
     mapM col xy_vars
     andM [ (maybe True isVar <$> readVar v)
-                       | MutVar v <- xy_vars]
+                       | MutVar{ref=v} <- xy_vars]
 
 
-propReSemEq1 s t | False, Var _ <- s = undefined
-propReSemEq1 s' t' = runST $ do
+propReSemEq1 (Refs s) (Refs t) | False, Var _ <- s = undefined
+propReSemEq1 (Refs s') (Refs t') = runST $ do
        let [s,t] = map templateTerm [s',t']
-       new <- s  `semEq` t
+       new <- s  `semEq` isGT t
        old <- s `semEq_old'` t
        return $ new == old
         where types = (s' :: PeanoT, t' :: PeanoT)
 
-propReSemEq s t | False, Var _ <- s = undefined
-propReSemEq s' t' = runST $ do
+propReSemEq (Refs s) (Refs t) | False, Var _ <- s = undefined
+propReSemEq (Refs s') (Refs t') = runST $ do
        let [s,t] = map templateTerm [s',t']
-       new <- s  `semEq` t
+       new <- s  `semEq` isGT t
        old <- s `semEq_old` t
        return $ new == old
         where types = (s' :: PeanoT, t' :: PeanoT)
 
-testSemEq s t | False, Var _ <- s = undefined
-testSemEq s' t' = runST $ do
+testSemEq (Refs s) (Refs t) | False, Var _ <- s = undefined
+testSemEq (Refs s') (Refs t') = runST $ do
        let [s,t] = map templateTerm [s',t']
-       new <- s  `semEq` t
+       new <- s  `semEq` isGT t
        return new
         where types = (s' :: PeanoT, t' :: PeanoT)
 
@@ -284,7 +296,7 @@ peanoTRS = [ x +: s(y) :-> s(x +: y)
 peanoTRS'= [ s x +: y :-> s(x +: y)
            , z   +: y :-> y         ]
 
-x :: forall s. TermStatic s
+x :: forall s. TermRef s
 x = Var 0
 y = Var 1
 
@@ -325,7 +337,7 @@ testRewriting5 = test (assert True) --TODO
 
 -- Corner cases
 testRewNoRules = TestLabel "No Rules" $ 
-                 (rewrite ([] :: [Rule TermStatic Peano]) seven) ~?= [seven]
+                 (rewrite ([] :: [RuleS Peano]) seven) ~?= [seven]
   
 -- Testing Narrowing
 peanoTRS2 = [ s(s(z)) +: s(x) :-> s(s(s(x)))
@@ -348,7 +360,8 @@ testNarrowing = TestList [ [s(s(s(s(z)))), s(s(z))] ~=? fourN1
                          , [two] ~=? noNarrowFull'
                          , testAngryTerm
                          , testNarrowIssue
-                         , snd <$> narrow1 [g (g x) :-> x] (f (g x) x) ~?= [f x (g x)]
+                         , snd <$> narrow1 [g (g x) :-> x] (f (g x) x) ~?= 
+                                                                       [f x (g x)]
                          ]
 
 -------------------------------
@@ -423,7 +436,7 @@ propNarrow' x = let
     bb = snd <$> narrow1' peanoTRS x
     in (aa =|= bb)
 -}
-propNarrowFullNF   = forAll (arbitraryPeano (map Var [0..2]) 3) $ \x ->
+propNarrowFullNF   = forAll (arbitraryPeano (map Var [0..2]) False 3) $ \x ->
                      isSNF peanoTRS x ==> 
                      (snd <$> narrowFull peanoTRS x) == [x]
        where types = (x :: PeanoT)
@@ -457,7 +470,7 @@ testEquality = TestLabel "test equality" $
 contexts' (S t) = --(CtxVar 0, S t) : 
                  catMaybes (map (context (S t) c) [0..size t - 1])
     where c = (length . TRS.collect isCtxVar) (S t)
---          context :: Traversable t => GT t r -> Int -> Int -> Maybe (GT t r,Context t r)
+--          context :: Traversable t => GT user t r -> Int -> Int -> Maybe (GT user t r,Context t r)
           context (S t) depth i 
              | (a, t') <- first (msum . toList) . unzipG $
                         fmap (\(j,u)->if i==j && not (isCtxVar u) 
