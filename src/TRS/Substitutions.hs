@@ -2,7 +2,9 @@
 module TRS.Substitutions where
 
 import Control.Applicative
+import Control.Monad
 import Data.Foldable (Foldable(..))
+import Data.Maybe (catMaybes)
 import Data.Monoid
 import Data.Traversable
 import qualified Data.Map as Map
@@ -14,7 +16,7 @@ import TRS.Utils
 -- * Substitutions
 ----------------------
 newtype SubstG a = Subst {fromSubst::[a]}
-   deriving (Foldable, Functor, Traversable, Monoid, Show)
+   deriving (Foldable, Functor, Traversable, Monoid, Show, Applicative)
 
 newtype SubstM a = SubstM {fromSubstM :: [Maybe a]}
    deriving (Monoid, Show)
@@ -40,3 +42,7 @@ instance Functor SubstM where
     fmap f (SubstM x) = SubstM $ map (fmap f) x
 
 instance Foldable SubstM where foldMap = foldMapDefault
+
+instance Applicative SubstM where
+    pure = SubstM . (:[]) . Just
+    SubstM f <*> SubstM xx = SubstM (zipWith ap f xx)

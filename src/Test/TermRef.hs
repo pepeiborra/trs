@@ -25,6 +25,13 @@ type RuleS s   = Rule TermRef   s
 
 data TermRef_ i s = Term (s (TermRef_ i s)) | Var i | Ref (TermRef_ i s)
 
+instance (TermShape s, Eq i) => Eq (TermRef_ i s) where
+  Var i  == Var j  = i == j
+  Term s == Term t | Just pairs <- matchTerm s t
+                   = all (uncurry (==)) pairs
+  _      == _      = False 
+
+
 t :: TermShape s => s(TermRef s) -> TermRef s
 t      = Term
 ref (Ref t) = Ref t
@@ -64,18 +71,14 @@ instance (Eq (TermRef s), Ord (s(TermRef s))) => Ord (TermRef s) where
 -- TermRef Term structure
 -- ---------------------------------------
 instance (TermShape s, Traversable s) => Term (TermRef_ Int) s user where
-  Var i  `synEq` Var j  = i == j
-  Term s `synEq` Term t | Just pairs <- matchTerm s t
-                        = all (uncurry synEq) pairs
-  _      `synEq` _      = False 
   isVar Var{} = True 
   isVar _     = False
   mkVar       = Var 
   varId(Var i)= Just i
   varId _     = Nothing
-  subTerms (Term tt) = Just tt
-  subTerms (Ref   t) = subTerms t    -- ???
-  subTerms _         = Nothing
+  contents (Term tt) = Just tt
+  contents (Ref   t) = contents t    -- ???
+  contents _         = Nothing
   build              = Term 
   toGTM mkV (Ref t) = do
       t' <- toGTM mkV t

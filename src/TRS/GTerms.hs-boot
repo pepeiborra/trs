@@ -14,12 +14,10 @@ data GT_ (user :: *) (mode :: *)  (r :: *) (s :: * -> *) =
  | CtxVar {unique::Int}
  | Skolem {note_::Maybe user, unique::Int}
 
-data Syntactic  -- denotes pure syntactic equality
-data Semantic   -- denotes syntactic equality modulo variables
+data Normal
 data Basic      -- denotes a Basic Narrowing derivation
 
-type GT user r s  = GT_ user Syntactic r s
-type GTE user r s = GT_ user Semantic r s
+type GT user r s  = GT_ user Normal r s
 
 genVar, skolem :: Int -> GT_ user mode r s
 isGenVar, isMutVar, isCtxVar, isTerm :: GT_ user mode r s -> Bool

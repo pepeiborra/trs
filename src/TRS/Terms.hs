@@ -28,13 +28,11 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , sequence, concat, concatMap )
 import GHC.Exts (unsafeCoerce#)
 
-import TRS.GTerms
 import TRS.Rules
 import TRS.Types
 import TRS.Utils
 import TRS.Term
 
-type RuleI user r s = Rule (GT user r) s
 type RuleS s        = Rule TermStatic  s
 
 -- -------------------------------------------
@@ -44,9 +42,14 @@ type RuleS s        = Rule TermStatic  s
 --   A generic term is converted to a static term with @zonkTerm@
 --   and the other way around with @instTerm@
 data TermStatic_ i s = Term (s (TermStatic_ i s)) | Var i
---  deriving (Show)
 type TermStatic s = TermStatic_ Int s
 type BasicTerm = TermStatic BasicShape
+
+instance (Eq i, TermShape s) => Eq (TermStatic_ i s) where
+  Var i  == Var j  = i == j
+  Term s == Term t | Just pairs <- matchTerm s t
+                   = all (uncurry (==)) pairs
+  _      == _      = False 
 
 
 s :: s(TermStatic s) -> TermStatic s
@@ -80,34 +83,11 @@ instance (Eq (TermStatic s), Ord (s(TermStatic s))) => Ord (TermStatic s) where
 -- TermStatic Term structure
 -- ---------------------------------------
 instance (TermShape s) => Term (TermStatic_ Int) s user where
-  Var i  `synEq` Var j  = i == j
-  Term s `synEq` Term t | Just pairs <- matchTerm s t
-                        = all (uncurry synEq) pairs
-  _      `synEq` _      = False 
   isVar Var{} = True 
   isVar _     = False
   mkVar       = Var 
   varId(Var i)= Just i
   varId _     = Nothing
-  subTerms (Term tt) = Just tt
-  subTerms _         = Nothing
+  contents (Term tt) = Just tt
+  contents _         = Nothing
   build              = Term 
-
-
----------------------------------
--- Auxiliary code
----------------------------------
-{-
-instance Eq (Term a) where 
-  t1 == t2 = (S t1) `equal` (S t2)
--}
- 
-
----------------------------------------------
--- Other stuff for using in the ghci debugger
----------------------------------------------
-
-uc = unsafeCoerce#
-ucT t = uc t :: GTE user r BasicShape
---ucR r = uc r :: Rule BasicShape
-

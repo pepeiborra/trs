@@ -30,7 +30,7 @@ import Debug.Trace
 import System.IO.Unsafe
 import GHC.Exts
 
-import TRS hiding (collect)
+import TRS hiding (collect, semEq)
 import qualified TRS
 import TRS.Core hiding (run, narrowFull, narrowFullBounded)
 import qualified TRS.Core as Core
@@ -79,7 +79,7 @@ propSemanticEquality (Smart _ t) = let
     vars_t   = vars t
     new_vars = [ Var (succ i) | Var i<- vars_t]
     new_term = replace (zip vars_t new_vars) t
-    in new_term == t
+    in new_term `TRS.semEq` t
 --        where types = t :: PeanoT
 
 
@@ -94,13 +94,10 @@ rule2 = x +: y :-> y
 --------------------------
 
 propZonkSubst subst_ = runST (do
-    subst  <- templateGTE'  `mapM` subst_
+    subst  <- templateGT'  `mapM` subst_
     subst' <- zonkSubst subst
-    and <$> zipWithM semEq_mb (fromSubstM subst) (fromSubstM subst'))
-      where types = subst_ :: SubstM PeanoT
-            semEq_mb (Just x) (Just y) = semEq x y
-            semEq_mb Nothing Nothing   = return True
-            semEq_mb _ _ = return False
+    and <$> sequence (semEq <$> subst <*> subst'))
+     where types = subst_ :: SubstM PeanoT
             
 propGeneralize (Refs t_) = runST (do
     t   <- mutableTerm t_
@@ -127,7 +124,7 @@ propAutoInstGMutVars2 (Refs l) (Refs r) =
 --------------------------------------
 -- Proving reimplementations correct
 --------------------------------------
-propReCollect (Refs p_) f | p <- eqGT$ templateTerm p_ 
+propReCollect (Refs p_) f | p <- idGT$ templateTerm p_ 
                    = (templateTerm <$> TRS.collect f p_) == 
                      collect_ (f . fromJust . zonkTerm) p
        where types = p_ :: PeanoT
@@ -228,7 +225,7 @@ equal_rule s1 s2 = fmap(either (return False) id) $ runErrorT$ do
 
 
 -- |Semantic equality (equivalence up to renaming of vars) 
-semEq_old :: (GoodShape s) => GTE user r s -> GTE user r s -> ST r Bool
+semEq_old :: (GoodShape s) => GT user r s -> GT user r s -> ST r Bool
 semEq_old x y = fmap (either (return False) id) $ runErrorT $ do
     (theta_x, x') <- lift$ autoInst x
     (theta_y, y') <- lift$ autoInst y
@@ -239,10 +236,10 @@ semEq_old x y = fmap (either (return False) id) $ runErrorT $ do
             none (fromMaybe False . fmap isTerm) (fromSubstM theta_y'))
   where none = (not.) . any
 
-semEq_old' :: (GoodShape s) => GTE user r s -> GTE user r s -> ST r Bool
+semEq_old' :: (GoodShape s) => GT user r s -> GT user r s -> ST r Bool
 semEq_old' x y = do
-    (_,x') <- second eqGT <$> autoInst x
-    (_,y') <- second eqGT <$> autoInst y
+    (_,x') <- second idGT <$> autoInst x
+    (_,y') <- second idGT <$> autoInst y
     let xy_vars = TRS.collect isMutVar x' ++ TRS.collect isMutVar y'
     runMaybeT $ unify x' y'
     mapM col xy_vars
@@ -414,9 +411,9 @@ tpBackward1 = snd <$> narrow1 (map swap peanoTRS) (s(z) +: x)
 
 
 testNarrowIssue = TestLabel "Narrowing Issues" $ TestList 
-        [ u' ~?= [ts(ts(y)),ts(ts(ts(y))),ts(y),ts(x)]
-        , tpForward1 ~?= [s(x)] 
-        , snd <$> narrow1 trs_x t ~=? (snd <$> narrow1 trs_y t :: [PeanoT])
+        [ Semantic u' ~?= Semantic [ts(ts(y)),ts(ts(ts(y))),ts(y),ts(x)]
+        , Semantic tpForward1 ~?= Semantic [s(x)] 
+        , Semantic . snd <$> narrow1 trs_x t ~=? (Semantic . snd <$> narrow1 trs_y t :: [Semantic PeanoT])
 --        , snd <$> narrow1' trs_x' t' ~=? snd <$> narrow1' trs_y' t'
         ]
     where t = z +: y
@@ -461,8 +458,8 @@ ts x = term "s" [x]
 
 testEquality = TestLabel "test equality" $
                TestList [ -- x   ==  y    ~? "Eq modulo Vars"
-                          s(x) == s(y)  ~? "With a context"
-                        , x+y  == y+x   ~? "Same Name, but unrelated"
+                          s(x) `TRS.semEq` s(y)  ~? "With a context"
+                        , (x+y)  `TRS.semEq` (y+x)   ~? "Same Name, but unrelated"
                         ]
 -----------------------------------------------
 -- Verifying the new implementation of contexts
@@ -503,7 +500,7 @@ propDuplication1 t = runST (do
                         (vars',_,t') <- dupTermWithSubst emptySubstM [] (idGT t1)
                         t''          <- zonkTerm' =<< col t'
                         semeq        <- t1 `semEq` t'
-                        return$ t `synEq` t'' && semeq )
+                        return$ t == t'' && semeq )
                              
 ---------------
 -- helpers

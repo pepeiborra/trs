@@ -33,12 +33,11 @@ module TRS.Core (
   runL, runLG, runLGG, runLIO,
   runSTWithSubst,
   zonkSubst, isRenaming,
-  semEq, semEq', semEqG
+  semEq, semEq'
  -- for testing:
   ,autoInst, autoInstG
   ,dupTermWithSubst
   ,Instan(..)
-  ,templateGTE'
 )
  where
 
@@ -75,7 +74,7 @@ import MaybeT
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
 
-import TRS.Term hiding (TRS(..), TRSN(..), templateTerm, replace)
+import TRS.Term hiding (TRS(..), TRSN(..), templateTerm, replace, semEq)
 import qualified TRS.Term as TRS
 import TRS.Substitutions
 import TRS.Rules
@@ -93,15 +92,9 @@ import GHC.Exts (unsafeCoerce#)
 import Observe
 import qualified Debug.Trace
 
-instance TermShape s => Eq (GT user r s) where
-  (==) = synEq   -- syntactic equality
-
-instance Eq (GT user r s) => Eq (GT_ user Basic r s) where
-  t == s = idGT t == idGT s
-
 {-# SPECIALIZE prune_ :: GT user r BasicShape -> ST r (GT user r BasicShape) #-}
 
-type Subst user r s       = Subst_ user Semantic r s
+type Subst user r s       = Subst_ user Normal r s
 type Subst_ user mode r s = SubstM (GT_ user mode r s)
 --type RawSubst mode r s  = TRS.SubstG (GT_ user mode r s)
 type Rule_ user mode r s  = Rule (GT_ user mode r) s
@@ -119,43 +112,43 @@ mkMutVar = maybe fresh (mutVar Nothing) . varId
 mutableTermG :: (Traversable f, Term t s user) => f(t s) -> ST r (f(GT user r s))
 mutableTermG = return . snd <=< autoInstG <=< mapM templateTerm'
 
-{- SPECIALIZE rewrite1 :: OmegaPlus Semantic MaybeT r BasicShape => 
-              [Rule BasicShape] -> GTE user r BasicShape -> MaybeT (ST r) (GTE user r BasicShape)#-}
+{- SPECIALIZE rewrite1 :: OmegaPlus Normal MaybeT r BasicShape => 
+              [Rule BasicShape] -> GT user r BasicShape -> MaybeT (ST r) (GT user r BasicShape)#-}
 -- |leftmost outermost
-rewrite1  :: (Term t s user, OmegaPlus Semantic m r s) => 
-            [Rule t s] -> GTE user r s -> m (ST r) (GTE user r s)
+rewrite1  :: (Term t s user, OmegaPlus Normal m r s) => 
+            [Rule t s] -> GT user r s -> m (ST r) (GT user r s)
 rewrite1 rre t = lift(fixRules rre) >>= \rr' -> rewrite1_ rr' t
 
 -- |leftmost outermost
-rewrite   :: (Term t s user, OmegaPlus Semantic m r s) => 
-            [Rule t s] -> GTE user r s -> m (ST r) (GTE user r s)
+rewrite   :: (Term t s user, OmegaPlus Normal m r s) => 
+            [Rule t s] -> GT user r s -> m (ST r) (GT user r s)
 rewrite  rre t = lift(fixRules rre) >>= \rr' -> rewrite_ rr' t
 
 -- |leftmost outermost
-narrow1   :: (Term t s user, OmegaPlus Semantic m r s) => 
-            [Rule t s] -> GTE user r s -> 
-             m (ST r) (Subst_ user Semantic r s, GTE user r s)
+narrow1   :: (Term t s user, OmegaPlus Normal m r s) => 
+            [Rule t s] -> GT user r s -> 
+             m (ST r) (Subst_ user Normal r s, GT user r s)
 narrow1 rr t = lift(fixRules rr) >>= \rr' -> narrow1_ rr' t
 
 {-
 -- |leftmost outermost
 narrow1' :: (Term t s user, GoodShape s) => 
-           [Rule t s] -> GTE user r s -> ST r [(Subst user r s, GTE user r s)]
+           [Rule t s] -> GT user r s -> ST r [(Subst user r s, GT user r s)]
 narrow1' rr = narrow1'_ (fixRules rr)
 -}
 
 -- |leftmost outermost, in variables too
 narrow1V :: (Term t s user, GoodShape s) => 
-           [Rule t s] -> GTE user r s -> ST r [(Subst user r s, GTE user r s)]
+           [Rule t s] -> GT user r s -> ST r [(Subst user r s, GT user r s)]
 narrow1V rr t = fixRules rr >>= \rr' -> narrow1V_ rr' t
 
 narrowFull :: (Term t s user, GoodShape s) => 
-             [Rule t s] -> GTE user r s -> 
-             ST r [(Subst user r s, GTE user r s)]
+             [Rule t s] -> GT user r s -> 
+             ST r [(Subst user r s, GT user r s)]
 narrowFull rr t = fixRules rr >>= \rr' ->  narrowFull_ rr' t
 
 narrowFullV :: (Term t s user, GoodShape s) => 
-              [Rule t s] -> GTE user r s -> ST r [(Subst user r s, GTE user r s)]
+              [Rule t s] -> GT user r s -> ST r [(Subst user r s, GT user r s)]
 narrowFullV rr t =  fixRules rr >>= \rr' -> narrowFullV_ rr' t
 
 narrowBasic :: (Term t s user, GoodShape s) => [Rule t s] -> GT_ user Basic r s -> 
@@ -165,16 +158,16 @@ narrowBasic rr term =  fixRules rr >>= \rr' ->
                             =<<  templateTerm' term
 
 narrowFullBounded  :: (Term t s user, GoodShape s) => 
-                      (GTE user r s -> ST r Bool) -> [Rule t s] -> GTE user r s -> 
-                      ST r [(Subst user r s, GTE user r s)]
+                      (GT user r s -> ST r Bool) -> [Rule t s] -> GT user r s -> 
+                      ST r [(Subst user r s, GT user r s)]
 narrowFullBounded pred rr t =  fixRules rr >>= \rr' ->
-                               narrowFullBounded_ (pred . eqGT) rr' t
+                               narrowFullBounded_ (pred) rr' t
 
 narrowFullBoundedV :: (Term t s user, GoodShape s) => 
-                      (GTE user r s -> ST r Bool) -> [Rule t s] -> GTE user r s -> 
-                      ST r [(Subst user r s, GTE user r s)]
+                      (GT user r s -> ST r Bool) -> [Rule t s] -> GT user r s -> 
+                      ST r [(Subst user r s, GT user r s)]
 narrowFullBoundedV pred rr t = fixRules rr >>= \rr' ->
-                               narrowFullBoundedV_ (pred . eqGT) rr' t
+                               narrowFullBoundedV_ (pred) rr' t
 
 -- | generalize builds a sigma type, i.e. a type scheme, by 
 --   replacing all mutvars in a term with GenVars
@@ -214,15 +207,15 @@ narrowFullBoundedV_:: (Prune mode, GoodShape s) =>
                       ST r [(Subst_ user mode r s, GT_ user mode r s)]
 
 fixRules :: (Term t s user, TermShape s, Functor s) => 
-            [Rule t s] -> ST r [Rule_ user Semantic r s]
-fixRules = mapM2 templateGTE' >=> generalizeGG
+            [Rule t s] -> ST r [Rule_ user Normal r s]
+fixRules = mapM2 templateGT' >=> generalizeGG
 
 -- * Basic primitives
-{- SPECIALIZE unify :: Omega Semantic MaybeT r BasicShape => 
-                            GT_ user Semantic r BasicShape -> GT_ user Semantic r BasicShape 
+{- SPECIALIZE unify :: Omega Normal MaybeT r BasicShape => 
+                            GT_ user Normal r BasicShape -> GT_ user Normal r BasicShape 
                          -> MaybeT (ST r) () #-}
-{- SPECIALIZE unify :: Omega Semantic ListT r BasicShape => 
-                            GT_ user Semantic r BasicShape -> GT_ user Semantic r BasicShape 
+{- SPECIALIZE unify :: Omega Normal ListT r BasicShape => 
+                            GT_ user Normal r BasicShape -> GT_ user Normal r BasicShape 
                          -> ListT (ST r) () #-}
 unify	  :: Omega mode m r s => GT_ user mode r s -> GT_ user mode r s -> m (ST r) ()
 match	  :: Omega mode m r s => GT_ user mode r s -> GT_ user mode r s -> m (ST r) ()
@@ -234,11 +227,8 @@ match	  :: Omega mode m r s => GT_ user mode r s -> GT_ user mode r s -> m (ST r
 class Prune (mode :: *) where 
     prune :: GT_ user mode r s  -> ST r (GT_ user mode r s)
 
-instance Prune Basic     where prune x = pruneBasic_ x
-instance Prune Syntactic where prune x = prune_ x
-instance Prune Semantic  where 
-    prune x = prune_ x
-instance TypeEq Syntactic mode HTrue => Prune mode where prune x = prune_ x
+instance Prune Basic  where prune x = pruneBasic_ x
+instance TypeCast Normal mode => Prune mode where prune x = prune_ x
 
 {-# INLINE prune_ #-}
 prune_ :: GT_ user mode r s -> ST r (GT_ user mode r s)
@@ -264,8 +254,7 @@ pruneBasic_ (typ@MutVar{ref=ref}) =
 pruneBasic_ x = return x
 
 {-# INLINE col #-}
-{-# SPECIALIZE col :: GT_ user Syntactic r BasicShape -> ST r (GT_ user Syntactic r BasicShape) #-}
-{-# SPECIALIZE col :: GT_ user Semantic r BasicShape -> ST r (GT_ user Semantic r BasicShape) #-}
+{-# SPECIALIZE col :: GT_ user Normal r BasicShape -> ST r (GT_ user Normal r BasicShape) #-}
 {-# SPECIALIZE col :: GT_ user Basic r BasicShape -> ST r (GT_ user Basic r BasicShape) #-}
 col :: (Prune mode, Traversable s) => GT_ user mode r s  -> ST r (GT_ user mode r s)    
 col x =
@@ -339,7 +328,7 @@ class Instan term subst monad | term -> monad where
 
 {-  
 instance (Prune mode, Traversable s) => Instan (GT_ user mode r s) (Subst_ mode r s) (ST r) where
-  {- SPECIALIZE instance Instan (GT_ user Syntactic r BasicShape) (Subst_ Syntactic r BasicShape) (ST r) #-}
+  {- SPECIALIZE instance Instan (GT_ user Normal r BasicShape) (Subst_ Normal r BasicShape) (ST r) #-}
   instan sub t = do --prune >=> instan sub . DontCol >=> col . unDontCol  
       t1 <- prune t
       DontCol t2 <- instan sub (DontCol t1)
@@ -384,7 +373,7 @@ instance (Prune mode, Traversable s) =>
 --generalize_ x | trace ("generalize " ++ show x ) False = undefined
 generalize x = do
   x' <- col x
-  let mvars = nubSyntactically $ collect isMutVar x'
+  let mvars = nub $ collect isMutVar x'
   muniques <- mapM (getUnique . ref) mvars
   let new_gvars = [ (m,GenVar{note_= note m, unique=u})
                     | (Just u,m) <- zip muniques mvars]
@@ -396,7 +385,7 @@ generalize x = do
 
 generalizeG x = do
   x' <- mapM col x
-  let mvars = nubSyntactically $ concat (collect isMutVar <$> x')
+  let mvars = nub $ concat (collect isMutVar <$> x')
   muniques <- mapM (getUnique . ref) mvars
   let new_gvars = [ (m,GenVar{note_= note m, unique=u})
                     | (Just u,m) <- zip muniques mvars]
@@ -408,7 +397,7 @@ generalizeG x = do
 
 generalizeGG x = do
   x' <- mapM2 col x
-  let mvars = nubSyntactically $ concat2 (collect isMutVar `fmap2` x')
+  let mvars = nub $ concat2 (collect isMutVar `fmap2` x')
   muniques <- mapM (getUnique . ref) mvars
   let new_gvars = [ (m,GenVar{note_= note m, unique=u})
                     | (Just u,m) <- zip muniques mvars]
@@ -418,16 +407,11 @@ generalizeGG x = do
   assert (all (all noMVars) x'') (return ())
   return x''
 
-nubSyntactically :: (Term t s user) => [t s] -> [t s]
-nubSyntactically = map unSynEq . nub . map SynEq
-
 -- | autoInst instantitates a type scheme with fresh mutable vars
 --   Returns the instantiated term together with the new MutVars 
 --  (you need these to apply substitutions) 
-{-# SPECIALIZE autoInst :: GT_ user Syntactic r BasicShape -> 
-                        ST r (SubstM (GT_ user Syntactic r BasicShape), GT_ user Syntactic r BasicShape) #-}
-{-# SPECIALIZE autoInst :: GT_ user Semantic r BasicShape -> 
-                        ST r (SubstM (GT_ user Semantic r BasicShape), GT_ user Semantic r BasicShape) #-}
+{-# SPECIALIZE autoInst :: GT_ user Normal r BasicShape -> 
+                        ST r (SubstM (GT_ user Normal r BasicShape), GT_ user Normal r BasicShape) #-}
 {-# SPECIALIZE autoInst :: GT_ user Basic r BasicShape -> 
                         ST r (SubstM (GT_ user Basic r BasicShape), GT_ user Basic r BasicShape) #-}
 autoInst :: (Prune mode, TermShape s) => 
@@ -464,6 +448,7 @@ autoInstGG xx_ = do
   return (subst, xx')
     where 
 
+
 -- |Semantic equality (equivalence up to renaming of vars) 
 semEq :: (Prune mode, TermShape s) => GT_ user mode r s -> GT_ user mode r s -> ST r Bool
 semEq x y = do
@@ -477,26 +462,14 @@ semEq x y = do
 --       mapM col xy_vars  Why col here?
          allM isUnboundVar xy_vars
 
--- TODO Rewrite as in semEq
-semEqG :: (Applicative f, Prune mode, Traversable f, TermShape s) =>
-         f (GT_ user mode r s) -> f (GT_ user mode r s) -> ST r (f Bool)
-semEqG x y = do
-    [x',y'] <- mapM (autoInstG >=> (generalizeG . snd)) [x,y]
-    return (synEq <$> x' <*> y')
-
 -- isRenaming :: Subst_ user mode r s -> ST r Bool
 isRenaming :: (Term t s user, GoodShape s) => SubstM (t s) -> Bool
 isRenaming vv = all isVar [v | Just v <- fromSubstM vv]
 --semEqG x y = return$ synEq x y
 
 ---------------------------------------------------------------
--- * Pure (partial) Semantic Equality for GTE 
---       (based on zonking to an equivalent TermStatic)
+-- * Pure (partial) Semantic Equality
 ---------------------------------------------------------------
-{-
-instance TermShape s => Eq (GTE user r s) where
-  (==) = semEq'
--}
 -- | Fails for terms with mutvars
 ---  TODO: I don't think this is very efficient
 semEq' :: TermShape s => GT_ user mode r s -> GT_ user mode r s -> Bool
@@ -504,7 +477,7 @@ semEq' s t = fromMaybe False $ runST (runMaybeT $ do
   s' <- MaybeT$ (fmap join . sequence . fmap2 zonkTermS . fmap mutableTerm . zonkTermS) s
   t' <- MaybeT$ (fmap join . sequence . fmap2 zonkTermS . fmap mutableTerm . zonkTermS) t
   assert (noMVars s) $ assert (noMVars t) $ 
-   return(s' `synEq` t'))
+   return(s' == t'))
 
 zonkTermS :: TermShape s => GT_ user mode r s -> Maybe (TermStatic s)
 zonkTermS = zonkTerm
@@ -636,7 +609,7 @@ narrowFullBase narrowTop1base done rules t = do
                      step (cs|>cs1) subst ts))
 
 {-
-narrowTop', narrowTopV' :: OmegaPlus Syntactic m r s => 
+narrowTop', narrowTopV' :: OmegaPlus Normal m r s => 
                           [RuleI r s] -> Context r s
                         -> Subst user r s -> GT user r s
                         -> m (ST r) (Subst user r s, GT user r s)
@@ -709,23 +682,23 @@ dupTermWithSubst subst tt x = return (subst, tt, x)
 ------------------------------
 -- * Obtaining the results
 ------------------------------
-run :: (TermShape s, Show (s (GTE user r s)), Term t s user) => 
-       (forall r.ST r (GTE user r s)) -> t s
+run :: (TermShape s, Show (s (GT user r s)), Term t s user) => 
+       (forall r.ST r (GT user r s)) -> t s
 run c | Just x <- runST (fmap zonkTerm c) = x
       | otherwise = error "A mutable variable was found in the result"
 
-runG :: (TermShape s, Show (s (GTE user r s)), Traversable f, Term t s user) =>
-         (forall r.ST r (f(GTE user r s))) -> f(t s)
+runG :: (TermShape s, Show (s (GT user r s)), Traversable f, Term t s user) =>
+         (forall r.ST r (f(GT user r s))) -> f(t s)
 runG c | Just x <- sequence$ runST (fmap2 zonkTerm c) = x
        | otherwise = error "A mutable variable was found in the result"
 
-runG' :: (TermShape s, Show (s (GTE user r s)), Traversable f, Term t s user) =>
-         (forall r.ST r (f(GTE user r s))) -> f(t s)
+runG' :: (TermShape s, Show (s (GT user r s)), Traversable f, Term t s user) =>
+         (forall r.ST r (f(GT user r s))) -> f(t s)
 runG' c = runST (c >>= mapM zonkTerm') 
 
 
-runGG :: (TermShape s, Show (s (GTE user r s)), Traversable f, Traversable f1, Term t s user) =>
-         (forall r.ST r (f(f1(GTE user r s)))) -> f(f1(t s))
+runGG :: (TermShape s, Show (s (GT user r s)), Traversable f, Traversable f1, Term t s user) =>
+         (forall r.ST r (f(f1(GT user r s)))) -> f(f1(t s))
 runGG c | Just x <- sequence2$ runST ( (fmap3 zonkTerm c)) = x
         | otherwise = error "A mutable variable was found in the result"
 
@@ -733,20 +706,20 @@ runIO :: ST RealWorld a -> IO a
 runIO = stToIO
 
 
-runE :: (Omega Semantic (ErrorT (TRSException)) r s, Term t s user) => 
-        (forall r. ErrorT (TRSException) (ST r) (GTE user r s)) -> t s
+runE :: (Omega Normal (ErrorT (TRSException)) r s, Term t s user) => 
+        (forall r. ErrorT (TRSException) (ST r) (GT user r s)) -> t s
 runE c | Just x <- runST ( either (error.show) id <$>
                               runErrorT (zonkTerm <$> c)) = x
        | otherwise = error "A mutable variable was found in the result"  
 
-runEG :: (Omega Semantic (ErrorT (TRSException)) r s, Traversable f, Term t s user) =>
-         (forall r. ErrorT (TRSException) (ST r) (f(GTE user r s))) -> f(t s)
+runEG :: (Omega Normal (ErrorT (TRSException)) r s, Traversable f, Term t s user) =>
+         (forall r. ErrorT (TRSException) (ST r) (f(GT user r s))) -> f(t s)
 runEG c | Just x <- sequence$ runST (either (error.show) id <$>
                                     (runErrorT (fmap2 zonkTerm c))) = x
         | otherwise = error "A mutable variable was found in the result"
 
-runEGG :: (Omega Semantic (ErrorT (TRSException)) r s, Traversable f, Traversable f1, Term t s user) =>
-         (forall r. ErrorT (TRSException) (ST r) (f(f1(GTE user r s)))) -> f(f1(t s))
+runEGG :: (Omega Normal (ErrorT (TRSException)) r s, Traversable f, Traversable f1, Term t s user) =>
+         (forall r. ErrorT (TRSException) (ST r) (f(f1(GT user r s)))) -> f(f1(t s))
 runEGG c | Just x <- sequence2$ runST (either (error.show) id <$>
                                     (runErrorT (fmap3 zonkTerm c))) = x
 
@@ -755,16 +728,16 @@ runEIO = fmap (either (error. show) id) . stToIO . runErrorT
 
 -- runMaybeT = fmap (either (const Nothing) Just) . runErrorT
 
-runM :: (Omega Semantic MaybeT r s, Term t s user) => 
-        (forall r. MaybeT (ST r) (GTE user r s)) -> Maybe (t s)
+runM :: (Omega Normal MaybeT r s, Term t s user) => 
+        (forall r. MaybeT (ST r) (GT user r s)) -> Maybe (t s)
 runM c | Just x <- sequence$ runST (runMaybeT (fmap zonkTerm c)) = x
 
-runMG :: (Omega Semantic MaybeT r s, Traversable f, Term t s user) =>
-         (forall r. MaybeT (ST r) (f(GTE user r s))) -> Maybe (f(t s))
+runMG :: (Omega Normal MaybeT r s, Traversable f, Term t s user) =>
+         (forall r. MaybeT (ST r) (f(GT user r s))) -> Maybe (f(t s))
 runMG c | Just x <- sequence2 $ runST(runMaybeT (fmap2 zonkTerm c)) = x
 
-runMGG :: (Omega Semantic MaybeT r s, Traversable f, Traversable f1, Term t s user)=>
-         (forall r. MaybeT (ST r) (f(f1(GTE user r s)))) -> Maybe (f(f1(t s)))
+runMGG :: (Omega Normal MaybeT r s, Traversable f, Traversable f1, Term t s user)=>
+         (forall r. MaybeT (ST r) (f(f1(GT user r s)))) -> Maybe (f(f1(t s)))
 runMGG c | Just x <- sequence3$ runST(runMaybeT (fmap3 zonkTerm c)) = x
 
 runMIO :: MaybeT (ST RealWorld) a -> IO (Maybe a)
@@ -772,16 +745,16 @@ runMIO = stToIO . runMaybeT
 
 
 
-runL :: (Term t s user, Omega Semantic (ListT') r s) => 
-        (forall r. ListT' (ST r) (GTE user r s)) -> [t s]
+runL :: (Term t s user, Omega Normal (ListT') r s) => 
+        (forall r. ListT' (ST r) (GT user r s)) -> [t s]
 runL c   = runST (runListT' (lift . zonkTerm' =<< c ))
 
-runLG :: (Omega Semantic (ListT') r s, Traversable f, Term t s user) =>
-         (forall r. ListT' (ST r) (f(GTE user r s))) -> [f(t s)]
+runLG :: (Omega Normal (ListT') r s, Traversable f, Term t s user) =>
+         (forall r. ListT' (ST r) (f(GT user r s))) -> [f(t s)]
 runLG c  = runST (runListT' (lift . mapM zonkTerm' =<< c))
 
-runLGG :: (Omega Semantic (ListT') r s, Traversable f, Traversable f1, Term t s user) =>
-         (forall r. ListT' (ST r) (f(f1(GTE user r s)))) -> [f(f1(t s))]
+runLGG :: (Omega Normal (ListT') r s, Traversable f, Traversable f1, Term t s user) =>
+         (forall r. ListT' (ST r) (f(f1(GT user r s)))) -> [f(f1(t s))]
 runLGG c = runST (runListT' (lift . mapM2 zonkTerm' =<< c))
 
 runLIO :: ListT' (ST RealWorld) a -> IO [a]
@@ -812,27 +785,27 @@ instance (Term t s user, GoodShape s) => TRS.TRS t s Maybe user where
   rewrite1 rr t    = runM (rewrite1 rr =<< lift (templateTerm' t))
   narrow1  rr t    = runMWithSubst (narrow1 rr =<< lift (templateTerm' t))
   unify t u        = runMG $ manualUnify t u
-instance OmegaPlus Semantic t r s => 
-    TRS.TRS (GT_ user Semantic r) s (t (ST r)) user where
-  {- SPECIALIZE instance TRS.TRS (GT_ user Semantic r) BasicShape (ListT (ST r))  user #-}
-  {- SPECIALIZE instance TRS.TRS (GT_ user Semantic r) BasicShape (MaybeT (ST r)) user #-}
+instance OmegaPlus Normal t r s => 
+    TRS.TRS (GT_ user Normal r) s (t (ST r)) user where
+  {- SPECIALIZE instance TRS.TRS (GT_ user Normal r) BasicShape (ListT (ST r))  user #-}
+  {- SPECIALIZE instance TRS.TRS (GT_ user Normal r) BasicShape (MaybeT (ST r)) user #-}
   unify t t'    = manualUnify' t t'
   rewrite       = rewrite
   rewrite1      = rewrite1
   narrow1    rr = narrow1 rr
 
-runSTWithSubst :: (Term t s user, Omega Semantic (ListT') r s) =>
-                          (forall r. ST r [(Subst user r s, GTE user r s)])
+runSTWithSubst :: (Term t s user, Omega Normal (ListT') r s) =>
+                          (forall r. ST r [(Subst user r s, GT user r s)])
                       -> [(SubstM (t s), t s)]
 runSTWithSubst m = runST (mapM (biM zonkSubst zonkTerm') =<< m)
 
-runLWithSubst :: (Term t s user, Omega Semantic (ListT') r s) =>
-                          (forall r. ListT' (ST r) (Subst user r s, GTE user r s))
+runLWithSubst :: (Term t s user, Omega Normal (ListT') r s) =>
+                          (forall r. ListT' (ST r) (Subst user r s, GT user r s))
                       -> [(SubstM (t s),t s)]
 runLWithSubst m = runST (runListT' (runWithSubst m))
 
-runMWithSubst :: (Term t s user, Omega Semantic MaybeT r s) =>
-                          (forall r. MaybeT (ST r) (Subst user r s, GTE user r s))
+runMWithSubst :: (Term t s user, Omega Normal MaybeT r s) =>
+                          (forall r. MaybeT (ST r) (Subst user r s, GT user r s))
                       -> Maybe (SubstM (t s),t s)
 runMWithSubst m = runST (runMaybeT (runWithSubst m))
 
@@ -927,7 +900,6 @@ replace :: TermShape s =>
 replace []   = id
 replace dict = fromJust . go 
   where 
-    dict' = first SynEq <$> dict
-    go t  = maybe id setNote (note t) <$> lookup (SynEq t) dict' 
+    go t  = maybe id setNote (note t) <$> lookup t dict 
             `mplus` 
             mutateTermM go t

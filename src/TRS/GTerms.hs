@@ -25,7 +25,7 @@ import TRS.Substitutions
 import TRS.Types
 import TRS.Utils
 import TRS.Tyvars
-import TRS.Term
+import TRS.Term hiding ( Semantic )
 
 type Ptr user mode r s = Ptr_ r (GT_ user mode r s)
 
@@ -53,14 +53,22 @@ data GT_ (user :: *) (mode :: *)  (r :: *) (s :: * -> *) =
  | CtxVar {unique::Int}
  | Skolem {note_::Maybe user, unique::Int}
 #endif
+
+instance TermShape s => Eq (GT_ user mode r s) where
+  MutVar{ref=n}    == MutVar{ref=m}    = m==n
+  GenVar{unique=n} == GenVar{unique=m} = m==n
+  Skolem{unique=n} == Skolem{unique=m} = m==n
+  CtxVar{unique=n} == CtxVar{unique=m} = m==n
+  S x == S y | Just pairs <- matchTerm x y 
+             = all (uncurry (==)) pairs 
+  _   ==  _  = False
+
 -- 'Witness' types for equality. The actual Eq instances for GT_ are not 
 --  defined here, but in the Core module
-data Syntactic  -- denotes pure syntactic equality
-data Semantic   -- denotes syntactic equality modulo variables
+data Normal
 data Basic      -- denotes a Basic Narrowing derivation
 
-type GT user r s  = GT_ user Syntactic r s
-type GTE user r s = GT_ user Semantic r s
+type GT user r s  = GT_ user Normal r s
 
 genVar :: Int -> GT_ mode user r s
 genVar = GenVar Nothing
@@ -84,14 +92,8 @@ setNote _ t@CtxVar{} = t
 setNote note t = t{note_=Just note}
 
 
--- This pair of functions provides the bridge between GT_ Syntactic and GT_ Semantic types of terms
--- I really should have used a wrapper newtype for this instead of the 
---  phantom variable trick. 
 idGT :: GT_ user mode r s -> GT user r s
 idGT = unsafeCoerce#
-
-eqGT :: GT_ user mode r s -> GTE user r s
-eqGT = unsafeCoerce#
 
 basicGT :: GT_ user mode r s -> GT_ user Basic r s
 basicGT = unsafeCoerce#
@@ -101,9 +103,6 @@ freeGT = unsafeCoerce#
 
 isGT :: GT user r s -> GT user r s
 isGT x = x
-
-isGTE :: GTE user r s -> GTE user r s
-isGTE = id
 
 -- ** Accesors
 isGenVar, isMutVar, isCtxVar, isTerm :: GT_ user eq r s -> Bool
@@ -136,15 +135,8 @@ instance TermShape s => Term (GT_ user mode r) s user where
   varId (GenVar _ i) = Just i
   varId (CtxVar i)   = Just i
   varId (MutVar _ i) = Nothing -- error "unexpected mutvar"
-  subTerms (S x) = Just x
-  subTerms _     = Nothing
-  synEq MutVar{ref=n}    MutVar{ref=m}    = m==n
-  synEq GenVar{unique=n} GenVar{unique=m} = m==n
-  synEq Skolem{unique=n} Skolem{unique=m} = m==n
-  synEq CtxVar{unique=n} CtxVar{unique=m} = m==n
-  synEq (S x) (S y) | Just pairs <- matchTerm x y 
-                    = all (uncurry synEq) pairs 
-  synEq _ _         = False
+  contents (S x) = Just x
+  contents _     = Nothing
   build          = S
   fromGTM _      = return . return . unsafeCoerce#
   toGTM _        = return . return . unsafeCoerce#
@@ -225,9 +217,10 @@ showNote (Just t)= parens (show t)
 instance Show (s(GTE user r s)) => Show (SubstG (GTE user r s)) where
     show = show . subst
 -}
--- Oops. Does this instance of Ord honor Semantic equality?
---instance (Eq(GTE user r s), TermShape s, Ord (s (GTE user r s))) => Ord (GTE user r s) where
-instance (Eq(GT user r s), TermShape s, Ord (s (GT user r s))) => Ord (GT user r s) where
+
+-- Care! Note that this instance of Ord does not honor semantic equality
+instance (Eq(GT_ mode user r s), TermShape s, Ord (s (GT_ mode user r s))) => 
+    Ord (GT_ mode user r s) where
     compare (S t1) (S t2)
      | S t1 == S t2 = EQ
      | otherwise    = compare t1 t2

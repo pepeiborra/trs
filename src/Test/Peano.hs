@@ -4,7 +4,6 @@
 module Test.Peano where
 
 import TRS
-import TRS.GTerms (GTE)
 import Test.TermRef
 
 import Control.Applicative
@@ -21,7 +20,6 @@ import Prelude hiding ( sequence )
 type PeanoT = TermRef Peano
 newtype PeanoV = Refs PeanoT 
     deriving (Show, Eq)
-type PeanoM r = GTE () r Peano 
 
 data Peano a = a :+ a
              | Succ a
