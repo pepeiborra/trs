@@ -411,9 +411,10 @@ tpBackward1 = snd <$> narrow1 (map swap peanoTRS) (s(z) +: x)
 
 
 testNarrowIssue = TestLabel "Narrowing Issues" $ TestList 
-        [ Semantic u' ~?= Semantic [ts(ts(y)),ts(ts(ts(y))),ts(y),ts(x)]
+        [ Semantic u'         ~?= Semantic [ts(ts(y)),ts(ts(ts(y))),ts(y),ts(x)]
         , Semantic tpForward1 ~?= Semantic [s(x)] 
-        , Semantic . snd <$> narrow1 trs_x t ~=? (Semantic . snd <$> narrow1 trs_y t :: [Semantic PeanoT])
+        , Semantic . snd <$> narrow1 trs_x t 
+                              ~=? (Semantic . snd <$> narrow1 trs_y t :: [Semantic PeanoT])
 --        , snd <$> narrow1' trs_x' t' ~=? snd <$> narrow1' trs_y' t'
         ]
     where t = z +: y

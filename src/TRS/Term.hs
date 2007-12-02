@@ -17,6 +17,8 @@ import Data.Traversable (Traversable, mapM, sequence)
 import Prelude hiding (mapM, sequence)
 import qualified Prelude
 
+import TypeCastGeneric
+
 import {-# SOURCE#-} TRS.Core   hiding ( semEq )
 import {-# SOURCE#-} qualified TRS.Core as Core
 import {-# SOURCE#-} TRS.GTerms

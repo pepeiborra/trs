@@ -219,7 +219,7 @@ instance Show (s(GTE user r s)) => Show (SubstG (GTE user r s)) where
 -}
 
 -- Care! Note that this instance of Ord does not honor semantic equality
-instance (Eq(GT_ mode user r s), TermShape s, Ord (s (GT_ mode user r s))) => 
+instance (TermShape s, Ord (s (GT_ mode user r s))) => 
     Ord (GT_ mode user r s) where
     compare (S t1) (S t2)
      | S t1 == S t2 = EQ

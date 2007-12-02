@@ -50,7 +50,7 @@ module TRS.Core (
 -}
 
 import Control.Applicative
-import Control.Arrow ( first, second, (>>>), (***))
+import Control.Arrow ( first, second, (***))
 import Control.Exception (handle)
 import Control.Monad hiding (msum, mapM_, mapM, sequence, forM)
 import Control.Monad.Error (MonadError(..), ErrorT(..), MonadTrans(..))
@@ -541,13 +541,14 @@ unsafeNarrowTopG narrowTop1 rules ct t = msum$ forEach rules $ \r -> do
                t''              <- narrowTop1 t' r
                return (vars, ct'|>t'')
 
-narrowTop1, narrowTop1V :: OmegaPlus mode m r s => GT_ user mode r s -> Rule_ user mode r s 
+narrowTop1, narrowTop1V :: OmegaPlus mode m r s => 
+                           GT_ user mode r s -> Rule_ user mode r s 
                         -> m (ST r) (GT_ user mode r s)
 narrowTop1V t r@(lhs:->rhs) = do
                assert (noGVars t) (return ())
                assert (noMVars lhs) (return ())
                assert (noMVars rhs) (return ())
-               assert (vars (idGT rhs) `isSubsetOf` vars (idGT lhs)) (return ())
+--               assert (vars rhs `isSubsetOf` vars lhs) (return ())
                (lhsv, lhs') <- lift$ autoInst lhs
                unify lhs' t
                trace ("narrowing fired: t=" ++ st t ++ ", rule=" ++ sr r

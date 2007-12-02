@@ -4,6 +4,7 @@ module TRS.Rules where
 import Control.Applicative
 import Control.Monad
 import Data.Foldable
+import Data.Maybe
 import Data.Traversable
 
 import TRS.Types
@@ -43,7 +44,7 @@ isConstructor rules t
   | isVar t   = True
   | otherwise = not $ null$ do
                   lhs:->rhs <- rules
-                  guard (True) --TODO
+                  guard (isJust $ matchTerm lhs =<< contents t)
                   return ()
 
 instance Show (a) => Show (RuleG (a)) where
