@@ -13,6 +13,7 @@ data GT_ (user :: *) (mode :: *)  (r :: *) (s :: * -> *) =
  | GenVar {note_::Maybe user, unique::Int}
  | CtxVar {unique::Int}
  | Skolem {note_::Maybe user, unique::Int}
+ | Token  {note_::Maybe user} 
 
 data Normal
 data Basic      -- denotes a Basic Narrowing derivation

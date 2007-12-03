@@ -52,6 +52,8 @@ data GT_ (user :: *) (mode :: *)  (r :: *) (s :: * -> *) =
  | GenVar {note_::Maybe user, unique::Int}
  | CtxVar {unique::Int}
  | Skolem {note_::Maybe user, unique::Int}
+-- | Token  {t :: forall s. t s}
+ | Token  {note_::Maybe user}
 #endif
 
 instance TermShape s => Eq (GT_ user mode r s) where
@@ -78,6 +80,9 @@ mutVar note = fmap (MutVar note) . newVar
 
 skolem :: Int -> GT_ user mode r s
 skolem = Skolem Nothing
+
+token :: user -> GT_ user mode r s
+token = Token . Just
 
 fresh :: ST r (GT_ user mode r s)
 fresh = fmap (MutVar Nothing) freshVar
@@ -218,18 +223,20 @@ instance Show (s(GTE user r s)) => Show (SubstG (GTE user r s)) where
     show = show . subst
 -}
 
--- Care! Note that this instance of Ord does not honor semantic equality
-instance (TermShape s, Ord (s (GT_ mode user r s))) => 
+{- NEED A STREF ORD INSTANCE FOR THIS TO WORK 
+
+instance (TermShape s, Ord user, Ord (s (GT_ mode user r s))) => 
     Ord (GT_ mode user r s) where
     compare (S t1) (S t2)
      | S t1 == S t2 = EQ
      | otherwise    = compare t1 t2
     compare S{} _ = GT
     compare _ S{} = LT
-    compare MutVar{} MutVar{} = EQ
-    compare GenVar{} MutVar{} = GT
-    compare MutVar{} GenVar{} = LT
-    compare _ CtxVar{} = GT
-    compare CtxVar{} _ = LT
+    compare MutVar{ref=r1} MutVar{ref=r2} = compare r1 r2
+    compare MutVar{} _ = GT
+    compare _ MutVar{} = LT
+    compare (Token t1) (Token t2) = compare t1 t2
+    compare Token{} _ = GT
+    compare _ Token{} = LT
     compare m n = (compare `on` unique) m n
-
+-}

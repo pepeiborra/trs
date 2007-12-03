@@ -9,7 +9,7 @@ import TRS.Types
 
 data Mutable a = Empty   {varUnique::Maybe Unique}
                | Mutable {varUnique::Maybe Unique, val::a}
-        deriving (Eq, Show)
+        deriving (Eq, Show, Ord)
 
 type Ptr_ r a = STRef r (Mutable a)
 

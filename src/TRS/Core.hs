@@ -494,15 +494,14 @@ zonkTermS' = zonkTermUnsafe
 
 --rewrite1_ rr (S t) | trace ("rewrite " ++ show t ++ " with " ++  (show$ length rr) ++ " rules ") False = undefined
 --rewrite1_ _ t | assert (noMVars t) False = undefined
-rewrite1_ rules (S t)
-      | otherwise
-      = rewriteTop (S t) `mplus` (S <$> someSubterm (rewrite1_ rules) t) 
-        where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
+rewrite1_ rules t =
+    case t of
+      S u -> rewriteTop t `mplus` (S <$> someSubterm (rewrite1_ rules) u) 
+      t   -> rewriteTop t
+  where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
 	        (freshv, lhs') <- lift$ autoInst lhs
 	        match lhs' t
                 lift$ instan freshv rhs
-
-rewrite1_ _ t = mzero
 
 rewrite_ rules = fixM (rewrite1_ rules)
 
@@ -551,9 +550,9 @@ narrowTop1V t r@(lhs:->rhs) = do
 --               assert (vars rhs `isSubsetOf` vars lhs) (return ())
                (lhsv, lhs') <- lift$ autoInst lhs
                unify lhs' t
-               trace ("narrowing fired: t=" ++ st t ++ ", rule=" ++ sr r
+--               trace ("narrowing fired: t=" ++ st t ++ ", rule=" ++ sr r
 --                   ++   ", rho= " ++ show (zonkTermS lhsv)
-                      )(return ()) 
+--                      )(return ()) 
                rhs'  <- lift$ instan lhsv rhs
                rhs'' <- lift$ col rhs'      -- OPT: col here might be unnecesary
 --             assert (noGVars rhs'') (return ())
@@ -764,9 +763,9 @@ runLIO = stToIO . runListT'
 -- ---------------------------------------------------
 -- TRS instances
 -- ---------------------------------------------------
-instance (Term t s user, GoodShape s) => TRS.TRS t s [] user where
+instance (Term t s user, TermShape s) => TRS.TRS t s [] user where
   {-# SPECIALIZE instance TRS.TRS (TermStatic_ Int) BasicShape [] user #-}
-  rewrite  rr t    = runL (rewrite rr =<< lift(templateTerm' t))
+  rewrite  rr t    = runL (rewrite rr  =<< lift(templateTerm' t))
   rewrite1 rr t    = runL (rewrite1 rr =<< lift(templateTerm' t))
   narrow1  rr t    = runLWithSubst (narrow1 rr =<< lift(templateTerm' t))
   unify t u        = runLG $ manualUnify t u
@@ -864,11 +863,11 @@ class ( MonadError (TRSException) (t (ST r)), MonadTrans t, Monad (t (ST r)), Fu
 class ( MonadError (TRSException) (t (ST r)), MonadTrans t, Monad (t (ST r)), Functor (t (ST r)), TermShape s, Prune mode) => 
     Omega mode (t :: (* -> *) -> * -> *) r (s :: * -> *)
 #endif
-class (Omega mode t r s, MonadPlus (t (ST r)), GoodShape s) => 
+class (Omega mode t r s, MonadPlus (t (ST r))) => 
     OmegaPlus mode t r s 
 
 instance ( MonadError (TRSException) (t (ST r)), MonadTrans t, Monad (t (ST r)), Functor (t (ST r)), TermShape s, Prune mode) => Omega mode t r s
-instance ( Omega mode t r s, MonadPlus (t (ST r)), Show (s (TermStatic s))) => OmegaPlus mode t r s
+instance ( Omega mode t r s, MonadPlus (t (ST r))) => OmegaPlus mode t r s
 
 ----------------
 -- Other stuff

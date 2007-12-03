@@ -39,13 +39,12 @@ instance Functor RuleG where
 --swap :: Rule r s -> Rule r s
 swap (lhs:->rhs) = rhs:->lhs
 
-
 isConstructor rules t 
   | isVar t   = True
-  | otherwise = not $ null$ do
-                  lhs:->rhs <- rules
-                  guard (isJust $ matchTerm lhs =<< contents t)
-                  return ()
+  | otherwise = null$ [ () | lhs:->rhs <- rules
+                           , isJust . join $ matchTerm <$> contents lhs <*> contents t]
+
+isDefined rules = not . isConstructor rules
 
 instance Show (a) => Show (RuleG (a)) where
     show (a:->b) = show a ++ " -> " ++ show b

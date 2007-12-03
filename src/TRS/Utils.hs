@@ -22,7 +22,7 @@ import Control.Monad.List (ListT(..))
 import qualified Control.Monad.LogicT as LogicT
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
 import Control.Monad.LogicT.SFKT (SFKT)
-import Data.List (group, sort, sortBy, groupBy)
+import Data.List (group, sort, sortBy, groupBy, intersperse)
 import Data.Traversable
 import Data.Foldable
 import qualified Prelude
@@ -40,6 +40,20 @@ showsVar p n = if fromIntegral n < length varNames
 brackets = ('[' :) . (++ "]")
 parens   = ('(' :) . (++ ")")
 hash     = ('#' :) . (++ "#")
+punct p = concat . intersperse p
+
+{- |
+ A function inspired by the perl function split. A list is splitted
+ on a seperator element in smaller non-empty lists.
+ The seperator element is dropped from the resulting list.
+-}
+splitOn :: Eq a => a -- ^ seperator
+       -> [a] -- ^ list to split
+       -> [[a]]
+splitOn x xs = let (l, r) = break (==x) xs in
+   (if null l then [] else [l]) ++ (if null r then [] else splitOn x $
+                                       tail r)
+
 ---------------------------------------------------------
 snub :: Ord a => [a] -> [a]
 snub = map head . group . sort

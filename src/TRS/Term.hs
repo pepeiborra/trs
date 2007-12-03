@@ -47,6 +47,16 @@ class (TermShape s, Eq (t s)) => Term (t :: (* -> *) -> *) (s :: * -> *) (user :
                         GT_ user md r s -> ST r (m(t s))
         fromGTM      = defaultFromGTM
 
+term :: Term t BasicShape user => String -> [t BasicShape] -> t BasicShape
+term = (build.) . T
+term1 f t       = term f [t]
+term2 f t t'    = term f [t,t']
+term3 f t t' t''= term f [t,t',t'']
+constant f      = term f []
+
+var :: Term t BasicShape user => Int -> t BasicShape
+var  = mkVar 
+
 defaultFromGTM ::  (Term t s user, Monad m) => 
                         (Mutable (GT_ user md r s) -> m (t s)) -> 
                             GT_ user md r s -> ST r (m(t s))
@@ -74,7 +84,18 @@ defaultToGTM mkV t
     | otherwise = return(mkV t)
 
 fromSubTerms :: Term t s user => t s -> [t s] -> t s
-fromSubTerms t tt = build$ modifySpine (fromMaybe (error "fromSubTerms") $ contents t) tt
+fromSubTerms t tt = -- build$ modifySpine (fromMaybe (error "fromSubTerms") $ contents t) tt
+                    liftTerm (`modifySpine` tt) t
+
+subTerms, children :: Term t s user => t s -> [t s]
+subTerms = fixM children
+children = fromMaybe [] . fmap toList . contents
+
+liftTerm    ::(Term t s user) => (s (t s) -> s (t s)) -> t s -> t s
+liftTerm f t = maybe t (build . f) . contents $ t
+
+liftTermM    ::(Term t s user, Monad m) => (s (t s) -> m( s (t s))) -> t s -> m(t s)
+liftTermM f t = maybe (return t) (liftM build . f) . contents $ t
 
 applySubst   :: Term t s user => SubstM (t s) -> t s -> t s
 applySubst sm t = s `seq` mutateTerm f t where 
