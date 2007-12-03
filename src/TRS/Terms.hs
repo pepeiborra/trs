@@ -44,6 +44,7 @@ type RuleS s        = Rule TermStatic  s
 data TermStatic_ i s = Term (s (TermStatic_ i s)) | Var i
 type TermStatic s = TermStatic_ Int s
 type BasicTerm = TermStatic BasicShape
+type BasicRule = Rule TermStatic BasicShape
 
 instance (Eq i, TermShape s) => Eq (TermStatic_ i s) where
   Var i  == Var j  = i == j
