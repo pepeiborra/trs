@@ -783,7 +783,7 @@ instance (Term t s user, TermShape s) => TRS.TRS t s [] user where
   rewrite  rr t    = runLWithSubst (rewrite rr  =<< lift(templateTerm' t))
   rewrite1 rr t    = runLWithSubst (rewrite1 rr =<< lift(templateTerm' t))
   narrow1  rr t    = runLWithSubst (narrow1 rr =<< lift(templateTerm' t))
-  unify t u        = runLG $ manualUnify t u
+  unify t u        = runLG (manualUnify t u)
 
 instance (Term t s user, GoodShape s) => TRS.TRSN t s user where
 --  narrow1'    rr t = runSTWithSubst (narrow1' rr (templateTerm t))
@@ -799,7 +799,7 @@ instance (Term t s user, TermShape s) => TRS.TRS t s Maybe user where
   rewrite  rr t    = runMWithSubst (rewrite rr  =<< lift (templateTerm' t))
   rewrite1 rr t    = runMWithSubst (rewrite1 rr =<< lift (templateTerm' t))
   narrow1  rr t    = runMWithSubst (narrow1 rr =<< lift (templateTerm' t))
-  unify t u        = runMG $ manualUnify t u
+  unify t u        = runMG (manualUnify t u)
 instance OmegaPlus Normal t r s => 
     TRS.TRS (GT_ user Normal r) s (t (ST r)) user where
   {- SPECIALIZE instance TRS.TRS (GT_ user Normal r) BasicShape (ListT (ST r))  user #-}
