@@ -779,7 +779,7 @@ instance (Term t s user, GoodShape s) => TRS.TRSN t s user where
       let pred' = return . pred <=< zonkTerm' <=< dupTerm in
       runSTWithSubst (narrowFullBounded pred' rr =<< templateTerm' t)
 
-instance (Term t s user, GoodShape s) => TRS.TRS t s Maybe user where
+instance (Term t s user, TermShape s) => TRS.TRS t s Maybe user where
   {-# SPECIALIZE instance TRS.TRS (TermStatic_ Int) BasicShape Maybe user #-}
   rewrite  rr t    = runM (rewrite rr  =<< lift (templateTerm' t))
   rewrite1 rr t    = runM (rewrite1 rr =<< lift (templateTerm' t))
