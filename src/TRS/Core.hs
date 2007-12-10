@@ -281,8 +281,8 @@ unify tA tB =
      do  t1 <- lift$ prune tA 
 	 t2 <- lift$ prune tB 
 	 case (t1,t2) of
-           (Top{}, _) -> return ()
-           (_, Top{}) -> return ()
+           (Top{}, S x) -> mapM (unify t1) x >> return ()
+           (S x, Top{}) -> mapM (unify t2) x >> return ()
 	   (MutVar{ref=r1},MutVar{ref=r2}) -> 
 	     if r1 == r2 
 		then return () 
@@ -311,6 +311,8 @@ match tA tB =
      do { t1 <- lift$ prune tA 
 	; t2 <- lift$ prune tB 
 	; case (t1,t2) of 
+          (Top{}, S x) -> return () -- Is this right ?
+          (S x, Top{}) -> mapM (match t2) x >> return ()
 	  (MutVar{ref=r1},_) -> 
 	    lift$ writeVar r1 t2
 	  (GenVar{unique=n},GenVar{unique=m}) -> 
