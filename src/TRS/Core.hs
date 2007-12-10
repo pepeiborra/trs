@@ -280,7 +280,9 @@ occurs v t =
 unify tA tB = 
      do  t1 <- lift$ prune tA 
 	 t2 <- lift$ prune tB 
-	 case (t1,t2) of 
+	 case (t1,t2) of
+           (Top{}, _) -> return ()
+           (_, Top{}) -> return ()
 	   (MutVar{ref=r1},MutVar{ref=r2}) -> 
 	     if r1 == r2 
 		then return () 

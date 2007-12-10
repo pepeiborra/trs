@@ -53,7 +53,8 @@ data GT_ (user :: *) (mode :: *)  (r :: *) (s :: * -> *) =
  | CtxVar {unique::Int}
  | Skolem {note_::Maybe user, unique::Int}
 -- | Token  {t :: forall s. t s}
- | Token  {note_::Maybe user}
+ | Top    {note_::Maybe user}
+ | Bottom {note_::Maybe user}
 #endif
 
 instance TermShape s => Eq (GT_ user mode r s) where
@@ -61,6 +62,8 @@ instance TermShape s => Eq (GT_ user mode r s) where
   GenVar{unique=n} == GenVar{unique=m} = m==n
   Skolem{unique=n} == Skolem{unique=m} = m==n
   CtxVar{unique=n} == CtxVar{unique=m} = m==n
+  Bottom{} == Bottom{} = True
+  Top{} == Top{} = True
   S x == S y | Just pairs <- matchTerm x y 
              = all (uncurry (==)) pairs 
   _   ==  _  = False
@@ -78,14 +81,15 @@ genVar = GenVar Nothing
 mutVar :: Maybe user -> Int -> ST r (GT_ user mode r s)
 mutVar note = fmap (MutVar note) . newVar
 
-skolem :: Int -> GT_ user mode r s
-skolem = Skolem Nothing
-
-token :: user -> GT_ user mode r s
-token = Token . Just
+top, bottom :: user -> GT_ user mode r s
+bottom = Bottom . Just
+top = Top . Just
 
 fresh :: ST r (GT_ user mode r s)
 fresh = fmap (MutVar Nothing) freshVar
+
+skolem :: Int -> GT_ user mode r s
+skolem = Skolem Nothing
 
 note S{} = Nothing
 note CtxVar{} = Nothing
@@ -211,9 +215,11 @@ instance (Show (s (GT_ user mode r s)), Show user) => Show (GT_ user mode r s) w
     show MutVar{ref=r,note_=nt}    = "?" ++ (show . hashStableName 
                                             . unsafePerformIO . makeStableName$ r) 
                                   ++ showNote nt
-                                  ++ ":=" ++ (show$  unsafeAll $ ( readSTRef r))
+                                  ++ ":=" ++ (show$ unsafeAll $ ( readSTRef r))
 --        where unsafeAll = unsafePerformIO . ST.unsafeSTToIO . lazyToStrictST
         where unsafeAll = unsafePerformIO . ST.unsafeSTToIO 
+    show Bottom{note_=nt} = "_|_" ++ showNote nt
+    show Top{note_=nt}    = "T" ++ showNote nt
 
 showNote Nothing = ""
 showNote (Just t)= parens (show t)

@@ -180,15 +180,22 @@ replace dict = fromJust . go
 --------------------------------------------------------------------------
 -- * Semantic Equality
 --------------------------------------------------------------------------
-newtype Semantic a = Semantic a
+newtype Semantic (t :: (* -> *) -> *) (s :: * -> *) = Semantic {semantic :: t s} 
 
-instance Show a => Show (Semantic a) where show (Semantic a) = show a
+instance Show (t s) => Show (Semantic t s) where show (Semantic a) = show a
 
-instance Term t s user => Eq (Semantic (t s)) where
+instance Term t s user => Eq (Semantic t s) where
     Semantic a == Semantic b = a `semEq` b
 
-instance Term t s user => Eq (Semantic [t s]) where
-    Semantic aa == Semantic bb = and (zipWith semEq aa bb)
+instance Term t s user => Term (Semantic t) s user where
+  varId = varId . semantic
+  mkVar = Semantic . mkVar
+  isVar = isVar . semantic
+  contents = fmap2 Semantic . contents . semantic
+  build = Semantic . build . fmap semantic
+
+instance (Ord (t s), Term t s user) => Ord (Semantic t s) where
+  compare (Semantic a) (Semantic b) = compare a b
 
 --instance TermShape s => Eq (TermStatic s) where
 semEq :: (Term t s user, TermShape s) => t s -> t s -> Bool
