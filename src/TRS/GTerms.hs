@@ -144,6 +144,7 @@ instance TermShape s => Term (GT_ user mode r) s user where
   isVar MutVar{}     = True
   isVar GenVar{}     = True
   isVar CtxVar{}     = True
+  isVar Skolem{}     = True
   mkVar              = genVar
   varId (GenVar _ i) = Just i
   varId (CtxVar i)   = Just i
