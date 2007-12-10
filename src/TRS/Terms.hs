@@ -78,6 +78,7 @@ instance (Show (s (TermStatic s))) => Show (TermStatic s) where
 instance (Eq (TermStatic s), Ord (s(TermStatic s))) => Ord (TermStatic s) where
   compare (Term s) (Term t) = compare s t
   compare Term{} _          = GT
+  compare _ Term{}          = LT
   compare (Var i) (Var j)   = compare i j
 
 -- ---------------------------------------
