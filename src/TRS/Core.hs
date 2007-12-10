@@ -281,24 +281,26 @@ unify tA tB =
      do  t1 <- lift$ prune tA 
 	 t2 <- lift$ prune tB 
 	 case (t1,t2) of
-           (Top{}, S x) -> mapM (unify t1) x >> return ()
-           (S x, Top{}) -> mapM (unify t2) x >> return ()
+           (Top{},Top{})       -> return ()
+           (Bottom{},Bottom{}) -> return ()
+           (Top{}, S x)        -> mapM (unify t1) x >> return ()
+           (S x, Top{})        -> mapM (unify t2) x >> return ()
 	   (MutVar{ref=r1},MutVar{ref=r2}) -> 
 	     if r1 == r2 
 		then return () 
 		else lift$ writeVar r1 t2
-	   (MutVar{ref=r1},_) -> varBind r1 t2 
-	   (_,MutVar{ref=r2}) -> varBind r2 t1 
+	   (MutVar{ref=r1},_)  -> varBind r1 t2 
+	   (_,MutVar{ref=r2})  -> varBind r2 t1 
 	   (GenVar{unique=n},GenVar{unique=m}) -> 
 	    if n==m 
 		then return () 
 		else throwError genErrorUnify
 	   (S x,S y) -> 
 	     case matchTerm x y of
-                Nothing    -> throwError genErrorUnify --(shapeErrorUnify tA tB)
-		Just pairs -> 
+                Nothing        -> throwError genErrorUnify --(shapeErrorUnify tA tB)
+		Just pairs     -> 
 		  mapM_ (uncurry unify) pairs 
-	   (x,y) -> throwError genErrorUnify -- (shapeErrorUnify tA tB)
+	   (x,y)               -> throwError genErrorUnify -- (shapeErrorUnify tA tB)
 
 varBind :: Omega mode m r s => Ptr user mode r s -> GT_ user mode r s -> m (ST r) ()
 varBind r1 t2 = 
