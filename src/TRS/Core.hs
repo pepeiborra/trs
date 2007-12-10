@@ -57,7 +57,7 @@ import Control.Monad.Error (MonadError(..), ErrorT(..), MonadTrans(..))
 import Control.Monad.State (StateT(..), MonadState(..), gets, modify, lift)
 import Control.Monad.Fix (MonadFix(..))
 import Control.Monad.List (runListT, ListT)
-import Control.Monad.Writer (tell, execWriterT, WriterT)
+import Control.Monad.Writer (tell, execWriterT, WriterT(..))
 import qualified Control.Monad.LogicT as LogicT hiding (runM)
 import qualified Control.Monad.LogicT.SFKT as LogicT
 import qualified Control.Monad.LogicT.SVCOT as LogicT'
@@ -116,12 +116,12 @@ mutableTermG = return . snd <=< autoInstG <=< mapM templateTerm'
               [Rule BasicShape] -> GT user r BasicShape -> MaybeT (ST r) (GT user r BasicShape)#-}
 -- |leftmost outermost
 rewrite1  :: (Term t s user, OmegaPlus Normal m r s) => 
-            [Rule t s] -> GT user r s -> m (ST r) (GT user r s)
+            [Rule t s] -> GT user r s -> m (ST r) (Subst_ user Normal r s, GT user r s)
 rewrite1 rre t = lift(fixRules rre) >>= \rr' -> rewrite1_ rr' t
 
 -- |leftmost outermost
 rewrite   :: (Term t s user, OmegaPlus Normal m r s) => 
-            [Rule t s] -> GT user r s -> m (ST r) (GT user r s)
+            [Rule t s] -> GT user r s -> m (ST r) (Subst_ user Normal r s, GT user r s)
 rewrite  rre t = lift(fixRules rre) >>= \rr' -> rewrite_ rr' t
 
 -- |leftmost outermost
@@ -178,8 +178,12 @@ generalizeGG::(Prune mode, TermShape s, Traversable f, Traversable f') =>
                f'(f(GT_ user mode r s)) -> ST r (f'(f(GT_ user mode r s)))
 
 
-rewrite1_ :: OmegaPlus mode m r s => [Rule_ user mode r s] -> GT_ user mode r s -> m (ST r) (GT_ user mode r s)
-rewrite_  :: OmegaPlus mode m r s => [Rule_ user mode r s] -> GT_ user mode r s -> m (ST r) (GT_ user mode r s)
+rewrite1_ :: OmegaPlus mode m r s => 
+             [Rule_ user mode r s] -> GT_ user mode r s -> 
+                                      m (ST r) (Subst_ user mode r s, GT_ user mode r s)
+rewrite_  :: OmegaPlus mode m r s => 
+             [Rule_ user mode r s] -> GT_ user mode r s -> 
+                                      m (ST r) (Subst_ user mode r s, GT_ user mode r s)
 narrow1_  :: OmegaPlus mode m r s => [Rule_ user mode r s] -> GT_ user mode r s -> 
              m (ST r) (Subst_ user mode r s, GT_ user mode r s)
 
@@ -504,14 +508,17 @@ zonkTermS' = zonkTermUnsafe
 --rewrite1_ _ t | assert (noMVars t) False = undefined
 rewrite1_ rules t =
     case t of
-      S u -> rewriteTop t `mplus` (S <$> someSubterm (rewrite1_ rules) u) 
+      S u -> rewriteTop t `mplus`
+             (second S . swap <$> runWriterT 
+                        (someSubterm (WriterT . fmap swap . rewrite1_ rules) u))
       t   -> rewriteTop t
   where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
 	        (freshv, lhs') <- lift$ autoInst lhs
 	        match lhs' t
-                lift$ instan freshv rhs
+                t' <- lift$ instan freshv rhs
+                return (freshv, t')
 
-rewrite_ rules = fixM (rewrite1_ rules)
+rewrite_ rules t = fixM (\(_subst,t)-> rewrite1_ rules t) (emptySubstM,t)
 
 --narrow1_ _ t | trace ("narrow1 " ++ show t) False = undefined
 narrow1_ [] t = mzero -- fail1 "narrow1: empty set of rules"
@@ -555,7 +562,7 @@ narrowTop1V t r@(lhs:->rhs) = do
                assert (noGVars t) (return ())
                assert (noMVars lhs) (return ())
                assert (noMVars rhs) (return ())
---               assert (vars rhs `isSubsetOf` vars lhs) (return ())
+               assert (vars rhs `isSubsetOf` vars lhs) (return ())
                (lhsv, lhs') <- lift$ autoInst lhs
                unify lhs' t
 --               trace ("narrowing fired: t=" ++ st t ++ ", rule=" ++ sr r
@@ -773,8 +780,8 @@ runLIO = stToIO . runListT'
 -- ---------------------------------------------------
 instance (Term t s user, TermShape s) => TRS.TRS t s [] user where
   {-# SPECIALIZE instance TRS.TRS (TermStatic_ Int) BasicShape [] user #-}
-  rewrite  rr t    = runL (rewrite rr  =<< lift(templateTerm' t))
-  rewrite1 rr t    = runL (rewrite1 rr =<< lift(templateTerm' t))
+  rewrite  rr t    = runLWithSubst (rewrite rr  =<< lift(templateTerm' t))
+  rewrite1 rr t    = runLWithSubst (rewrite1 rr =<< lift(templateTerm' t))
   narrow1  rr t    = runLWithSubst (narrow1 rr =<< lift(templateTerm' t))
   unify t u        = runLG $ manualUnify t u
 
@@ -789,8 +796,8 @@ instance (Term t s user, GoodShape s) => TRS.TRSN t s user where
 
 instance (Term t s user, TermShape s) => TRS.TRS t s Maybe user where
   {-# SPECIALIZE instance TRS.TRS (TermStatic_ Int) BasicShape Maybe user #-}
-  rewrite  rr t    = runM (rewrite rr  =<< lift (templateTerm' t))
-  rewrite1 rr t    = runM (rewrite1 rr =<< lift (templateTerm' t))
+  rewrite  rr t    = runMWithSubst (rewrite rr  =<< lift (templateTerm' t))
+  rewrite1 rr t    = runMWithSubst (rewrite1 rr =<< lift (templateTerm' t))
   narrow1  rr t    = runMWithSubst (narrow1 rr =<< lift (templateTerm' t))
   unify t u        = runMG $ manualUnify t u
 instance OmegaPlus Normal t r s => 

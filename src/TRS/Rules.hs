@@ -37,7 +37,7 @@ instance Functor RuleG where
   fmap = fmapDefault
 
 --swap :: Rule r s -> Rule r s
-swap (lhs:->rhs) = rhs:->lhs
+swapRule (lhs:->rhs) = rhs:->lhs
 
 isConstructor rules t 
   | isVar t   = True

@@ -117,9 +117,9 @@ castTerm t = runST(templateGT' t >>= zonkTerm')
 
 
 class Term t s user => TRS t s m user where
-        rewrite      :: Term t1 s user => [Rule t1 s] -> t s -> m(t s)
+        rewrite      :: Term t1 s user => [Rule t1 s] -> t s -> m(SubstM(t s), t s)
         unify        :: t s -> t s -> m(SubstM (t s))
-        rewrite1     :: Term t1 s user => [Rule t1 s] -> t s -> m(t s)
+        rewrite1     :: Term t1 s user => [Rule t1 s] -> t s -> m(SubstM(t s), t s)
         narrow1      :: Term t1 s user => [Rule t1 s] -> t s -> m(SubstM(t s), t s)
 
 class Term t s user => TRSN t s user where

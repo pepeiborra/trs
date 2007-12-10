@@ -139,7 +139,11 @@ noCVars = null . collect isCtxVar
 instance TermShape s => Term (GT_ user mode r) s user where
   {-# SPECIALIZE instance Term (GT_ () eq r) BasicShape () #-}
   isVar S{}          = False
-  isVar _            = True
+  isVar Top{}        = False
+  isVar Bottom{}     = False
+  isVar MutVar{}     = True
+  isVar GenVar{}     = True
+  isVar CtxVar{}     = True
   mkVar              = genVar
   varId (GenVar _ i) = Just i
   varId (CtxVar i)   = Just i

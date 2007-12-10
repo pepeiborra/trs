@@ -85,6 +85,7 @@ biM f g = firstM f >=> secondM g
 
 f `on` h = \x y -> f (h x) (h y) 
 
+swap(x,y) = (y,x)
 ------------------------------------------------------------------------
 --
 -- Monadic versions of functions on lists
@@ -142,7 +143,7 @@ fixM_Eq f = go 0  where
     if x == prev_result then return x
                         else go (i+1) x 
 
--- Fixpoint of a regular function, using Eq comparison (bad)
+-- Fixpoint of a regular function, using Eq comparison (bad, memory eater!)
 fixEq :: Eq a => (a -> a) -> a -> a
 fixEq f x = case f x of y | y == x    -> y
                           | otherwise -> fixEq f y

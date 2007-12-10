@@ -52,20 +52,8 @@ instance (Eq i, TermShape s) => Eq (TermStatic_ i s) where
                    = all (uncurry (==)) pairs
   _      == _      = False 
 
-
-s :: s(TermStatic s) -> TermStatic s
-s = Term
-
 liftS f (Term t) = Term (f t)
 liftS2 (*) (Term t) (Term v) = Term (t*v)
-
-var  = Var 
-constant f = s (T f [])
-term = (s.) . T
-term1 f t       = s$ T f [t]
-term2 f t t'    = s$ T f [t,t']
-term3 f t t' t''= s$ T f [t,t',t'']
-
 
 instance (Integral i, Show (s(TermStatic_ i s)), Show i) => Show (TermStatic_ i s) where
   showsPrec p (Term s) = showsPrec p s
