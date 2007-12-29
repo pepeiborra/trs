@@ -32,6 +32,8 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, co
 import qualified Debug.Trace
 import Control.Exception
 
+infixr 1 <=<
+f <=< g = \x -> g x >>= f
 
 varNames = "XYZWJIKHW"
 showsVar p n = if fromIntegral n < length varNames 
