@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -cpp -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fignore-breakpoints #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  TRS.Utils
@@ -34,6 +35,15 @@ import Control.Exception
 
 infixr 1 <=<
 f <=< g = \x -> g x >>= f
+
+
+isList :: [a] -> [a]
+isList = id
+isMaybe :: Maybe a -> Maybe a
+isMaybe = id
+
+const2 = const . const
+
 
 varNames = "XYZWJIKHW"
 showsVar p n = if fromIntegral n < length varNames 
@@ -133,9 +143,8 @@ deleteByM p x (y:ys) =
 -- -----------------------------------------------------------
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'
-fixM :: MonadPlus m => (a -> m a) -> (a -> m a)
-fixM f x = (f x >>= fixM f) `mplus` return x
-
+iterateMP :: MonadPlus m => (a -> m a) -> (a -> m a)
+iterateMP f x = (f x >>= iterateMP f) `mplus` return x
 
 -- Fixpoint of a monadic function, using Eq comparison (this is a memory eater)
 fixM_Eq :: (Monad m, Eq a) => (a -> m a) -> a -> m a
@@ -347,6 +356,9 @@ fmap2 f x = fmap (fmap  f) x
 fmap3 :: (Functor f2, Functor f1, Functor f) => 
          (a -> b) -> f2 (f (f1 a)) -> f2 (f (f1 b))
 fmap3 f x = fmap (fmap2 f) x 
+
+($>) :: (Functor f) => f a -> (a -> b) -> f b
+($>) = flip (<$>)
 
 (<$$>) :: (Functor f1, Functor f) => (a -> b) -> f1 (f a) -> f1 (f b)
 f <$$> x = fmap (fmap  f) x

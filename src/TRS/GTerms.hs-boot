@@ -23,7 +23,7 @@ type GT user r s  = GT_ user Normal r s
 
 genVar, skolem :: Int -> GT_ user mode r s
 isGenVar, isMutVar, isCtxVar, isTerm :: GT_ user mode r s -> Bool
-fresh   :: ST r (GT_ user mode r s)
+fresh   :: Maybe user -> ST r (GT_ user mode r s)
 isGT    :: GT user r s -> GT user r s
 note    :: GT_ user mode r s -> Maybe user
 setNote :: user -> GT_ user mode r s -> GT_ user mode r s

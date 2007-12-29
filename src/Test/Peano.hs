@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
+{-# OPTIONS_GHC -fignore-breakpoints #-}
 
 module Test.Peano where
 
@@ -112,7 +113,7 @@ instance Arbitrary (PeanoT) where
     arbitrary = sized$ arbitraryPeano (map Var [0..2]) False
 -- instance Shrink PeanoT where
     shrink (Term(a :+ b)) = a : b : [a' +: b' | a' <- shrink a, b' <- shrink b]
-    shrink (Term(Succ a)) = [a]
+    shrink (Term(Succ a)) = a : shrink a
     shrink (Term(Pred a)) = [a]
     shrink (Term(a :* b)) = a : b : [a' *: b' | a' <- shrink a, b' <- shrink b]
     shrink (Term(Fact a b)) = a : b : [fact a' b' | a' <- shrink a, b' <- shrink b]
@@ -136,7 +137,7 @@ arbitraryPeano vars refs size | size2 <- size `div` 2 =
             , (4,liftM s (arbitraryPeano vars refs (pred size)))] ++
              if not refs 
                 then []
-                else [(2,liftM ref (arbitraryPeano vars refs size))])
+                else [(2,liftM wrapRef (arbitraryPeano vars refs size))])
 
 instance Arbitrary (RuleS Peano) where
   arbitrary =  do

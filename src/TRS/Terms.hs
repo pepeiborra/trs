@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 {-# OPTIONS_GHC  -funbox-strict-fields#-}
+{-# OPTIONS_GHC  -fignore-breakpoints #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -54,6 +55,9 @@ instance (Eq i, TermShape s) => Eq (TermStatic_ i s) where
 
 liftS f (Term t) = Term (f t)
 liftS2 (*) (Term t) (Term v) = Term (t*v)
+
+isTermStatic :: TermStatic s -> TermStatic s
+isTermStatic = id
 
 instance (Integral i, Show (s(TermStatic_ i s)), Show i) => Show (TermStatic_ i s) where
   showsPrec p (Term s) = showsPrec p s

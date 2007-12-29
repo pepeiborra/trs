@@ -37,7 +37,7 @@ import qualified TRS.Core as Core
 import TRS.Utils
 import TRS.Signature
 import TRS.Context
-import TRS.GTerms
+import TRS.GTerms hiding ( replace )
 import TRS.Tyvars
 
 import Test.Peano
@@ -59,7 +59,7 @@ qtests = [("Semantic Equality", q propSemanticEquality)
          ,("AutoInstGMutvars" , q propAutoInstGMutVars)
          ,("AutoInstGMutvars2" , q propAutoInstGMutVars2)
          ,("zonkSubst"        , q propZonkSubst)
-         ,("Reimpl. collect"  , q propReCollect)
+--         ,("Reimpl. collect"  , q propReCollect)
 --         ,("Reimpl. vars"     , q propReVars)
          ,("Re. mutableTerm"  , q propReMutable)
          ,("Reimpl. semEq", q propReSemEq)
@@ -149,7 +149,7 @@ autoInst_old x
     | otherwise  = do
            freshv <- fmap (Subst . reverse) $ 
                     foldM (\rest gv -> liftM (:rest) $
-                             if gv`elem`gvars then fresh else return gv) 
+                             if gv`elem`gvars then fresh Nothing else return gv) 
                           []
                           (map genVar [0..succ n_newvars])
            x' <- instan freshv x 
@@ -301,11 +301,11 @@ y = Var 1
 -- Testing Reductions
 --------------------------
 testRewriting = TestLabel "Test Rewriting" $ TestList
-        [ testRewriting1
+        [ testRewriting0
+        , testRewriting1
         , testRewriting2
         , testRewriting3
         , testRewriting4
-        , testRewriting5
         , testRewNoRules ]
 
 -- Testing rewriting
@@ -313,28 +313,28 @@ two   = s(s(z)) :: PeanoT
 five  = s(s(s(two)))
 seven = two +: five
 
-seven' = rewrite1 peanoTRS seven
-eight' = rewrite1 peanoTRS (seven +: s(z))
+seven' = snd <$> rewrite1 peanoTRS seven
+eight' = snd <$> rewrite1 peanoTRS (seven +: s(z))
 
 -- One Step rewriting
-testRewriting1 = [s(s(s(z)) +: s(s(s(s(z)))))] ~=? seven'
-testRewriting2 = TestLabel "One step" $ TestList 
+testRewriting0 = [s(s(s(z)) +: s(s(s(s(z)))))] ~=? seven'
+testRewriting1 = TestLabel "One step" $ TestList 
  [ length eight' ~=? 2 
  , (s(seven +: z) `elem` eight') ~? "2"
  , ((s(s(s(z)) +: s(s(s(s(z))))) +: s(z)) `elem` eight') ~? "3" ]
 
 -- Normal Rewriting
-testRewriting3 = Just (s(s(five)))    ~=? rewrite peanoTRS (seven)
-testRewriting4 = Just (s(s(s(five)))) ~=? rewrite peanoTRS (seven +: s(z))
+testRewriting2 = Just (s(s(five)))    ~=? snd <$> rewrite peanoTRS (seven)
+testRewriting3 = Just (s(s(s(five)))) ~=? snd <$> rewrite peanoTRS (seven +: s(z))
 
 -- Non confluent rewriting
 sillyRules = [ z :-> s(z), z :-> s(s(z)) ]
 
-testRewriting5 = test (assert True) --TODO
+testRewriting4 = test (assert True) --TODO
 
 -- Corner cases
 testRewNoRules = TestLabel "No Rules" $ 
-                 (rewrite ([] :: [RuleS Peano]) seven) ~?= [seven]
+                 (snd <$> rewrite ([] :: [RuleS Peano]) seven) ~?= []
   
 -- Testing Narrowing
 peanoTRS2 = [ s(s(z)) +: s(x) :-> s(s(s(x)))
@@ -359,7 +359,7 @@ testNarrowing = TestList [ [s(s(s(s(z)))), s(s(z))] ~=? fourN1
                          , testNarrowIssue
                          , snd <$> narrow1 [g (g x) :-> x] (f (g x) x) ~?= 
                                                                        [f x (g x)]
-                         ]
+                         , testPropagation ]
 
 -------------------------------
 -- The TRS for testing narrowBU
@@ -369,7 +369,7 @@ g = term1 "g"
 h = term1 "h"
 [a,b,c,d] = map constant (map unit "abcd")
     where unit x = [x]
-          constant x = term x []
+
 buTRS = [ f b c :-> d
         , g x   :-> f x x
         , a :-> b
@@ -408,13 +408,13 @@ tpForward1 = snd <$> narrowFullBounded  (isSNF peanoTRS)
                                         (s(x +: y))
 
 tpBackward1 = snd <$> narrow1 (map swap peanoTRS) (s(z) +: x)
-
+    where swap (lhs :-> rhs) = rhs :-> lhs
 
 testNarrowIssue = TestLabel "Narrowing Issues" $ TestList 
-        [ Semantic u'         ~?= Semantic [ts(ts(y)),ts(ts(ts(y))),ts(y),ts(x)]
-        , Semantic tpForward1 ~?= Semantic [s(x)] 
-        , Semantic . snd <$> narrow1 trs_x t 
-                              ~=? (Semantic . snd <$> narrow1 trs_y t :: [Semantic PeanoT])
+        [ Semantic <$> u'     ~?= Semantic <$> [ts(ts(y)),ts(ts(ts(y))),ts(y),ts(x)]
+        , Semantic <$> tpForward1 ~?= Semantic <$> [s(x)] 
+        , Semantic . isTermRef . snd <$> isList (narrow1 trs_x t)
+                              ~=? (Semantic . snd <$> narrow1 trs_y t)
 --        , snd <$> narrow1' trs_x' t' ~=? snd <$> narrow1' trs_y' t'
         ]
     where t = z +: y
@@ -423,7 +423,6 @@ testNarrowIssue = TestLabel "Narrowing Issues" $ TestList
           t' = cero + y
           trs_x' = [x :-> (cero + x)]
           trs_y' = [y :-> (cero + y)]
-
 ------------------------
 -- Narrowing Properties
 ------------------------
@@ -436,7 +435,7 @@ propNarrow' x = let
 -}
 propNarrowFullNF   = forAll (arbitraryPeano (map Var [0..2]) False 3) $ \x ->
                      isSNF peanoTRS x ==> 
-                     (snd <$> narrowFull peanoTRS x) == [x]
+                     Semantic (snd $ head$ narrowFull peanoTRS x) == Semantic x
        where types = (x :: PeanoT)
 
 a =|= b = a `intersect` b == a && b `intersect` a == b
@@ -492,6 +491,55 @@ propCTransiti x_ = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts x
                                          , (y,ct) <- contexts ct1]
   where x = idGT$ templateTerm x_ 
 
+--------------------------------
+-- Propagation of substitutions
+--------------------------------
+
+sort   = term1 "sort"
+insert = term2 "insert"
+cons   = term2 "cons"
+nil    = constant "nil"
+zero   = constant "zero"
+s'     = term1 "succ"
+
+subst_trs = 
+    [ insert (s' x) (cons zero nil) :-> cons zero (cons (s' x) nil)
+    , sort (cons x nil) :-> cons x nil
+      ]
+
+subst_term = insert x (sort y)
+
+{- The narrowing derivation is as follows
+1. {y/[x']}, t ~> insert x (cons x' nil)
+2. {x/s(x''), x'/zero}
+
+The composed substitution is {x/s(x''), y/[zero]}
+-}
+
+testPropagation = let [(s,_)] = narrowFull subst_trs subst_term -- [0, sX]
+                      in applySubst s y == cons zero nil
+          ~? "Substitutions do not propagate correctly in narrowFull"
+
+-- We can derive a property: a narrowFull derivation must produce
+-- the same substitution as the composition of the substitutions of
+-- the one step derivations that compose it
+-- TODO write this property.
+
+testReplaceM = runST $ do
+  t   <- mutableTerm (isTermRef (Ref$ s $ s x))
+  let [x] = TRS.collect isMutVar t
+  t'  <- replaceM [(x, templateTerm z)] t
+  return$ noMVars t'
+
+testDupSubst = runST $ do
+  t   <- mutableTerm (( s' $ s' x))
+  let [x] = TRS.collect isMutVar t
+      subst = SubstM [Just (cons x nil)]
+  (subst', _, t') <- dupTermWithSubst subst [] t
+  let [x'] = TRS.collect isMutVar t'
+  writeVar (ref x') zero
+  zonkSubst subst' --(toList subst' == [ (cons zero nil)])
+
 --------------------------
 -- Other properties
 -------------------------
@@ -501,7 +549,7 @@ propDuplication1 t = runST (do
                         (vars',_,t') <- dupTermWithSubst emptySubstM [] (idGT t1)
                         t''          <- zonkTerm' =<< col t'
                         semeq        <- t1 `semEq` t'
-                        return$ t == t'' && semeq )
+                        return$ Semantic t == Semantic t'' && semeq )
                              
 ---------------
 -- helpers

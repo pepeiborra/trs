@@ -107,7 +107,7 @@ mutableTerm :: Term t s user => t s -> ST r (GT user r s)
 mutableTerm = return . snd <=< autoInst <=< templateTerm'
 
 mkMutVar :: Term t s user => t s -> ST r (GT user r s)
-mkMutVar = maybe fresh (mutVar Nothing) . varId
+mkMutVar = maybe (fresh Nothing) (mutVar Nothing) . varId
 
 mutableTermG :: (Traversable f, Term t s user) => f(t s) -> ST r (f(GT user r s))
 mutableTermG = return . snd <=< autoInstG <=< mapM templateTerm'
@@ -387,11 +387,11 @@ generalize x = do
   x' <- col x
   let mvars = nub $ collect isMutVar x'
   muniques <- mapM (getUnique . ref) mvars
-  let new_gvars = [ (m,GenVar{note_= note m, unique=u})
+  let !new_gvars = [ (m,GenVar{note_= note m, unique=u})
                     | (Just u,m) <- zip muniques mvars]
-      new_skols = [ (m,Skolem{note_ = note m, unique=0})
+      !new_skols = [ (m,Skolem{note_ = note m, unique=0})
                     | (Nothing,m)<- zip muniques mvars]
-      x'' = replace (new_gvars ++ new_skols) x'
+  x'' <- replaceM (new_gvars ++ new_skols) x'
   assert (noMVars x'') (return ())
   return x''
 
@@ -403,7 +403,7 @@ generalizeG x = do
                     | (Just u,m) <- zip muniques mvars]
       new_skols = [ (m,Skolem{note_ = note m, unique=0})
                     | (Nothing,m)<- zip muniques mvars]
-      x'' = replace (new_gvars ++ new_skols) <$> x'
+  x'' <- replaceM (new_gvars ++ new_skols) `mapM` x'
   assert (all noMVars x'') (return ())
   return x''
 
@@ -415,7 +415,7 @@ generalizeGG x = do
                     | (Just u,m) <- zip muniques mvars]
       new_skols = [ (m,Skolem{note_ = note m, unique=0})
                     | (Nothing,m)<- zip muniques mvars]
-      x'' = replace (new_gvars ++ new_skols) `fmap2` x'
+  x'' <- replaceM (new_gvars ++ new_skols) `mapM2` x'
   assert (all (all noMVars) x'') (return ())
   return x''
 
@@ -431,31 +431,39 @@ autoInst :: (Prune mode, TermShape s) =>
 autoInst x@MutVar{} = return (mempty, x)
 autoInst x_ = do
            x     <- col x_
-           let vv = snubBy (compare `on` snd) [ (n,i) | GenVar{unique=i,note_=n} <- vars x]
-           subst <- mkSubstM (map snd vv) <$> mapM (uncurry mutVar) vv
+           let vars_x = vars x
+           let (nn,ii) = unzip$ snubBy (compare `on` snd) 
+                             [ (n,i) | GenVar{unique=i,note_=n} <- vars_x]
+           subst <- mkSubstM ii <$> mapM fresh nn
            x'    <- instan subst x
-           assert (noGVars x') (return ())
-           x' `seq` return (subst, x')
+           skolems <- replicateM (length$ nub$ filter isSkolem vars_x) (fresh Nothing)
+           let x''  = replace (zip (nub$ filter isSkolem vars_x) skolems) x'
+           assert (noGVars x'') (return ())
+           return (subst, x'')
 
 autoInstG:: (Traversable f, TermShape s, Prune mode) =>
                f(GT_ user mode r s) -> ST r (Subst_ user mode r s, f(GT_ user mode r s))
 autoInstG xx_ = do
   xx <- mapM col xx_
-  let vv = snubBy (compare `on` snd) [ (n,i) | GenVar{unique=i,note_=n} <- concatMap vars xx]
-  subst <- mkSubstM (map snd vv) <$> mapM (uncurry mutVar) vv
+  let vars_xx = concatMap vars xx
+      (nn,ii) = unzip $ snubBy (compare `on` snd) 
+                 [ (n,i) | GenVar{unique=i,note_=n} <- vars_xx]
+  subst <- mkSubstM ii <$> mapM fresh nn
   xx' <- instan subst `mapM` xx
-  assert (all noGVars xx') (return ())
-  return (subst, xx')
+  skolems <- replicateM (length$ nub$ filter isSkolem vars_xx) (fresh Nothing)
+  let xx''  = replace (zip (nub$ filter isSkolem vars_xx) skolems) <$> xx'
+  assert (all noGVars xx'') (return ())
+  return (subst, xx'')
     where 
-
 
 autoInstGG ::  ( Traversable f,Traversable g, TermShape s, Prune mode) =>
                f (g (GT_ user mode r s)) -> 
                    ST r (Subst_ user mode r s, f (g(GT_ user mode r s)))
 autoInstGG xx_ = do
   xx <- mapM2 col xx_
-  let vv = snubBy (compare`on`snd) [ (n,i) | GenVar{unique=i,note_=n} <- concatMap2 vars xx]
-  subst <- mkSubstM (snd <$> vv) <$> mapM (uncurry mutVar) vv
+  let (nn,ii) = unzip $ snubBy (compare`on`snd) 
+                [ (n,i) | GenVar{unique=i,note_=n} <- concatMap2 vars xx]
+  subst <- mkSubstM ii <$> mapM fresh nn
   xx'   <- instan subst `mapM2` xx
   return (subst, xx')
     where 
@@ -506,6 +514,7 @@ zonkTermS' = zonkTermUnsafe
 
 --rewrite1_ rr (S t) | trace ("rewrite " ++ show t ++ " with " ++  (show$ length rr) ++ " rules ") False = undefined
 --rewrite1_ _ t | assert (noMVars t) False = undefined
+-- rewrite1_ [] t = mzero
 rewrite1_ rules t =
     case t of
       S u -> rewriteTop t `mplus`
@@ -513,12 +522,11 @@ rewrite1_ rules t =
                         (someSubterm (WriterT . fmap swap . rewrite1_ rules) u))
       t   -> rewriteTop t
   where rewriteTop t = msum$ forEach rules $ \r@(lhs:->rhs) -> do
-	        (freshv, lhs') <- lift$ autoInst lhs
+	        (freshv, lhs':->rhs') <- lift$ autoInstG r
 	        match lhs' t
-                t' <- lift$ instan freshv rhs
-                return (freshv, t')
+                return (freshv, rhs')
 
-rewrite_ rules t = fixM (\(_subst,t)-> rewrite1_ rules t) (emptySubstM,t)
+rewrite_ rules t = iterateMP (\(_subst,t)-> rewrite1_ rules t) (emptySubstM,t)
 
 --narrow1_ _ t | trace ("narrow1 " ++ show t) False = undefined
 narrow1_ [] t = mzero -- fail1 "narrow1: empty set of rules"
@@ -562,16 +570,14 @@ narrowTop1V t r@(lhs:->rhs) = do
                assert (noGVars t) (return ())
                assert (noMVars lhs) (return ())
                assert (noMVars rhs) (return ())
-               assert (vars rhs `isSubsetOf` vars lhs) (return ())
-               (lhsv, lhs') <- lift$ autoInst lhs
+--               assert (vars rhs `isSubsetOf` vars lhs) (return ())
+               (lhsv, lhs':-> rhs') <- lift$ autoInstG r
                unify lhs' t
 --               trace ("narrowing fired: t=" ++ st t ++ ", rule=" ++ sr r
 --                   ++   ", rho= " ++ show (zonkTermS lhsv)
 --                      )(return ()) 
-               rhs'  <- lift$ instan lhsv rhs
-               rhs'' <- lift$ col rhs'      -- OPT: col here might be unnecesary
 --             assert (noGVars rhs'') (return ())
-               return rhs''
+               return rhs'
 narrowTop1 t@S{} r = narrowTop1V t r
 narrowTop1 _ _     = mzero -- throwError "No narrowing at vars"
 
@@ -609,7 +615,7 @@ narrowFullBase narrowTop1base done rules t = do
    search !ind (subst,t) = trace ("narrowFull search: " ++ show ind  ++ st t) $ 
        LogicT.ifte  (step emptyC subst t)
                     (\x@(sub',t') -> trace ("branch " ++ show ind ++ st t') $ 
-                               lift (done (idGT t)) >>- \isDone -> 
+                               lift (done (idGT t')) >>- \isDone -> 
                                if isDone 
                                 then trace ("done" ++ st t') $
                                      return (sub',t') 
@@ -649,19 +655,19 @@ narrowTopBase :: (Prune mode, MonadTrans t, MonadPlus (t (ST r)), TermShape s) =
               -> [a] -> GT_ user mode r s -> SubstG (GT_ user mode r s) -> GT_ user mode r s
               -> t (ST r) (SubstG (GT_ user mode r s), GT_ user mode r s)
 -}
-narrowTopBase _ _ ct _ t | assert(noGVars t) False = undefined
-narrowTopBase _ _ ct _ t | assert(noGVars ct) False = undefined
+narrowTopBase _ _ ct _ t | assert (noGVars t)  False = undefined
+narrowTopBase _ _ ct _ t | assert (noGVars ct) False = undefined
 narrowTopBase narrowTop1 rules ct subst t = msum$ forEach rules $ \r -> do
+               assert(noGVars ct) (return ())
                (subst', [ct'], t') <- lift$ dupTermWithSubst subst [ct] t
-               t'' <- narrowTop1 t' r
-               ct'' <- lift$ col ct'
-               return (subst', ct''|>t'')
+               t''     <- narrowTop1 t' r
+               ct''    <- lift$ col ct'
+               subst'' <- lift(col `mapM` subst')
+               return (subst'', ct''|>t'')
 
 --------------------------------
 -- * Duplication of Terms
 --------------------------------
-
--- TODO Repasar esta parte y arreglar para que trabaje con SubstM
 
 dupVar :: STRef s a -> ST s (STRef s a)
 dupVar sr = readSTRef sr >>= newSTRef
@@ -670,26 +676,26 @@ dupTerm t@MutVar{ref=r} = dupVar r >>= \r' -> return t{ref=r'}
 dupTerm (S t) = fmap S $ mapM dupTerm t
 dupTerm x = return x
 
-dupTermWithSubst :: (Functor subst,  TermShape s) =>
+dupTermWithSubst :: (Traversable subst,  TermShape s) =>
                    subst(GT_ user eq r s) -> [GT_ user eq r s] -> GT_ user eq r s
                 -> ST r (subst(GT_ user eq r s), [GT_ user eq r s], GT_ user eq r s)
 
 --dupTermWithSubst subst tt x | trace "dupTermWithSubst" False = undefined
 dupTermWithSubst subst tt t@MutVar{} = do
     t'        <- dupTerm t
-    let dict   = [(t,t')]
-        subst' = fmap (replace dict) subst
-        tt'    = fmap (replace dict) tt
+    let dict = [(t,t')]
+    subst'  <- replaceM dict `mapM` subst
+    tt'     <- replaceM dict `mapM` tt
     return (subst', tt', t')
 
 dupTermWithSubst subst tt t@S{} = do
     let mutvars= collect isMutVar t
-    newvars   <- mapM dupTerm mutvars
-    let dict   = zip mutvars newvars
-        t'     = replace dict t
-        tt'    = fmap (replace dict) tt
-        subst' = fmap (replace dict) subst
-    return (subst', tt', t')
+    newvars <- mapM dupTerm mutvars
+    let dict = zip mutvars newvars
+    t'     <- replaceM dict t
+    tt'    <- replaceM dict `mapM` tt
+    subst' <- TRS.GTerms.replaceM dict `mapM` subst
+    subst `seq` return (subst', tt', t')
 
 dupTermWithSubst subst tt x = return (subst, tt, x)
 
@@ -831,7 +837,7 @@ runWithSubst m = lift . biM zonkSubst zonkTerm' =<< m
 
 zonkSubst :: (Prune mode, Term t s user) =>
              (Subst_ user mode r s) -> ST r (SubstM (t s))
-zonkSubst = mapM zonkTerm'
+zonkSubst = zonkTermG'
 
 {-
 manualUnify :: Term t s user =>
@@ -909,12 +915,3 @@ sr ::  (Functor f, TermShape s, Show (f (TermStatic s))) =>
       f (GT_ user mode r s) -> String
 sr = show . fmap zonkTermS'
 
-replace :: TermShape s => 
-           [(GT_ user mode r s,GT_ user mode r s)] 
-        -> GT_ user mode r s -> GT_ user mode r s
-replace []   = id
-replace dict = fromJust . go 
-  where 
-    go t  = maybe id setNote (note t) <$> lookup t dict 
-            `mplus` 
-            mutateTermM go t

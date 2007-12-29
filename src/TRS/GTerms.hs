@@ -1,11 +1,13 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
+{-# OPTIONS_GHC -fignore-breakpoints #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -cpp #-}
+
 module TRS.GTerms where
 
 import Control.Applicative
-import Control.Monad
+import Control.Monad hiding ( mapM )
 import Control.Monad.ST as ST
 import Control.Arrow
 import Data.Foldable as Foldable
@@ -25,7 +27,7 @@ import TRS.Substitutions
 import TRS.Types
 import TRS.Utils
 import TRS.Tyvars
-import TRS.Term hiding ( Semantic )
+import TRS.Term hiding ( Semantic, replace )
 
 type Ptr user mode r s = Ptr_ r (GT_ user mode r s)
 
@@ -85,8 +87,8 @@ top, bottom :: user -> GT_ user mode r s
 bottom = Bottom . Just
 top = Top . Just
 
-fresh :: ST r (GT_ user mode r s)
-fresh = fmap (MutVar Nothing) freshVar
+fresh   :: Maybe user -> ST r (GT_ user mode r s)
+fresh u = fmap (MutVar u) freshVar
 
 skolem :: Int -> GT_ user mode r s
 skolem = Skolem Nothing
@@ -123,6 +125,8 @@ isCtxVar CtxVar{} = True
 isCtxVar _ = False
 isTerm S{} = True
 isTerm _   = False 
+isSkolem Skolem{} = True
+isSkolem _ = False
 
 isUnboundVar MutVar{ref=ptr} = maybe (return True) isUnboundVar =<< readVar ptr
 isUnboundVar v = return (isVar v)
@@ -149,6 +153,7 @@ instance TermShape s => Term (GT_ user mode r) s user where
   varId (GenVar _ i) = Just i
   varId (CtxVar i)   = Just i
   varId (MutVar _ i) = Nothing -- error "unexpected mutvar"
+  varId (Skolem _ i) = Just i
   contents (S x) = Just x
   contents _     = Nothing
   build          = S
@@ -197,6 +202,30 @@ updateAt' x pos x' = go x pos x' >>= \ (t',a) -> a >>= \v->return (t',v)
                         $ t
     go x [] x' = return (x', return x)
     go x _ _   = mzero
+
+-- | A specialized version of replace, needed to look inside MutVars
+--   and preserve notes
+-- replace :: [(t s,t s)] -> t s -> ST r (t s
+replaceM []   = return
+replaceM dict = mutateTermM go
+  where
+    mutateTermM f (S t) = f =<< S <$> (mapM (mutateTermM f) t)
+    mutateTermM f t = f t
+    go t | Just t''@MutVar{ref=r} <- t'
+         = do
+           v  <- readVar r
+           v' <- go `mapM` v
+           writeVar r `mapM` v'
+           return t''
+         | otherwise 
+         = return (fromMaybe t (maybe id setNote (note t) <$> t'))
+     where t' = lookup t dict
+-- | A specialized version of replace, needed to preserve notes
+replace []   = id
+replace dict = mutateTerm go
+  where
+    go t = fromMaybe t (maybe id setNote (note t) <$> lookup t dict )
+
 {-
 type STV r a = STRef r (IntMap.IntMap Unique (GT_ user mode r s)) -> ST r a
 instance VarMonad (STV r) (GT_ user mode r s) where

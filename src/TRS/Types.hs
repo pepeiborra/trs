@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
+{-# OPTIONS_GHC -fignore-breakpoints #-}
 
 -----------------------------------------------------------------------------
 -- |

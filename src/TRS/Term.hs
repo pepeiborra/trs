@@ -1,6 +1,8 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
+{-# OPTIONS_GHC -fignore-breakpoints #-}
+
 module TRS.Term where
 
 
@@ -11,10 +13,10 @@ import Control.Monad.State (gets, modify, evalState, MonadTrans(..))
 import Control.Monad.Identity (runIdentity)
 import MaybeT (MaybeT(..))
 import Data.List (nub, nubBy, elemIndex)
-import Data.Foldable (toList, Foldable)
+import Data.Foldable (toList, Foldable, concatMap)
 import Data.Maybe (fromMaybe, fromJust, catMaybes)
 import Data.Traversable (Traversable, mapM, sequence)
-import Prelude hiding (mapM, sequence)
+import Prelude hiding (mapM, sequence, concatMap)
 import qualified Prelude
 
 import TypeCastGeneric
@@ -83,12 +85,12 @@ defaultToGTM mkV t
                                             (contents t)))
     | otherwise = return(mkV t)
 
-fromSubTerms :: Term t s user => t s -> [t s] -> t s
-fromSubTerms t tt = -- build$ modifySpine (fromMaybe (error "fromSubTerms") $ contents t) tt
+fromChildren :: Term t s user => t s -> [t s] -> t s
+fromChildren t tt = -- build$ modifySpine (fromMaybe (error "fromSubTerms") $ contents t) tt
                     liftTerm (`modifySpine` tt) t
 
 subTerms, children :: Term t s user => t s -> [t s]
-subTerms = fixM children
+subTerms = iterateMP children
 children = fromMaybe [] . fmap toList . contents
 
 liftTerm    ::(Term t s user) => (s (t s) -> s (t s)) -> t s -> t s
@@ -98,15 +100,14 @@ liftTermM    ::(Term t s user, Monad m) => (s (t s) -> m( s (t s))) -> t s -> m(
 liftTermM f t = maybe (return t) (liftM build . f) . contents $ t
 
 applySubst   :: Term t s user => SubstM (t s) -> t s -> t s
-applySubst sm t = s `seq` mutateTerm f t where 
+applySubst sm t = mutateTerm f t where 
      s = fromSubstM sm
      f t' | Just i <- varId t', i`inBounds` s, Just v <- s !! i = v
-          | otherwise = mutateTerm f t'
+          | otherwise = t'
 
-mutateTerm f t  | Just tt <- contents t = build $ fmap f tt
-                | otherwise = t
-mutateTermM f t | Just tt <- contents t = build <$> mapM f tt
-                | otherwise = return t
+-- | bottom-up transformation
+mutateTerm  f t = f .    maybe t build       . fmap2 (mutateTerm f)  . contents $ t
+mutateTermM f t = f =<< (fmap(maybe t build) . mapM2 (mutateTermM f) . contents) t
   
 -- TODO: TEST THAT THIS RULE FIRES
 {-# RULES "castTerm/identity" castTerm = id #-}
@@ -166,12 +167,8 @@ instance Show (t s) => Show (SynEqTerm t s) where
 --   (you could deduce that from the type signature)
 replace :: (Term t s user) => [(t s,t s)] -> t s -> t s
 replace []   = id
-replace dict = fromJust . go 
-  where 
-    go t  = lookup t dict 
-            `mplus` 
-            mutateTermM go t
-     
+replace dict = mutateTerm (\t -> fromMaybe t $ lookup t dict)
+
 -- ¿mutateTermM en Maybe no debería fallar con un Nothing? 
 -- No falla, porque, viendo un termino como un arbol,
 --  go siempre tiene éxito en las hojas, y por induccion en
@@ -195,7 +192,8 @@ instance Term t s user => Term (Semantic t) s user where
   build = Semantic . build . fmap semantic
 
 instance (Ord (t s), Term t s user) => Ord (Semantic t s) where
-  compare (Semantic a) (Semantic b) = compare a b
+  compare (Semantic a) (Semantic b) | a `semEq` b = EQ
+                                    | otherwise   = compare a b
 
 --instance TermShape s => Eq (TermStatic s) where
 semEq :: (Term t s user, TermShape s) => t s -> t s -> Bool
@@ -203,6 +201,21 @@ t1 `semEq` t2 = runST (do
    [t1',t2'] <- mapM templateTerm' [t1,t2]
    return (isGT t1')
    t1' `Core.semEq` t2')
+
+
+
+-- | Fails on terms with skolems. What should it do?
+templateTerm :: Term t s user => t s -> GT_ user mode r s
+templateTerm = toGT (genVar . fromMaybe (error "templateTerm: variable with no id"). varId)
+
+
+templateTerm' :: Term t s user => t s -> ST r (GT_ user mode r s)
+templateTerm' = fmap fromJust -- Identity is not Traversable ^.^
+              . toGTM (return . maybe (skolem 0) genVar . varId)
+
+templateGT' :: Term t s user => t s -> ST r (GT user r s)
+templateGT' = templateTerm'
+
 
 --------------------------------------------------------------------------
 -- * Out and back of GT, purely
@@ -224,7 +237,6 @@ zonkTermWith zvar (S tt) = build <$> (zonkTermWith zvar `mapM` tt)
 zonkTermWith zvar var   = zvar var
 
 
-
 -- | Replaces any mut. var with its current substitution, or a (clean) GenVar if none
 zonkTerm' :: (Prune mode, Term (GT_ user mode r) s user, Term t s user) => 
              GT_ user mode r s -> ST r (t s)
@@ -239,9 +251,36 @@ zonkTerm' t = do
             Empty Nothing -> writeVar v (Skolem n $ 
                                       fromJust(elemIndex m mvars) + skolem_offset)
             Empty (Just i)-> writeVar v (GenVar n i)
-            Mutable{}-> return ()
-  runIdentity <$> fromGTM f t'
-  where f = return . mkVar . fromJust . varUnique
+            Mutable{varUnique=Nothing}-> 
+                             writeVar v (Skolem n $
+                                      fromJust(elemIndex m mvars) + skolem_offset)
+            Mutable{} -> return ()
+  t'' <- col t'
+  runIdentity <$> fromGTM f t''
+  where f = return . mkVar . fromMaybe (error "zonkTerm'") . varUnique
+
+zonkTermG' :: (Traversable f, Prune mode, Term (GT_ user mode r) s user, Term t s user) => 
+             f(GT_ user mode r s) -> ST r (f(t s))
+zonkTermG' tt = do
+  tt' <- col `mapM` tt
+  let vars_tt = concatMap vars tt'
+      mvars   = filter isMutVar vars_tt
+      n_gvars = length$ filter isGenVar vars_tt
+  mvars_indexes <- catMaybes <$> forM mvars (getUnique . ref)
+  let skolem_offset = n_gvars + maximum (0:mvars_indexes)
+  forM mvars $ \m@MutVar{ref=v, note_=n} -> 
+       readVar' v >>= \x -> case x of
+            Empty Nothing -> writeVar v (Skolem n $ 
+                                      fromJust(elemIndex m mvars) + skolem_offset)
+            Empty (Just i)-> writeVar v (GenVar n i)
+            Mutable{varUnique=Nothing}-> 
+                             writeVar v (Skolem n $
+                                      fromJust(elemIndex m mvars) + skolem_offset)
+            Mutable{} -> return ()
+  tt'' <- col `mapM` tt'
+  runIdentity <$$> fromGTM f `mapM` tt''
+  where f = return . mkVar . fromMaybe (error "zonkTerm'") . varUnique
+
 {-
 zonkTermWithM :: (Prune mode, Term t s user, Term (GT_ user mode r) s) => 
                 (forall a. Mutable a -> ST r (t s)) ->
@@ -268,15 +307,3 @@ zonkVar (CtxVar n)   = Just $ mkVar n
 zonkVar (Skolem _ n) = Just $ mkVar n
 zonkVar x = seq x $ error "ouch!: zonkVar" 
 
-
--- | Fails on terms with skolems. What should it do?
-templateTerm :: Term t s user => t s -> GT_ user mode r s
-templateTerm = toGT (genVar . fromMaybe (error "templateTerm: variable with no id"). varId)
-
-
-templateTerm' :: Term t s user => t s -> ST r (GT_ user mode r s)
-templateTerm' = fmap fromJust -- Identity is not Traversable ^.^
-              . toGTM (return . maybe (skolem 0) genVar . varId)
-
-templateGT' :: Term t s user => t s -> ST r (GT user r s)
-templateGT' = templateTerm'
