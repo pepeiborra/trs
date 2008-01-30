@@ -33,9 +33,10 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, co
 import qualified Debug.Trace
 import Control.Exception
 
+#if __GLASGOW_HASKELL__ < 607 
 infixr 1 <=<
 f <=< g = \x -> g x >>= f
-
+#endif
 
 isList :: [a] -> [a]
 isList = id
