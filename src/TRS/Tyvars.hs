@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fignore-breakpoints #-}
 module TRS.Tyvars where
 
 import Control.Applicative

@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fallow-undecidable-instances #-}
+{-# OPTIONS_GHC -fallow-undecidable-instances -fignore-breakpoints #-}
 module TRS.Rules where
 
 import Control.Applicative
