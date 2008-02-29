@@ -229,18 +229,19 @@ match	  :: Omega mode m r s => GT_ user mode r s -> GT_ user mode r s -> m (ST r
 ------------------------------
 
 class Prune (mode :: *) where 
-    prune :: GT_ user mode r s  -> ST r (GT_ user mode r s)
+    prune :: Traversable s => GT_ user mode r s  -> ST r (GT_ user mode r s)
 
 instance Prune Basic  where prune x = pruneBasic_ x
 instance TypeCast Normal mode => Prune mode where prune x = prune_ x
 
 {-# INLINE prune_ #-}
-prune_ :: GT_ user mode r s -> ST r (GT_ user mode r s)
+prune_ :: Traversable s => GT_ user mode r s -> ST r (GT_ user mode r s)
 prune_ (typ@MutVar{ref=ref}) =
 	do { m <- readVar ref
 	   ; case m of
 	      Just t ->
-		do { newt <- prune_ t
+		do { assertM (maybe (return True) (fmap fromJust . runMaybeT . fmap not . occurs ref)  m) (return ());
+                     newt <- prune_ t
 		   ; writeVar ref newt
 		   ; return newt }
 	      Nothing -> return typ}
@@ -269,10 +270,10 @@ col x =
 	       ; return (S t)} 
 	  _     -> return x'}
 
-occurs :: (Prune mode, MonadTrans t, Traversable s, Monad (t (ST r))) =>
+occurs :: (MonadTrans t, Traversable s, Monad (t (ST r))) =>
          Ptr user mode r s -> GT_ user mode r s -> t (ST r) Bool
 occurs v t =
-     do { t2 <- lift$ prune t 
+     do { t2 <- return t -- lift$ prune t 
 	; case t2 of 
 	  S w -> occurs v `anyM` w 
 	  MutVar{ref=z} -> if  v == z 

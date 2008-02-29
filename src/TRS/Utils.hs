@@ -169,6 +169,8 @@ iterateM f x = let iM f x = x : iM f (x >>= f) in
 
 concatMapM f = fmap concat . mapM f
 
+assertM acc cont = acc >>= \cond -> assert cond cont
+
 -- |All the pairs of element + rest of the list
 selections :: [a] -> [(a,[a])]
 selections []     = []

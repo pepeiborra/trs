@@ -9,7 +9,7 @@ import Data.Foldable
 import Data.Traversable
 import TypePrelude
 
-class Prune (mode :: *) where prune :: GT_ user mode r s  -> ST r (GT_ user mode r s)
+class Prune (mode :: *) where prune :: Traversable s =>  GT_ user mode r s  -> ST r (GT_ user mode r s)
 instance Prune Basic
 instance TypeCast Normal mode => Prune mode
 
