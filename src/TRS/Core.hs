@@ -274,11 +274,14 @@ occurs :: (Prune mode, MonadTrans t, Traversable s, Monad (t (ST r))) =>
 occurs v t =
      do { t2 <- lift$ prune t 
 	; case t2 of 
-	  S w -> 
-	    do { s <- (mapM (occurs v) w) 
-	       ; return(foldr (||) False s ) 
-	       } 
-	  MutVar{ref=z} -> return (v == z) 
+	  S w -> occurs v `anyM` w 
+	  MutVar{ref=z} -> if  v == z 
+                            then return True
+                            else do
+                              zc <- lift$ readVar z
+                              case zc of
+                                Nothing -> return False
+                                Just t' -> occurs v t'
 	  _ -> return False } 
 
 unify tA tB = 
