@@ -27,8 +27,8 @@ import Data.List (group, sort, sortBy, groupBy, intersperse)
 import Data.Traversable
 import Data.Foldable
 import qualified Prelude
-import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
-                      , sequence, and, elem, concatMap )
+import Prelude hiding ( all, any, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
+                      , sequence, and, or, elem, concatMap )
 
 import qualified Debug.Trace
 import Control.Exception
@@ -174,11 +174,14 @@ selections :: [a] -> [(a,[a])]
 selections []     = []
 selections (x:xs) = (x,xs) : [ (y,x:ys) | (y,ys) <- selections xs ]
 
-andM :: Monad m => [m Bool] -> m Bool
+andM :: (Traversable t, Monad m) => t(m Bool) -> m Bool
 andM = liftM and . sequence
  
-allM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool
+allM :: (Traversable t, Monad m) => (a -> m Bool) -> t a -> m Bool
 allM = (liftM and .) . mapM
+
+anyM :: (Traversable t, Monad m) => (a -> m Bool) -> t a -> m Bool
+anyM = (liftM or .) . mapM
 
 class Unpack p u | p -> u where
     unpack :: p -> u

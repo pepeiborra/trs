@@ -29,12 +29,9 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , sequence, concat, concatMap )
 import GHC.Exts (unsafeCoerce#)
 
-import TRS.Rules
 import TRS.Types
 import TRS.Utils
 import TRS.Term
-
-type RuleS s        = Rule TermStatic  s
 
 -- -------------------------------------------
 -- * Static Terms
@@ -44,8 +41,6 @@ type RuleS s        = Rule TermStatic  s
 --   and the other way around with @instTerm@
 data TermStatic_ i s = Term (s (TermStatic_ i s)) | Var i
 type TermStatic s = TermStatic_ Int s
-type BasicTerm = TermStatic BasicShape
-type BasicRule = Rule TermStatic BasicShape
 
 instance (Eq i, TermShape s) => Eq (TermStatic_ i s) where
   Var i  == Var j  = i == j

@@ -248,11 +248,11 @@ prune_ x = return x
 
 pruneBasic_ :: GT_ user t t1 t2 -> ST t1 (GT_ user t t1 t2)
 pruneBasic_ (typ@MutVar{ref=ref}) =
-	do { m <- readVar ref               -- One could make this block a one liner: 
-	   ; case m of                      -- mapM (prune_ >=> write ref . Just)
-	      Just t ->                      --     =<< readVar ref
-		do { newt <- pruneBasic_ t       -- return typ
-		   ; writeVar ref newt  -- (note the mapM is in the Maybe monad)
+	do { m <- readVar ref
+	   ; case m of
+	      Just t ->
+		do { newt <- pruneBasic_ t
+		   ; writeVar ref newt
 		   ; return typ }
 	      Nothing -> return typ}
 pruneBasic_ x = return x
