@@ -4,7 +4,7 @@ version: 0.11
 license: AllRightsReserved
 license-file: ""
 copyright: Pepe Iborra, All Rights Reserved
-build-depends: base -any, mtl, GHoodOff, QuickCheck, LogicT, TypePrelude
+build-depends: base -any, mtl, GHoodOff, QuickCheck, LogicT, typeprelude
 	       ,containers, pretty
 homepage:
 synopsis: A Term Rewriting & Extensions (narrowing) library
