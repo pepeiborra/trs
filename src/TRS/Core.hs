@@ -899,9 +899,6 @@ instance ( Omega mode t r s, MonadPlus (t (ST r))) => OmegaPlus mode t r s
 -- Other stuff
 ----------------
 
-someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
-someSubterm f x = msum$ interleave f return x
-
 instance Show (GT_ user eq r s) => Observable (GT_ user eq r s) where
     observer = observeBase
 

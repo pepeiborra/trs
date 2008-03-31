@@ -18,7 +18,7 @@
 module TRS.Utils where
 import Control.Applicative
 import Control.Arrow
-import Control.Monad.State hiding (mapM, sequence)
+import Control.Monad.State hiding (mapM, sequence, msum)
 import Control.Monad.List (ListT(..))
 import qualified Control.Monad.LogicT as LogicT
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
@@ -242,6 +242,9 @@ size = length . toList
 modifySpine      :: Traversable t => t a -> [b] -> t b
 modifySpine t xx = assert (xx >=: toList t) $  mapM (\_-> pop) t `evalState` xx
   where pop = gets head >>= \v -> modify tail >> return v
+
+someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
+someSubterm f x = msum$ interleave f return x
 
 successes :: (MonadPlus m, Functor m) => [m a] -> m [a]
 successes cc = fmap concat $ sequence $ map (\c->fmap unit c `mplus` return []) cc
