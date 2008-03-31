@@ -325,8 +325,9 @@ match tA tB =
           (Bottom{}, Bottom{}) -> return ()
           (Top{}, S x)         -> return () -- Is this right ?
           (S x, Top{})         -> mapM (match t2) x >> return ()
-	  (MutVar{ref=r1},MutVar{ref=r2}) | r1 == r2 -> trace "fuglyness in match!" $ return ()
+	  (MutVar{ref=r1}, MutVar{ref=r2}) | r1 == r2 -> trace "fuglyness in match!" $ return ()
                                           | otherwise-> lift$ writeVar r1 t2
+          (MutVar{ref=r1}, t)   -> lift$ writeVar r1 t2
 	  (GenVar{unique=n},GenVar{unique=m}) -> 
 	    if n==m 
 		then return () 
