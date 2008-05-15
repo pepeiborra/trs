@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 
@@ -5,6 +6,7 @@ module Test.TermRef where
 import Control.Applicative
 import Control.Exception (assert)
 import Control.Monad hiding (mapM, sequence )
+import Data.AlaCarte
 import Data.Traversable
 import Text.PrettyPrint
 import Data.Char (isAlpha)
@@ -14,74 +16,44 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
 import GHC.Exts (unsafeCoerce#)
 import TypePrelude
 
-import TRS
-import TRS.GTerms
+import TRS.Types
 import TRS.Utils
-import TRS.Tyvars
-import TRS.Core ( semEq )
 
-type TermRef s = TermRef_ Int s
-type BasicTerm = TermRef BasicShape
-type RuleS s   = Rule TermRef   s
+newtype Ref a = Ref a deriving (Ord, Eq)
+instance Functor Ref where fmap f (Ref t) = Ref (f t)
+instance Foldable Ref where foldMap = foldMapDefault
+instance Traversable Ref where traverse f (Ref t) = Ref <$> f t
 
-data TermRef_ i s = Term (s (TermRef_ i s)) | Var i | Ref (TermRef_ i s)
+ref :: (Ref :<: f) => Expr f -> Expr f
+ref t | Just (Ref t) <- match t = t
+      | otherwise               = inject $ Ref t
 
-instance (TermShape s, Eq i) => Eq (TermRef_ i s) where
-  Var i  == Var j  = i == j
-  Term s == Term t | Just pairs <- matchTerm s t
-                   = all (uncurry (==)) pairs
-  _      == _      = False 
-
-
-t :: TermShape s => s(TermRef s) -> TermRef s
-t      = Term
-
-wrapRef (Ref t) = Ref t
-wrapRef t = Ref t
-
-isTermRef :: TermRef s -> TermRef s
-isTermRef = id
-
-liftS f (Term t) = Term (f t)
-liftS2 (*) (Term t) (Term v) = Term (t*v)
-
-stripRefs :: TermShape s => TermRef_ i s -> TermRef_ i s
-stripRefs (Term s) = Term (stripRefs <$> s)
-stripRefs t@Var{}  = t
-stripRefs (Ref t)  = stripRefs t
-
-instance (Show (s(TermRef_ i s)), Integral i) => Show (TermRef_ i s) where
-  showsPrec p (Term s) = showsPrec p s
-  showsPrec p (Var i)  = showsVar p i
+instance (Show a) => Show (Ref a) where
   showsPrec p (Ref s)  = ('{' :) . showsPrec p s . ('}' :)
 
-{-
-instance (Show (s (TermRef s))) => Show (TermRef s) where
-    showsPrec p (Term s) = showsPrec p s
-    showsPrec p (Var  i) = showsVar p i 
--}
-instance (Eq (TermRef s), Ord (s(TermRef s))) => Ord (TermRef s) where
-  compare (Term s) (Term t) = compare s t
-  compare Term{} _          = GT
-  compare (Var i) (Var j)   = compare i j
+instance Ppr Ref where pprF (Ref r) = braces r
+instance (Ref :<: g, MatchShape g g) => MatchShape Ref g where matchShapeF (Ref r) (Ref s) = matchShape r s
 
--- ---------------------------------------
--- TermRef Term structure
--- ---------------------------------------
-instance (TermShape s, Traversable s, Eq i, Integral i) => 
-    Term (TermRef_ i) s user where
-  isVar Var{} = True 
-  isVar _     = False
-  mkVar       = Var . fromIntegral 
-  varId(Var i)= Just (fromIntegral i)
-  varId _     = Nothing
-  contents (Term tt) = Just tt
-  contents (Ref   t) = contents t    -- ???
-  contents _         = Nothing
-  build              = Term 
-  toGTM mkV (Ref t) = do
-      t' <- toGTM mkV t
-      v  <- fresh Nothing
-      sequence(writeVar (TRS.GTerms.ref v) <$> t')
-      return2 v
-  toGTM mkV t = defaultToGTM mkV t
+
+class (Functor g, Functor f, f :<: g) => StripRefs f g where stripRefsF :: f(Term g) -> Term g
+instance (T :<: g)   => StripRefs T   g where stripRefsF (T s tt) = term s tt
+instance (Var :<: g) => StripRefs Var g where stripRefsF (Var t)  = var t
+instance (Ref :<: g) => StripRefs Ref g where stripRefsF (Ref t)  = t
+
+instance (StripRefs a (a :+: b), StripRefs b (a :+: b)) => StripRefs (a :+: b) (a :+: b) where
+    stripRefsF (Inl x) = stripRefsF x
+    stripRefsF (Inr y) = stripRefsF y
+
+stripRefs :: StripRefs f f => Term f -> Term f
+stripRefs = foldTerm stripRefsF
+
+------------------------------------
+
+--example :: (Var :<: f, Ref :<: f) => Term f
+example :: Term (Var :+: Ref)
+example = let x = var 0 in ref x
+
+--example1 :: (Var :<: f) => Term f
+example1 = stripRefs example
+
+exPpr = ppr example

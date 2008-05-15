@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fglasgow-exts #-}
+{-# OPTIONS_GHC -fglasgow-exts -cpp #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 {-# OPTIONS_GHC -fignore-breakpoints #-}
@@ -17,147 +17,149 @@
 -- Home for all types and helpers. Internal
 -----------------------------------------------------------------------------
 
-module TRS.Types ( ST, runST, stToIO, RealWorld
-		 , STRef, newSTRef, readSTRef, writeSTRef
-		 , module TRS.Types) where
+module TRS.Types where
 
 import Control.Applicative
-import Control.Arrow
+import Control.Monad.Maybe (MaybeT(..))
+import Data.AlaCarte
 import Data.Char (isAlpha)
 import Data.Foldable as Foldable
-import Data.List (sortBy)
-import qualified Data.Map as Map
-import Data.Maybe
-import Data.Monoid
+import Data.AlaCarte
 import Data.Traversable as Traversable
 import Text.PrettyPrint
 import Control.Monad       hiding (msum, mapM)
-import Control.Monad.Error (MonadError, Error(..))
-import Control.Monad.Fix
-import Control.Monad.Trans
-import Control.Monad.State (gets, modify, evalState)
-import Control.Monad.ST
-import qualified Control.Monad.ST as ST
-import Data.STRef
-import Test.QuickCheck hiding (collect)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
 
+import TypePrelude
 
 import TRS.Utils hiding ( parens )
 
 type Unique = Int
 
------------------------------
--- * The Class of Match-ables
------------------------------
-
-class (Traversable s) => TermShape s where
-    matchTerm     :: s x -> s x -> Maybe [(x,x)]
-
-
 -- --------------------------
--- * Basic Shape of Terms
+-- * A la Carte Terms
 -- --------------------------
 
-data BasicShape a = T !String [a]
-    deriving Eq
+type Term t = Expr t
 
-instance Show a => Show (BasicShape a) where 
-    show (T s [])   = s
-    show (T s [x,y]) | not (any isAlpha s)
-                     = show x ++ ' ':s ++ ' ':show y
-    show (T s tt)   = render (text s <> parens( hcat$ punctuate comma (map (text.show) tt)))
---    showList []     = ""
---    showList (t:tt) = show t ++ ' ' : showList tt
+class Functor f => Ppr f where pprF :: f Doc -> Doc
+ppr :: Ppr f => Term f -> String
+ppr = render . foldTerm pprF
+
+class (f :<: g) => MatchShape f g where matchShapeF :: f(Term g) -> f(Term g) -> Maybe [(Term g, Term g)]
+
+--instance (Functor a, Functor b) => MatchShape a (a :+: b)
+--instance (Functor a, Functor b) => MatchShape b (a :+: b)
+instance (MatchShape a (a :+: b), MatchShape b (a :+: b)) => MatchShape (a :+: b) (a :+: b) where
+    matchShapeF (Inl x) (Inl y) = matchShapeF x y
+    matchShapeF (Inr x) (Inr y) = matchShapeF x y
+    matchShapeF _ _ = Nothing
+
+matchShape :: (MatchShape t t) => Expr t -> Expr t -> Maybe [(Term t, Term t)]
+matchShape (In t) (In u) = matchShapeF t u
+
+class Functor f => Children f where childrenF :: f [Term g] -> [Term g]
+instance (Children f, Children g) => Children (f :+: g) where
+    childrenF (Inl x) = childrenF x
+    childrenF (Inr y) = childrenF y
+
+subterms :: (Functor f, Foldable f) => Term f -> [Term f]
+subterms = foldTerm (concat . toList)
+
+-- -----------------------------
+-- * The first building blocks
+-- -----------------------------
+type BasicT = Term (Var :+: T)
+
+data T a = T !String [a]   deriving Eq
+instance Functor T     where fmap f (T s aa) = T s (map f aa)
+instance Traversable T where traverse f (T s tt) = T s <$> traverse f tt
+instance Foldable T    where foldMap = foldMapDefault
+
+newtype Var s = Var Int deriving (Eq, Show)
+instance Functor Var     where fmap _ (Var i) = Var i
+instance Traversable Var where traverse _ (Var i) = pure (Var i)
+instance Foldable Var    where foldMap = foldMapDefault
+instance Ord (Var a) where compare (Var a) (Var b) = compare a b
+
+build :: (g :<: f) => g(Term f) -> Term f
+build = inject
+
+foldTerm :: Functor f => (f a -> a) -> Expr f -> a
+foldTerm = foldExpr
+
+var :: (Var :<: s) => Int -> Term s
+var = inject . Var
+
+isVar :: (Var :<: s) => Term s -> Bool
+isVar t | Just (Var{}) <- match t = True
+        | otherwise             = False
+
+varId :: (Var :<: s) => String -> Term s -> Int
+varId err t = case match t of
+                Just (Var i) -> i
+                Nothing -> error ("varId/" ++ err ++ ": expected a Var term")
+
+term :: (T :<: f) => String -> [Term f] -> Term f
+term s = inject . T s
+
+term1 :: (T :<: f) => String -> Term f -> Term f
+term1 f t       = term f [t]
+term2 :: (T :<: f) => String -> Term f -> Term f -> Term f
+term2 f t t'    = term f [t,t']
+term3 ::
+  (T :<: f) => String -> Term f -> Term f -> Term f -> Term f
+term3 f t t' t''= term f [t,t',t'']
+constant :: (T :<: f) => String -> Term f
+constant f      = term f []
 
 
-instance Ord a => Ord (BasicShape a) where
+instance Ppr T           where
+    pprF (T n []) = text n
+    pprF (T n [x,y]) | not (any isAlpha n) = x <+> text n <+> y
+    pprF (T n tt) = text n <+> parens (cat$ punctuate comma tt)
+instance Ppr Var         where pprF (Var i) = text$ showsVar 0 i ""
+instance (Ppr a, Ppr b) => Ppr (a:+:b) where
+    pprF (Inr x) = pprF x
+    pprF (Inl y) = pprF y
+
+instance Ppr f => Show (Term f) where show = ppr
+
+instance Children T           where childrenF (T _ s)   = concat s
+instance Children Var         where childrenF _         = []
+
+instance Ord a => Ord (T a) where
     (T s1 tt1) `compare` (T s2 tt2) = 
         case compare s1 s2 of
           EQ -> compare tt1 tt2
           x  -> x
 
-instance Traversable BasicShape where
-    traverse f (T s tt) = T s <$> traverse f tt
-instance Functor BasicShape where
-    fmap = fmapDefault
-instance Foldable BasicShape where
-    foldMap = foldMapDefault
+--instance (Var :<: g) => MatchShape Var g where matchShapeF _ _ = Nothing
+instance ( T  :<: g) => MatchShape T g where
+    matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
 
-instance TermShape BasicShape where
-  matchTerm (T s1 tt1) (T s2 tt2) = if s1==s2 && length tt1 == length tt2
-              then Just (zip tt1 tt2)
-              else Nothing
 
-{-
------------------------------------------
--- * The Vars monad
------------------------------------------
+------------------------------
+-- MaybeT MonadPlus instance
+------------------------------
+instance Monad m => MonadPlus (MaybeT m) where
+    m1 `mplus` m2 = MaybeT$ runMaybeT m1 >>= \t1 ->
+                     case t1 of
+                       Nothing -> runMaybeT m2
+                       _       -> return t1
+    mzero = MaybeT (return Nothing)
 
-{- | A monad providing variables with identity
-     mkVar i == mkVar i
--}
-class Monad m => VarMonad m v | m -> v where
-  getVar    :: Unique -> m v
-  newUnique :: m Unique
-  fresh     :: m v
--}
------------------------
--- * Exceptions
------------------------
-data TRSException = Match (MatchException)
-                  | Unify (UnifyException)
-                  | Stuck
-  deriving (Show,Eq)
-data MatchException = GenErrorMatch
-                    | ShapeErrorMatch
-  deriving (Show,Eq)
-#ifdef __HADDOCK__
-data UnifyException = 
-    GenErrorUnify   |
-    ShapeErrorUnify |
-    OccursError     
-#else
-data UnifyException where 
-    GenErrorUnify   :: UnifyException
-    ShapeErrorUnify :: Show a => a -> a -> UnifyException
-    OccursError     :: UnifyException
-#endif
-instance Show UnifyException where
-  show GenErrorUnify = "Unification: general error"
-  show OccursError   = "Unification: occurs  error"
-  show (ShapeErrorUnify x y) = "Can't unify " ++ show x ++ " and " ++ show y
+------------------------------
+-- Type Class Programming
+------------------------------
+class IsSum (a :: * -> *) issum | a -> issum
+instance true  ~ HTrue  =>IsSum (a :+: b) true
+instance false ~ HFalse => IsSum b false
 
-instance Eq UnifyException where
-  GenErrorUnify == GenErrorUnify = True
-  OccursError   == OccursError   = True
-  ShapeErrorUnify _ _ == ShapeErrorUnify _ _ = True
-  _ ==  _ = False
+class IsVar (a :: * -> *) isvar | a -> isvar
+instance true  ~ HTrue  => IsVar Var true
+instance false ~ HFalse => IsVar b false
 
-instance Error TRSException where
-  noMsg    = Match GenErrorMatch
-  strMsg _ = Match GenErrorMatch
-
-genErrorMatch   = Match GenErrorMatch
-shapeErrorMatch = Match ShapeErrorMatch
-
-genErrorUnify   = Unify GenErrorUnify
-shapeErrorUnify :: Show a => a -> a -> TRSException
-shapeErrorUnify = (Unify.) . ShapeErrorUnify
-occursError     = Unify OccursError
-
---------------------------------
--- Other Instances and base operators
---------------------------------
---    showList  = unlines . map show
-{-
-instance Show(GTE r s) => Show(GT r s) where
-    show = show . eqGT  
-
-instance (Functor s, Show(s(GTE r s))) => Show(s(GT r s)) where
-    show = show . fmap eqGT 
--}
---instance Arbitrary(GTE r s) => Arbitrary(GT r s) where
---    arbitrary = fmap idGT arbitrary 
-
+proxy :: a
+proxy = undefined

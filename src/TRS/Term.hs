@@ -1,309 +1,70 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
-{-# OPTIONS_GHC -fignore-breakpoints #-}
+{-# OPTIONS_GHC -fno-mono-pat-binds #-}
 
 module TRS.Term where
 
-
-import Control.Applicative
-import Control.Arrow (first, second) 
-import Control.Monad hiding ( mapM, sequence )
-import Control.Monad.State (gets, modify, evalState, MonadTrans(..))
-import Control.Monad.Identity (runIdentity)
-import MaybeT (MaybeT(..))
-import Data.List (nub, nubBy, elemIndex)
-import Data.Foldable (toList, Foldable, concatMap)
-import Data.Maybe (fromMaybe, fromJust, catMaybes)
-import Data.Traversable (Traversable, mapM, sequence)
-import Prelude hiding (mapM, sequence, concatMap)
+import Control.Arrow ((***))
+import Control.Monad hiding ( mapM, sequence, msum)
+import qualified Data.AlaCarte
+import Data.AlaCarte hiding (match)
+import Data.Foldable (toList, Foldable, msum)
+import Data.Maybe
+import Data.Traversable (Traversable, mapM)
+import Prelude hiding (sequence, concatMap, mapM)
 import qualified Prelude
 
-import TypeCastGeneric
-
-import {-# SOURCE#-} TRS.Core   hiding ( semEq )
-import {-# SOURCE#-} qualified TRS.Core as Core
-import {-# SOURCE#-} TRS.GTerms
-import {-# SOURCE#-} TRS.Rules
-import TRS.Tyvars
 import TRS.Types
-import TRS.Substitutions
 import TRS.Utils
 
--- ---------------------------------------
--- * The class of terms
--- ----------------------------------------
-class (TermShape s, Eq (t s)) => Term (t :: (* -> *) -> *) (s :: * -> *) (user :: *) | t -> user where
-        isVar        :: t s -> Bool
-        mkVar        :: Int -> t s
-        varId        :: t s -> Maybe Int
-        contents     :: t s -> Maybe (s(t s))
-        build        :: s(t s) -> t s
---        mkGT mkVar t = runST (runIdentityT (mkGTM (return . mkVar) t))
-        toGTM        :: (Monad m, Traversable m) => 
-                        (forall r. t s -> m(GT_ user eq r s)) -> 
-                            t s -> ST r (m(GT_ user eq r s))
-        toGTM        = defaultToGTM
-        fromGTM      :: (Term t s user, Monad m) => 
-                        (Mutable (GT_ user md r s) -> m (t s)) -> 
-                        GT_ user md r s -> ST r (m(t s))
-        fromGTM      = defaultFromGTM
+------------------------------------
+-- * Inspecting and modifying terms
+------------------------------------
 
-term :: Term t BasicShape user => String -> [t BasicShape] -> t BasicShape
-term = (build.) . T
-term1 f t       = term f [t]
-term2 f t t'    = term f [t,t']
-term3 f t t' t''= term f [t,t',t'']
-constant f      = term f []
+type Position = [Int]
 
-var :: Term t BasicShape user => Int -> t BasicShape
-var  = mkVar 
+(!) :: Foldable f => Term f -> Position -> Term f
+In t ! (i:ii) = (toList t !! i) ! ii
+t    ! []     = t
 
-defaultFromGTM ::  (Term t s user, Monad m) => 
-                        (Mutable (GT_ user md r s) -> m (t s)) -> 
-                            GT_ user md r s -> ST r (m(t s))
-defaultFromGTM mkVar (S y) = build `liftMM` ((liftMM sequence . mapM) 
-                                              (fromGTM mkVar) y)
-defaultFromGTM mkVar MutVar{ref=ref} = do
-  var <- readVar' ref
-  return (mkVar var)
-defaultFromGTM mkVar var = return . return . fromJust $ zonkVar var 
+-- | Updates the subterm at the position given
+--   Note that this function does not guarantee success. A failure to substitute anything
+--   results in the input term being returned untouched
+updateAt  :: (Traversable f) =>  Position -> Term f -> (Term f -> Term f)
+updateAt [] _ t' = t'
+updateAt (0:_) _ _ = error "updateAt: 0 is not a position!"
+updateAt (i:ii) t' (In t) = In$ fmap (\(j,st) -> if i==j then updateAt ii t' st else st)
+                                (unsafeZipG [1..] t)
+updateAt _ _ x = x
 
-toGT :: Term t s user => (forall r. t s -> GT_ user eq r s) -> t s -> GT_ user eq r s
-toGT mkVar t | isVar t = mkVar t
-             | otherwise
-             = S (toGT mkVar `fmap` fromMaybe (error "defaultToGT")
-                                              (contents t))
-             
+updateAt'  :: (Traversable f, MonadPlus m, Functor m) => Position -> Term f -> (Term f -> m (Term f, Term f))
+updateAt' pos x x' = go x pos >>= \ (t',a) -> a >>= \v->return (t',v)
+  where
+    go _      (0:_)  = error "updateAt: 0 is not a position!"
+    go (In t) (i:is) = fmap ((In***msum) . unzipG)
+                     . mapM  (\(j,u)->if i==j
+                                       then go u is
+                                       else return (u, mzero))
+                     . unsafeZipG [1..]
+                     $ t
+    go x [] = return (x', return x)
 
-defaultToGTM :: (Term t s user, Monad m, Traversable m) => 
-                (forall r. t s -> m(GT_ user eq r s)) -> t s -> ST r (m(GT_ user eq r s))
-defaultToGTM mkV t 
-    | not (isVar t) 
-    = S `liftMM` ((liftMM sequence . mapM) (toGTM mkV) 
-                                           (fromMaybe (error "defaultToGTM")
-                                            (contents t)))
-    | otherwise = return(mkV t)
+vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
+vars t = snub [ v | u <- subterms t, let Just v@Var{} = Data.AlaCarte.match u]
 
-fromChildren :: Term t s user => t s -> [t s] -> t s
-fromChildren t tt = -- build$ modifySpine (fromMaybe (error "fromSubTerms") $ contents t) tt
-                    liftTerm (`modifySpine` tt) t
+collect :: (Foldable f, Functor f) => (Term f -> Bool) -> Term f -> [Term f]
+collect pred t = [ u | u <- subterms t, pred u]
 
-subTerms, children :: Term t s user => t s -> [t s]
-subTerms = iterateMP children
-children = fromMaybe [] . fmap toList . contents
-
-liftTerm    ::(Term t s user) => (s (t s) -> s (t s)) -> t s -> t s
-liftTerm f t = maybe t (build . f) . contents $ t
-
-liftTermM    ::(Term t s user, Monad m) => (s (t s) -> m( s (t s))) -> t s -> m(t s)
-liftTermM f t = maybe (return t) (liftM build . f) . contents $ t
-
-applySubst   :: Term t s user => SubstM (t s) -> t s -> t s
-applySubst sm t = mutateTerm f t where 
-     s = fromSubstM sm
-     f t' | Just i <- varId t', i`inBounds` s, Just v <- s !! i = v
-          | otherwise = t'
-
--- | bottom-up transformation
-mutateTerm  f t = f .    maybe t build       . fmap2 (mutateTerm f)  . contents $ t
-mutateTermM f t = f =<< (fmap(maybe t build) . mapM2 (mutateTermM f) . contents) t
-  
--- TODO: TEST THAT THIS RULE FIRES
-{-# RULES "castTerm/identity" castTerm = id #-}
-
-castTerm :: forall t1 t2 s user . 
-            (Term t1 s user, Term t2 s user) => t1 s -> t2 s
-castTerm t = runST(templateGT' t >>= zonkTerm')
-
-
-class Term t s user => TRS t s m user where
-        rewrite      :: Term t1 s user => [Rule t1 s] -> t s -> m(SubstM(t s), t s)
-        unify        :: t s -> t s -> m(SubstM (t s))
-        rewrite1     :: Term t1 s user => [Rule t1 s] -> t s -> m(SubstM(t s), t s)
-        narrow1      :: Term t1 s user => [Rule t1 s] -> t s -> m(SubstM(t s), t s)
-
-class Term t s user => TRSN t s user where
---        narrow1'     :: Term t1 s => [Rule t1 s] -> t s -> [(SubstM(t s), t s)]
-        narrowFull   :: Term t1 s user => [Rule t1 s] -> t s -> [(SubstM(t s), t s)]
-        -- | Basic Narrowing
-        narrowBasic  :: Term t1 s user => [Rule t1 s] -> t s -> [(SubstM(t s), t s)]
-        -- | Full Narrowing restricted by a predicate.
-        --   Stops as soon as the predicate is positive or the 
-        --   derivation finishes
-        narrowFullBounded :: Term t1 s user => (t s -> Bool) -> [Rule t1 s] -> t s 
-                                    -> [(SubstM(t s), t s)]
-
-{-
-instance (TermShape s, Traversable s) => Term (s a) where
-  isVar _      = False
-  contents     = toList
-  synEq x y    = Just True == (all (uncurry synEq) <$> matchTerm x y)
-  fromSubTerms = modifySpine
--}
-vars :: Term t s user => t s -> [t s]
-vars t | isVar t   = [t]
-       | Just tt <- toList <$> contents t 
-                   = nub (vars =<< tt)
-       | otherwise = []
-
-collect :: Term t s user => (t s -> Bool) -> t s -> [t s] 
-collect pred t | Just tt <- toList <$> contents t
-               = nub ([t' | t' <- t : tt, pred t'] ++
-                              concatMap (collect pred) tt)
-               | otherwise = filter pred [t]
-
-{-
--- * Syntactic equality
-newtype SynEqTerm (t :: (* -> *) -> *) s = SynEq {unSynEq::t s} --deriving Show
-instance Term t s user => Eq (SynEqTerm t s) where SynEq t1 == SynEq t2 = t1 `synEq` t2
-
-instance Show (t s) => Show (SynEqTerm t s) where 
-    showsPrec p (SynEq t) = ("SynEqTerm " ++) . showsPrec p t
--}
 -- | Replace (syntactically) subterms using the given dictionary
---   Do not confuse with substitution application. @replace@ makes no 
+--   Do not confuse with substitution application. @replace@ makes no
 --   effort at avoiding variable capture
 --   (you could deduce that from the type signature)
-replace :: (Term t s user) => [(t s,t s)] -> t s -> t s
+replace :: (Eq (Term f), Functor f) => [(Term f, Term f)] -> Term f -> Term f
 replace []   = id
-replace dict = mutateTerm (\t -> fromMaybe t $ lookup t dict)
+replace dict = foldTerm f where
+    f t = fromMaybe (In t) $ lookup (In t) dict
 
--- ¿mutateTermM en Maybe no debería fallar con un Nothing? 
--- No falla, porque, viendo un termino como un arbol,
---  go siempre tiene éxito en las hojas, y por induccion en
---  todos los nodos 
-
---------------------------------------------------------------------------
--- * Semantic Equality
---------------------------------------------------------------------------
-newtype Semantic (t :: (* -> *) -> *) (s :: * -> *) = Semantic {semantic :: t s} 
-
-instance Show (t s) => Show (Semantic t s) where show (Semantic a) = show a
-
-instance Term t s user => Eq (Semantic t s) where
-    Semantic a == Semantic b = a `semEq` b
-
-instance Term t s user => Term (Semantic t) s user where
-  varId = varId . semantic
-  mkVar = Semantic . mkVar
-  isVar = isVar . semantic
-  contents = fmap2 Semantic . contents . semantic
-  build = Semantic . build . fmap semantic
-
-instance (Ord (t s), Term t s user) => Ord (Semantic t s) where
-  compare (Semantic a) (Semantic b) | a `semEq` b = EQ
-                                    | otherwise   = compare a b
-
---instance TermShape s => Eq (TermStatic s) where
-semEq :: (Term t s user, TermShape s) => t s -> t s -> Bool
-t1 `semEq` t2 = runST (do
-   [t1',t2'] <- mapM templateTerm' [t1,t2]
-   return (isGT t1')
-   t1' `Core.semEq` t2')
-
-
-
--- | Fails on terms with skolems. What should it do?
-templateTerm :: Term t s user => t s -> GT_ user mode r s
-templateTerm = toGT (genVar . fromMaybe (error "templateTerm: variable with no id"). varId)
-
-
-templateTerm' :: Term t s user => t s -> ST r (GT_ user mode r s)
-templateTerm' = fmap fromJust -- Identity is not Traversable ^.^
-              . toGTM (return . maybe (skolem 0) genVar . varId)
-
-templateGT' :: Term t s user => t s -> ST r (GT user r s)
-templateGT' = templateTerm'
-
-
---------------------------------------------------------------------------
--- * Out and back of GT, purely
---------------------------------------------------------------------------
--- | Tries to return a term without mut. vars, fails if it finds any mut var.
-zonkTerm :: Term t s user => GT_ user mode r s -> Maybe (t s)
-zonkTerm = zonkTermWith zonkVar
-
-zonkTermUnsafe :: (Term t s user, Term (GT_ user mode r) s user) => 
-                  GT_ user mode r s -> t s
-zonkTermUnsafe t = 
-  let mvars        = [r | MutVar{ref=r} <- collect isMutVar t]
-      n_gvars      = length$ collect isGenVar t
-      f MutVar{ref=r} = Just$ mkVar (fromJust(elemIndex r mvars) + n_gvars)
-      f v = zonkVar v
-   in fromJust $ zonkTermWith f t
-
-zonkTermWith zvar (S tt) = build <$> (zonkTermWith zvar `mapM` tt)
-zonkTermWith zvar var   = zvar var
-
-
--- | Replaces any mut. var with its current substitution, or a (clean) GenVar if none
-zonkTerm' :: (Prune mode, Term (GT_ user mode r) s user, Term t s user) => 
-             GT_ user mode r s -> ST r (t s)
-zonkTerm' t = do
-  t' <- col t
-  let mvars        = collect isMutVar t'
-      n_gvars      = length$ collect isGenVar t'
-  mvars_indexes <- catMaybes <$> forM mvars (getUnique . ref)
-  let skolem_offset = n_gvars + maximum (0:mvars_indexes)
-  forM mvars $ \m@MutVar{ref=v, note_=n} -> 
-       readVar' v >>= \x -> case x of
-            Empty Nothing -> writeVar v (Skolem n $ 
-                                      fromJust(elemIndex m mvars) + skolem_offset)
-            Empty (Just i)-> writeVar v (GenVar n i)
-            Mutable{varUnique=Nothing}-> 
-                             writeVar v (Skolem n $
-                                      fromJust(elemIndex m mvars) + skolem_offset)
-            Mutable{} -> return ()
-  t'' <- col t'
-  runIdentity <$> fromGTM f t''
-  where f = return . mkVar . fromMaybe (error "zonkTerm'") . varUnique
-
-zonkTermG' :: (Traversable f, Prune mode, Term (GT_ user mode r) s user, Term t s user) => 
-             f(GT_ user mode r s) -> ST r (f(t s))
-zonkTermG' tt = do
-  tt' <- col `mapM` tt
-  let vars_tt = concatMap vars tt'
-      mvars   = filter isMutVar vars_tt
-      n_gvars = length$ filter isGenVar vars_tt
-  mvars_indexes <- catMaybes <$> forM mvars (getUnique . ref)
-  let skolem_offset = n_gvars + maximum (0:mvars_indexes)
-  forM mvars $ \m@MutVar{ref=v, note_=n} -> 
-       readVar' v >>= \x -> case x of
-            Empty Nothing -> writeVar v (Skolem n $ 
-                                      fromJust(elemIndex m mvars) + skolem_offset)
-            Empty (Just i)-> writeVar v (GenVar n i)
-            Mutable{varUnique=Nothing}-> 
-                             writeVar v (Skolem n $
-                                      fromJust(elemIndex m mvars) + skolem_offset)
-            Mutable{} -> return ()
-  tt'' <- col `mapM` tt'
-  runIdentity <$$> fromGTM f `mapM` tt''
-  where f = return . mkVar . fromMaybe (error "zonkTerm'") . varUnique
-
-{-
-zonkTermWithM :: (Prune mode, Term t s user, Term (GT_ user mode r) s) => 
-                (forall a. Mutable a -> ST r (t s)) ->
-                GT_ user mode r s -> ST r (t s)
-zonkTermWithM f t = do
-  t' <- col t
-  let mvars        = [r | MutVar r <- collect isMutVar t]
-      n_gvars      = length$ collect isGenVar t
-  mvars_indexes <- catMaybes <$> forM mvars getUnique
-  let skolem_offset = n_gvars + maximum (0:mvars_indexes)
-  forM mvars $ \v -> 
-       readVar' v >>= \x -> case x of
-            Skolem _ -> writeSTRef v (Skolem $
-                                   (skolem_offset +) <$> elemIndex v mvars)
-            Empty i  -> write v (GenVar i)
-            Mutable{}-> return ()
-  join (fromGTM f t')
--}
-
-zonkVar :: Term t s user => GT_ user mode r s -> Maybe (t s)
-zonkVar (MutVar _ r) = Nothing -- error "zonkTerm: No vars" 
-zonkVar (GenVar _ n) = Just $ mkVar n
-zonkVar (CtxVar n)   = Just $ mkVar n
-zonkVar (Skolem _ n) = Just $ mkVar n
-zonkVar x = seq x $ error "ouch!: zonkVar" 
-
+-- Only 1st level children
+someSubterm :: (Traversable f, Functor m, MonadPlus m) => (Term f -> m(Term f)) -> Term f -> m (Term f)
+someSubterm f (In x) = msum (In <$$> interleaveM f return x)

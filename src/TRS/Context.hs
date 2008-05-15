@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE OverlappingInstances #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  TRS.Context
@@ -15,53 +16,68 @@
 -----------------------------------------------------------------------------
 
 module TRS.Context where
-import Control.Arrow
+import Control.Applicative
+import Control.Monad ( mzero )
+import Data.AlaCarte
 import Data.Foldable
 import Data.Maybe
 import Data.Traversable
 import Debug.Trace
+import Text.PrettyPrint
 
-import TRS.Utils
+import TRS.Utils hiding (brackets)
 import TRS.Types
-import TRS.GTerms
+import TRS.Term
+import TRS.Rewriting
+import TRS.Unification
 
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, notElem, sum)
 
-
 -- | What is a context? A term with a hole.
 --   The hole is represented by the constructor CtxVar
-type Context = GT_
+type Context f = Term f
 
 -- A CtxVar carries an index, which must be unique
-emptyC = CtxVar 0
+newtype Hole f = Hole Int deriving (Show, Eq)
+
+instance Functor Hole     where fmap _ (Hole i) = Hole i
+instance Foldable Hole    where foldMap = foldMapDefault
+instance Traversable Hole where traverse _ (Hole i) = pure (Hole i)
+
+emptyC :: (Hole :<: f) => Term f
+emptyC = hole 0
+
+hole :: (Hole :<: f) => Int -> Term f
+hole = inject . Hole
 
 -- | Fill a hole in a context
-fill,(|>) :: Traversable s => 
-             Context user mode r s -> GT_ user mode r s -> GT_ user mode r s
-fill (S ct) x = S (fmap fill' ct)
-    where fill' (CtxVar 0) = x
-          fill' (CtxVar i) = CtxVar (i-1)
-          fill' (S t)      = S$ fmap fill' t 
-          fill' x          = x
-fill CtxVar{} x = --trace ("Warning! " ++ show x)  
-                  x
-fill x y = --trace ("Warning2! " ++ show x ++ " |> " ++ show y) 
-           x
-           
+fill,(|>) :: (Hole :<: f) => Context f -> Term f -> Term f
+fill ct t = foldTerm fill' ct
+    where fill' ct | Just (Hole 0) <- prj ct = t
+                   | Just (Hole i) <- prj ct = hole (i-1)
+                   | otherwise = In ct
+
 (|>) = fill
 
 -- | Returns a list of subterms and the corresponding contexts
 --   | forall subterm ctx . (subterm, ctx) <- contexts t ==> ctx |> subterm = t
--- contexts :: Traversable s => GT user r s -> [(GT user r s, Context r s)]
-contexts (S t) = [(shiftC (-1) t_i,  t') 
-                      | i <- [1..size t]
-                      , (t',t_i) <- updateAt' (shiftC 1 (S t)) [i] (CtxVar 0)]
-
-contexts _ = []
+contexts :: (Hole :<: f, Traversable f) => Term f -> [(Term f, Context f)]
+contexts t@(In f) = let t' = shiftC 1 t in
+             [ (shiftC (-1) t_i, u)
+             | i <- [1..size f]
+             , (u, t_i) <- updateAt' [i] t' (hole 0) ]
 
 -- | Shift the indexes of the context vars
---shiftC :: Functor t => GT user  r s -> GT user  r s
-shiftC n (S t) = S$ fmap (shiftC n) t
-shiftC n (CtxVar i) = CtxVar $! (i + n)
-shiftC _ x = x
+shiftC :: (Hole :<: t) => Int -> Term t -> Term t
+shiftC n = foldTerm f
+           where f t | Just (Hole i) <- prj t = hole $! (i + n)
+                     | otherwise = In t
+
+instance Ppr Hole where pprF (Hole i) = brackets (int i)
+instance (Hole :<: f) => MatchShape Hole f where matchShapeF _ _ = Nothing
+
+instance (Hole :<: g) => Match Hole Hole g where matchF _ _ = Nothing
+instance (Hole :<: g, a :<: g) => Match Hole a g where matchF _ _ = Nothing
+instance (Hole :<: g, Functor h) => Unify Hole g h where unifyF _ _ = mzero
+

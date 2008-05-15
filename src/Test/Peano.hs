@@ -1,27 +1,31 @@
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
-{-# OPTIONS_GHC -fignore-breakpoints #-}
+{-# OPTIONS_GHC -fglasgow-exts #-}
 
 module Test.Peano where
 
-import TRS
+import TRS.Types
+import TRS.Unification
 import Test.TermRef
+import TRS.Rewriting
+import TRS.Term
+import TRS.Substitutions
 
 import Control.Applicative
-import Control.Monad hiding ( sequence )
+import Control.Monad hiding ( sequence, mapM )
+import qualified Data.AlaCarte as Carte
+import Data.AlaCarte hiding ( match )
 import Data.Foldable
 import Data.List
 import Data.Maybe
 import Data.Traversable
+import Text.PrettyPrint
 import Test.QuickCheck
-import Prelude hiding ( sequence ) 
+import Prelude hiding ( sequence, mapM )
+
 ------------------------
 -- The Terms dataType
 ------------------------
-type PeanoT = TermRef Peano
-newtype PeanoV = Refs PeanoT 
-    deriving (Show, Eq)
-
 data Peano a = a :+ a
              | Succ a
              | Pred a
@@ -55,25 +59,33 @@ instance Show x => Show (Peano x) where
                          . showsPrec (succ prec_app) b
   showsPrec p (Pred a) = showParen (p>prec_pred) 
                        $ ("p " ++) . showsPrec (succ prec_pred) a
-
-instance Enum (PeanoT) where
+{-
+instance Enum (Peano f) where
    succ(x) = s(x)
 --   pred(s(Succ x)) = x
    toEnum n = iterate succ z !! n
+-}
 
 -- helper constructors
-x +: y   = t (x     :+ y)
-x &+: y  = t (Ref x :+ y)
-x +:& y  = t (x     :+ Ref y)
-x &+:& y = t (Ref x :+ Ref y)
-s = t . Succ
-z = t Zero
-x *: y = t (x :* y)
-fact x = t . Fact x
-p = t . Pred
 
-isSum (Term(x :+ y)) = True
-isSum _ = False
+(+:)    :: (Peano :<: f) => Term f -> Term f -> Term f
+x +: y   = inject (x :+ y)
+x &+: y  = ref x +: y
+x +:& y  = x +: ref y
+x &+:& y = ref x +: ref y
+
+s :: (Peano :<: f) => Term f -> Term f
+s x      = inject (Succ x)
+z :: (Peano :<: f) => Term f
+z        = inject Zero
+
+(*:)   :: (Peano :<: f) => Term f -> Term f -> Term f
+x *: y = inject (x :* y)
+fact x = inject . Fact x
+p x    = inject (Pred x)
+
+isSum t | Just (x :+ y) <- Carte.match t = True
+        | otherwise                = False
 
 instance Traversable Peano where
     traverse f Zero = pure Zero
@@ -88,20 +100,43 @@ instance Functor Peano where
 instance Foldable Peano where
     foldMap = foldMapDefault
 
-instance TermShape Peano where 
-    matchTerm Zero Zero = Just []
-    matchTerm (Succ x) (Succ y) = Just [(x,y)]
-    matchTerm (a :+ b) (c :+ d) = Just [(a,c),(b,d)] 
-    matchTerm (a :* b) (c :* d) = Just [(a,c),(b,d)] 
-    matchTerm (Fact a b) (Fact c d) = Just [(a,c),(b,d)]
-    matchTerm (Pred a) (Pred b) = Just [(a,b)]
-    matchTerm x y = Nothing
+instance (Peano :<: g) => MatchShape Peano g where
+    matchShapeF Zero Zero = Just []
+    matchShapeF (Succ x) (Succ y) = Just [(x,y)]
+    matchShapeF (a :+ b) (c :+ d) = Just [(a,c),(b,d)] 
+    matchShapeF (a :* b) (c :* d) = Just [(a,c),(b,d)] 
+    matchShapeF (Fact a b) (Fact c d) = Just [(a,c),(b,d)]
+    matchShapeF (Pred a) (Pred b) = Just [(a,b)]
+    matchShapeF x y = Nothing
+
+instance Ppr Peano where
+    pprF Zero = int 0
+    pprF (Succ a) = text "s" <+> a
+    pprF (a :+ b) = parens (a <+> text "+" <+> b)
+    pprF (a :* b) = parens (a <+> text "*" <+> b)
+    pprF (Fact a b) = parens(text "Fact" <+> a <+> b)
+    pprF (Pred a) = text "p" <+> a
+
+instance Children Peano where
+    childrenF (a :+ b) = a ++ b
+    childrenF (a :* b) = a ++ b
+    childrenF (Succ x) = x
+    childrenF (Pred x) = x
+    childrenF (Fact a b) = a ++ b
+    childrenF _ = []
+
+instance (Var :<: g, Peano :<: g) => Unify Peano Var g where unifyF t v = unifyF v t
+instance (Peano :<: g, Functor h) => Unify Peano h g where unifyF t v = mzero
 
 
-instance Num (TermRef Peano) where
+instance (Peano :<: g, Var :<: g) => Match Peano Peano g where matchF = matchFdefault
+instance (Peano :<: g, f :<: g) => Match Peano f g where matchF _ _ = Nothing
+
+instance (Eq (Term f), Ppr f, Peano :<: f) => Num (Term f) where
   fromInteger i = iterate s z !! (fromIntegral i)
   (+) = (+:)
   (*) = (*:)
+
 
 {-
 p (Succ _) = "succ"
@@ -109,6 +144,7 @@ p (_ :+ _) = "+"
 p Zero     = "0"
 -}
 
+{-
 instance Arbitrary (PeanoT) where
     arbitrary = sized$ arbitraryPeano (map Var [0..2]) False
 -- instance Shrink PeanoT where
@@ -161,3 +197,4 @@ arbitraryRule refs = do
   l <- arbitrary
   r <- sized$ arbitraryPeano (vars l) refs
   return (l:->r)
+-}

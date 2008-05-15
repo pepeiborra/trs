@@ -17,12 +17,10 @@
 
 module TRS.Utils where
 import Control.Applicative
-import Control.Arrow
 import Control.Monad.State hiding (mapM, sequence, msum)
 import Control.Monad.List (ListT(..))
-import qualified Control.Monad.LogicT as LogicT
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
-import Control.Monad.LogicT.SFKT (SFKT)
+import Data.AlaCarte
 import Data.List (group, sort, sortBy, groupBy, intersperse)
 import Data.Traversable
 import Data.Foldable
@@ -30,7 +28,6 @@ import qualified Prelude
 import Prelude hiding ( all, any, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
                       , sequence, and, or, elem, concatMap )
 
-import qualified Debug.Trace
 import Control.Exception
 
 #if __GLASGOW_HASKELL__ < 607 
@@ -43,16 +40,23 @@ isList = id
 isMaybe :: Maybe a -> Maybe a
 isMaybe = id
 
+const2 :: a -> b -> b1 -> a
 const2 = const . const
 
 
-varNames = "XYZWJIKHW"
-showsVar p n = if fromIntegral n < length varNames 
+showsVar :: (Integral a) => Int -> a -> [Char] -> [Char]
+showsVar p n = if fromIntegral n < length varNames
                          then ([varNames !! fromIntegral n] ++)
                          else ('v' :) . showsPrec p n
+    where varNames = "XYZWJIKHW"
+
+brackets, parens, hash :: String -> String
 brackets = ('[' :) . (++ "]")
 parens   = ('(' :) . (++ ")")
 hash     = ('#' :) . (++ "#")
+
+
+punct :: [a] -> [[a]] -> [a]
 punct p = concat . intersperse p
 
 {- |
@@ -71,33 +75,40 @@ splitOn x xs = let (l, r) = break (==x) xs in
 snub :: Ord a => [a] -> [a]
 snub = map head . group . sort
 
---snubBy :: Ord a => [a] -> [a]
+snubBy :: (a -> a -> Ordering) -> [a] -> [a]
 snubBy f = map head . groupBy (((==EQ).) . f) . sortBy f
 
+on, at :: (a -> a -> b) -> (t -> a) -> (t -> t -> b)
 g `at` f = \x y -> g (f x) (f y)
+on = at
 
 
+inBounds1 :: (Ord t1, Num t1) => t1 -> [t] -> Bool
 inBounds1 _ [] = False
 inBounds1 0 _  = True
-inBounds1 i (x:xs) = inBounds1 (i-1) xs
+inBounds1 i (_:xs) = inBounds1 (i-1) xs
 inBounds1 i _ | i < 0 = False
 
+inBounds :: Int -> [a] -> Bool
 inBounds i _ | i < 0 = False
 inBounds i xx = length (take (i+1) xx) == i+1
 
+propInBounds :: Int -> [()] -> Bool
 propInBounds i xx = inBounds i xx == inBounds1 i xx
     where types = xx :: [()]
 
+isSubsetOf :: (Eq a, Foldable f) => f a -> f a -> Bool
 x `isSubsetOf` y = all (`elem` y) x
 
+firstM :: (Monad m) => (t -> m a) -> (t, t1) -> m (a, t1)
 firstM  f (a, b) = f a >>= \a' -> return (a', b)
+secondM :: (Monad m) => (t1 -> m a) -> (t, t1) -> m (t, a)
 secondM f (a, b) = f b >>= \b' -> return (a, b')
 
 biM :: Monad m =>  (a -> m b) -> (c -> m d) -> (a,c) -> m (b, d)
 biM f g = firstM f >=> secondM g
 
-f `on` h = \x y -> f (h x) (h y) 
-
+swap :: (a,b) -> (b,a)
 swap(x,y) = (y,x)
 ------------------------------------------------------------------------
 --
@@ -120,6 +131,7 @@ elemByM p x (y:ys) =
        if b then return True else elemByM p x ys
 
 
+nubByM :: (Functor m, Monad m) => (a -> a -> m Bool) -> [a] -> m [a]
 nubByM f l = nubByM' l [] where
   nubByM' [] _ = return []
   nubByM' (x:xs) ls = trace "nubByM'" $ do
@@ -144,12 +156,12 @@ deleteByM p x (y:ys) =
 -- -----------------------------------------------------------
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'
-iterateMP :: MonadPlus m => (a -> m a) -> (a -> m a)
-iterateMP f x = (f x >>= iterateMP f) `mplus` return x
+closureMP :: MonadPlus m => (a -> m a) -> (a -> m a)
+closureMP f x = (f x >>= closureMP f) `mplus` return x
 
 -- Fixpoint of a monadic function, using Eq comparison (this is a memory eater)
 fixM_Eq :: (Monad m, Eq a) => (a -> m a) -> a -> m a
-fixM_Eq f = go 0  where 
+fixM_Eq f = go (0::Int)  where 
   go i prev_result = trace ("Iteration " ++ show i) $ do 
     x <- f prev_result
     if x == prev_result then return x
@@ -161,14 +173,17 @@ fixEq f x = case f x of y | y == x    -> y
                           | otherwise -> fixEq f y
 
 iterateMn :: Monad m => Int -> (a -> m a) -> a -> m a
-iterateMn 0 f x = return x
+iterateMn 0 _ x = return x
 iterateMn n f x = f x >>= iterateMn (n-1) f 
 
+iterateM :: (Monad m) => (a -> m a) -> a -> m [a]
 iterateM f x = let iM f x = x : iM f (x >>= f) in
                sequence $ iM f $ return x
 
+concatMapM :: (Monad m, Functor m, Traversable t) => (a1 -> m [a]) -> t a1 -> m [a]
 concatMapM f = fmap concat . mapM f
 
+assertM :: (Monad m) => m Bool -> m b -> m b
 assertM acc cont = acc >>= \cond -> assert cond cont
 
 -- |All the pairs of element + rest of the list
@@ -188,6 +203,7 @@ anyM = (liftM or .) . mapM
 class Unpack p u | p -> u where
     unpack :: p -> u
 
+ily ::(Unpack b u) => (b1 -> c) -> ((a -> c) -> a1 -> b) -> (a -> b1) -> a1 -> u
 ily pack transform f = unpack . transform (pack . f)
 
 unsafeZipG :: (Traversable t1, Traversable t2) => t1 a -> t2 b -> t2 (a,b)
@@ -200,17 +216,13 @@ unsafeZipWithG :: (Traversable t1, Traversable t2) =>
                  (a -> b -> c) -> t1 a -> t2 b -> t2 c
 unsafeZipWithG f t1 t2 = fmap (uncurry f) (unsafeZipG t1 t2)
 
-zipGsafe t1 t2 
-    | size t2 > size t1 = evalState (mapM zipG' t2) (toList t1)
-    | otherwise = evalState (mapM zipG' t1) (toList t2)
-       where zipG' y = do (x:xx) <- get
-                          put xx
-                          return (x,y)
+zipG :: (Traversable t) => t a -> t a -> t (a, a)
+zipG t1 t2= either id id $ zipG' t1 t2
 
-zipG :: (Traversable t, Traversable t1) =>
+zipG' :: (Traversable t, Traversable t1) =>
         t1 a1 -> t a -> Either (t (a1, a)) (t1 (a, a1))
-zipG t1 t2 
-    | size t2 > size t1 = Left$ evalState (mapM zipG' t2) (toList t1)
+zipG' t1 t2 
+    | toList t2 >=: toList t1 = Left$ evalState (mapM zipG' t2) (toList t1)
     | otherwise = Right$  evalState (mapM zipG' t1) (toList t2)
        where zipG' y = do (x:xx) <- get
                           put xx
@@ -224,9 +236,9 @@ unzipG t = let fstz = fmap fst t
            in (fstz, sndz)
 
 unzipG3 :: Traversable t => t (a,b,c) -> (t a, t b, t c)
-unzipG3 t = let fstz = fmap (\(a,b,c)->a) t
-                sndz = fmap (\(a,b,c)->b) t
-                trdz = fmap (\(a,b,c)->c) t
+unzipG3 t = let fstz = fmap (\(a,_,_)->a) t
+                sndz = fmap (\(_,b,_)->b) t
+                trdz = fmap (\(_,_,c)->c) t
             in (fstz,sndz,trdz)
 
 mapMState :: (Traversable t, Monad m) => (a -> s -> m (b,s)) -> s -> t a -> m (t b, s)
@@ -236,27 +248,58 @@ mapMState f s0 x = flip runStateT s0 (mapM f' x)
                     put s'
                     return v
 
-size :: Traversable t => t a -> Int
-size = length . toList    
+size :: Foldable t => t a -> Int
+size = length . toList
 
 modifySpine      :: Traversable t => t a -> [b] -> t b
 modifySpine t xx = assert (xx >=: toList t) $  mapM (\_-> pop) t `evalState` xx
   where pop = gets head >>= \v -> modify tail >> return v
 
-someSubterm :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
-someSubterm f x = msum$ interleave f return x
+-- Only 1st level children
+someSubterm :: Traversable t => (a -> a) -> t a -> [t a]
+someSubterm f x = interleave f id x
+
+
+-- Only 1st level children
+someSubtermM :: (Traversable t, MonadPlus m) => (a -> m a) -> t a -> m (t a)
+someSubtermM f x = msum$ interleaveM f return x
+
+-- | Like someSubterm, but works on all the subterms not only the 1st level
+-- > someSubTerm f t = [(t'1,old1), (t'2, old2) ...]
+someSubtermDeep :: forall f m. (Functor f, Foldable f, MonadPlus m) =>  (Expr f -> Expr f) -> Expr f -> m(Expr f, Expr f)
+someSubtermDeep f = foldExpr' g where
+    g :: Foldable f => Expr f -> f (m(Expr f, Expr f)) -> m(Expr f, Expr f)
+    g t_old t = return (f t_old, t_old) `mplus` msum t
+
 
 successes :: (MonadPlus m, Functor m) => [m a] -> m [a]
 successes cc = fmap concat $ sequence $ map (\c->fmap unit c `mplus` return []) cc
     where unit x = [x]
 
--- Awesome. Data.Traversable is incredible!
-interleave :: (MonadPlus m, Traversable t) =>
-                 (a -> m b) -> (a -> m b) -> t a -> [m (t b)]
+interleave :: (Traversable f) => (a ->b) -> (a -> b) -> f a -> [f b]
 interleave f g x = let
         indexed_fs = map (indexed f g) [0..size x - 1] 
         indexed f default_f i (j,x) = if i==j then f x else default_f x
+     in map (\f->fmap f (unsafeZipG [0..] x)) indexed_fs
+
+-- Awesome. Data.Traversable is incredible!
+interleaveM :: (MonadPlus m, Traversable t) =>
+                 (a -> m b) -> (a -> m b) -> t a -> [m (t b)]
+interleaveM f g x = let
+        indexed_fs = map (indexed f g) [0..size x - 1] 
+        indexed f default_f i (j,x) = if i==j then f x else default_f x
      in map (\f->mapM f (unsafeZipG [0..] x)) indexed_fs
+
+
+-- Awesome. Data.Traversable is incredible!
+interleaveM' :: (MonadPlus m, Traversable t) => (a -> m a) -> (a -> m a) -> t a -> [m (t a, a)]
+interleaveM' f g x = let
+        indexed_fs = map (indexed f g) [0..size x - 1]
+        indexed f default_f i (j,x) = if i==j
+                                         then (put x >> lift (f x))
+                                         else (lift $ default_f x)
+     in map (`runStateT` undefined) (map (\f->mapM f (unsafeZipG [0..] x)) indexed_fs)
+
 
 #if __GLASGOW_HASKELL__ < 607
 f >=> g = \ x -> f x >>= g
@@ -268,7 +311,9 @@ f >=> g = \ x -> f x >>= g
 newtype ListT' m a = ListT_ {runListT_ :: ListT m a}
   deriving (Monad, MonadPlus, MonadIO, MonadTrans, Functor)
 
+listT' :: m [a] -> ListT' m a
 listT'    = ListT_ . ListT 
+runListT' :: ListT' m a -> m [a]
 runListT' = runListT . runListT_
 
 {- This is the standard MonadError instance, useless since ST is not MonadError
@@ -295,6 +340,7 @@ tryListT a (ListT m) = ListT$ do
     [] -> return [a]
     x  -> return x
 
+try1 :: (Monad m) => (a -> ListT m a) -> a -> ListT m a
 try1 m a = let ListT m1 = m a in  
            ListT$ (m1 >>= \v -> return (if null v then [a] else v))
 ----------------------------------------------------------
@@ -304,6 +350,7 @@ try1 m a = let ListT m1 = m a in
 newtype ErrorT' e m a = ErrorT_ {unErrorT :: ErrorT e m a}
   deriving (Monad, MonadError e, MonadIO, MonadTrans, MonadFix, Functor)
 
+runErrorT' :: ErrorT' e m a -> m (Either e a)
 runErrorT' = runErrorT . unErrorT
 
 instance (Error e, MonadPlus m) => MonadPlus (ErrorT' e m) where
@@ -350,11 +397,13 @@ instance (Error e, MonadTrans t1) => MonadTrans (MCompT t1 (ErrorT' e)) where
    lift m = MCompT (lift (lift m))
 instance (MonadTrans t1) => MonadTrans (MCompT t1 ListT) where 
    lift m = MCompT (lift (lift m))
-instance (MonadTrans t1) => MonadTrans (MCompT t1 SFKT) where 
-   lift m = MCompT (lift (lift m))
+--instance (MonadTrans t1) => MonadTrans (MCompT t1 SFKT) where 
+--   lift m = MCompT (lift (lift m))
 -- instance (MonadTrans t1, MonadTrans t2) => MonadTrans (MCompT t1 t2) 
 ----------------------------------------
 
+
+forEach :: [a] -> (a -> b) -> [b]
 forEach = flip map
 
 return2 :: (Monad m, Monad n) => a -> m(n a)
@@ -393,18 +442,32 @@ sequence3 :: (Traversable f, Traversable t, Traversable f1, Monad m) =>
             f1 (f (t (m a))) -> m (f1 (f (t a)))
 sequence3 = sequence . fmap sequence2
 
+lift2 :: (Monad (t m), MonadTrans t1, Monad m, MonadTrans t) => m a -> t1 (t m) a
 lift2 x = lift (lift  x)
+lift3 ::
+  (Monad (t1 (t m)),
+   MonadTrans t11,
+   MonadTrans t,
+   Monad m,
+   MonadTrans t1,
+   Monad (t m)) =>
+  m a -> t11 (t1 (t m)) a
 lift3 x = lift (lift2 x)
+
+mtry :: (MonadPlus m) => (m a -> m a) -> m a -> m a
 mtry f x = f x `mplus` x
 
+atLeast :: (Num t1) => t1 -> [t] -> Bool
 atLeast _ []   = False
 atLeast 0 _    = True
 atLeast n list = atLeast (n-1) (tail list)
 
+(>=:) :: [a] -> [b] -> Bool
 _      >=: []     = True
-(x:xx) >=: (y:yy) = xx >=: yy
+(_:xx) >=: (_:yy) = xx >=: yy
 _      >=: _      = False
 
+propLEQCons :: [Int] -> [Int] -> Bool
 propLEQCons xx yy = (length xx >= length yy) == xx >=: yy
     where types = (xx::[Int], yy::[Int])
 
@@ -412,12 +475,16 @@ runIdentityT = runErrorT_
 
 runIdentityT, runErrorT_ :: (Functor m) => ErrorT [Char] m a -> m a
 runErrorT_ =  fmap noErrors . runErrorT
+
+noErrors :: Either [Char] t -> t
 noErrors (Left msg) = error msg
 noErrors (Right x)  = x
 
 handleError :: MonadError e m =>  (e -> m a) -> m a -> m a
 handleError = flip catchError
 
+
+trace :: t -> t1 -> t1
 trace msg x = 
 #ifdef DEBUGTRS
   Debug.Trace.trace msg x 
@@ -425,15 +492,15 @@ trace msg x =
   x 
 #endif
 
-instance (Monad m, Error e) => MonadError e (SFKT m) where
-    throwError _ = mzero
-    catchError m f = LogicT.ifte m return (f undefined)
+--instance (Monad m, Error e) => MonadError e (SFKT m) where
+--    throwError _ = mzero
+--    catchError m f = LogicT.ifte m return (f undefined)
 
-{-# INLINE msum' #-}
-msum' :: (LogicT.LogicT t, MonadPlus (t m), Monad m) => [t m a] -> t m a
-msum' = Prelude.foldr LogicT.interleave mzero
+--{-# INLINE msum' #-}
+--msum' :: (LogicT.LogicT t, MonadPlus (t m), Monad m) => [t m a] -> t m a
+--msum' = Prelude.foldr LogicT.interleave mzero
 
-(>>-) :: (Monad m, MonadPlus (t m), LogicT.LogicT t) =>
-	    t m a -> (a -> t m b) -> t m b
-(>>-) = LogicT.bindi
+--(>>-) :: (Monad m, MonadPlus (t m), LogicT.LogicT t) =>
+--	    t m a -> (a -> t m b) -> t m b
+--(>>-) = LogicT.bindi
 

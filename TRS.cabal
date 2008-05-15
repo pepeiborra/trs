@@ -4,29 +4,30 @@ version: 0.11
 license: AllRightsReserved
 license-file: ""
 copyright: Pepe Iborra, All Rights Reserved
-build-depends: base -any, mtl, GHoodOff, QuickCheck, LogicT, typeprelude
-	       ,containers, pretty
+build-depends: base -any, mtl, GHoodOff, QuickCheck, typeprelude
+	       ,containers, pretty, alacarte, MaybeT
 homepage:
 synopsis: A Term Rewriting & Extensions (narrowing) library
 description: Based on the code from the paper "Generic Unification with two level types and parameterized modules"
 category:
 author: Pepe Iborra
 exposed-modules: 
-  TRS
-  TRS.Core
-  TRS.Context
   TRS.Utils 
-  TRS.Terms
   TRS.Term
   TRS.Types
   TRS.Substitutions
-  TRS.GTerms
   TRS.Rules
-  TRS.Tyvars
+  TRS.Rewriting
+  TRS.Unification
+  TRS.Narrowing
+  TRS.Context
+
 other-modules: 
-  MaybeT
 buildable: True
-extensions: CPP
+extensions: CPP, UndecidableInstances, OverlappingInstances,
+	    MultiParamTypeClasses, FunctionalDependencies,
+	    FlexibleContexts, FlexibleInstances, TypeSynonymInstances
+	    GeneralizedNewtypeDeriving, TypeOperators, ScopedTypeVariables
 hs-source-dirs: src
 ghc-prof-options: -prof -auto-all
-ghc-options: -fglasgow-exts -O2
+ghc-options: -O2 -Wall -fno-warn-name-shadowing
