@@ -18,6 +18,9 @@ import Data.AlaCarte hiding (match)
 import Data.Foldable
 import Data.Traversable
 import Prelude hiding (mapM, concat)
+import TypePrelude
+import TypeEqGeneric1
+
 
 import TRS.Term
 import TRS.Types
@@ -29,77 +32,37 @@ import TRS.Utils hiding (someSubterm)
 -----------------------------
 -- * Matching
 -----------------------------
-matchFdefault :: (Var :<: g, Match g g g, MatchShape f g) => f (Term g) -> f (Term g) -> Maybe (Subst g)
-matchFdefault t1 t2 = concatSubst <$> (mapM (uncurry match) =<< matchShapeF t1 t2)
 
-class (f :<: g, h :<: g) => Match f h g where matchF :: Match g g g => f(Term g) -> h(Term g) -> Maybe (Subst g)
+class Match f h g where matchF :: Match g g g => f(Term g) -> h(Term g) -> Maybe (Subst g)
 --instance (Functor a, Functor b, Functor g) => Match a b g where matchF _ _ = Nothing
 
-instance (Var :<: g) => Match Var Var g where matchF (Var i) (Var j) = Just mkSubst [(i,var j)]
+class Match2 isVarF f h g where matchF' :: Match g g g => isVarF -> f(Term g) -> h(Term g) -> Maybe (Subst g)
+instance (Var :<: g, f :<: g) => Match2 HTrue Var f g where matchF' _ (Var i) t = Just $ mkSubst [(i, inject t)]
+instance Match2 HFalse f g h where matchF' _ _x _y = Nothing
 
-instance ( Match a a g, Match b b g, Match a b g, Match b a g, (a :+: b) :<: g) =>
-        Match (a :+: b) (a :+: b) g where
+instance (Var :<: g) => Match Var Var g where matchF (Var i) (Var j) = Just$ mkSubst [(i,var j)]
+instance (TypeEq2 f Var isVar, Match2 isVar f h g) => Match f h g where matchF x y = matchF' (proxy::isVar) x y
+
+instance ( Match c a g, Match d a g) => Match (c :+: d) a g where
+    matchF (Inl x) y = matchF x y
+    matchF (Inr x) y = matchF x y
+
+instance (Match a c g, Match a d g) => Match a (c :+: d) g where
+    matchF x (Inl y) = matchF x y
+    matchF x (Inr y) = matchF x y
+
+instance ( Match a c g, Match b c g, Match a d g, Match b d g, (a :+: b) :<: g) =>
+        Match (a :+: b) (c :+: d) g where
     matchF (Inl x) (Inl y) = matchF x y
     matchF (Inr x) (Inr y) = matchF x y
     matchF (Inl x) (Inr y) = matchF x y
     matchF (Inr x) (Inl y) = matchF x y
 
-instance (f :<: g, Var :<: g) => Match Var f g where matchF (Var i) t = Just $ mkSubst [(i, inject t)]
+instance (T :<: g, Var :<: g) => Match T T g where matchF = matchFdefault
 
-{-
-instance (Match c b g, (a :+: b) :<: g ) => Match c (a :+: b) g where
-    matchF x (Inr y) = matchF x y
-    matchF x _       = Nothing
--}
-{-
-instance (Var :<: g, MatchShape f g) => Match f f g where
-    matchF t1 t2 = concatSubst <$> (mapM (uncurry match) =<< matchShapeF t1 t2)
--}
-instance (any :<: g, Var :<: g) => Match any Var g where matchF _ _ = Nothing
+matchFdefault :: (Var :<: g, Match g g g, MatchShape f g) => f (Term g) -> f (Term g) -> Maybe (Subst g)
+matchFdefault t1 t2 = concatSubst <$> (mapM (uncurry match) =<< matchShapeF t1 t2)
 
-instance (T :<: g, Var :<: g) => Match T T g where
-    matchF = matchFdefault
-
-{-
-
-instance (f :<: g, Var :<: g) => Match f Var g where matchF t (Var i) = Nothing --Just $ mkSubst [(i, inject t)]
-
-instance (Match a a (a :+: b), Functor b) => Match a (a :+: b) (a :+: b) where
-    matchF x (Inl y) = matchF x y
-    matchF x (Inr y) = Nothing
-
-
-{-
-instance (Match c b (a :+: b), c :<: a :+: b, Functor a) => Match c (a :+: b) (a :+: b) where
-    matchF x (Inr y) = matchF x y
-    matchF x (Inl y) = Nothing
--}
-
-
-instance (Match c b (a :+: b), Functor a, (a :+: b) ~ g, Match c b g, (a :+: b) :<: g
-         ) => Match c (a :+: b) g where
-    matchF x (Inr y) = matchF x y
-    matchF x (Inl y) = Nothing
-
--- instance (f :<: g, Var :<: g) => Match Var f g where matchF (Var i) t = Just $ mkSubst [(i, inject t)]
--- We want to have the instance above, but with the least priority possible, so that
--- it will not fire until the Functor sum is decomposed completely.
--- E.g. don't fire for match Var (Var :+:T), wait until match Var T
--- The trick is to use an auxiliary class
-
--}
-{-
-instance (IsSum g issum, IsVar f isvar, MatchVar isvar issum f g h, f :<: h, g :<: h) => Match f g h where
-    matchF = matchVar (undefined::isvar) (undefined::issum)
-
-class    MatchVar isvar issum var sum g where
-    matchVar :: isvar -> issum -> var (Term g) -> sum (Term g) -> Maybe (Subst g)
-instance (Var :<: g, f :<: g) => MatchVar HTrue  bah    Var f        g where matchVar _ _ (Var i) t = Just $ mkSubst [(i, inject t)]
-instance (Match c b (a :+: b) ) => MatchVar HFalse HTrue c  (a :+: b) (a :+: b) where
-    matchVar _ _ a (Inr y) = matchF a y
-    matchVar _ _ _ _       = Nothing
-instance MatchVar HFalse HFalse f   h        g  where matchVar _ _ a b = a `seq` b `seq` Debug.Trace.trace "MatchVar2" Nothing
--}
 match :: (Match t t t) => Expr t -> Expr t -> Maybe (Subst t)
 match (In t) (In u) = matchF t u
 

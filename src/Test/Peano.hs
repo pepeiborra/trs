@@ -126,11 +126,11 @@ instance Children Peano where
     childrenF _ = []
 
 instance (Var :<: g, Peano :<: g) => Unify Peano Var g where unifyF t v = unifyF v t
-instance (Peano :<: g, Functor h) => Unify Peano h g where unifyF t v = mzero
+instance (Peano :<: g, Functor g) => Unify Peano Peano g where unifyF = unifyFdefault
 
 
 instance (Peano :<: g, Var :<: g) => Match Peano Peano g where matchF = matchFdefault
-instance (Peano :<: g, f :<: g) => Match Peano f g where matchF _ _ = Nothing
+-- instance (Peano :<: g, f :<: g) => Match Peano f g where matchF _x _y = Nothing
 
 instance (Eq (Term f), Ppr f, Peano :<: f) => Num (Term f) where
   fromInteger i = iterate s z !! (fromIntegral i)
