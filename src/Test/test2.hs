@@ -6,11 +6,12 @@ import TRS.Rules
 import TRS.Types
 import TRS.Rewriting
 import TRS.Narrowing
+import TRS.Unification
 import Test.Peano
 import TRS.Context
 
 type PeanoT  = Term (Var :+: Peano)
-type PeanoTH = Term (Hole :+: Peano :+: Var)
+type PeanoTH = Term (Var :+: Hole :+: Peano)
 
 peanoTRS = [ x +: s(y) :-> s(x +: y)
            , y +: z    :-> y         ] :: [RuleG PeanoTH]
@@ -30,6 +31,7 @@ two   = s(s(z)) :: PeanoTH
 five  = s(s(s(two))) :: PeanoTH
 seven = two +: five  :: PeanoTH
 
+
 --seven' :: Monad m => m PeanoTH
 seven' = rewrite1 peanoTRS seven :: [PeanoTH]
 eight' = rewrite1 peanoTRS (seven +: s(z)) `asTypeOf` Nothing
@@ -44,3 +46,8 @@ sz = s z :: PeanoTH
 --v = In $ Inr $ Inr $ Var 0 :: PeanoTH  -- In (Inl (Succ (In (Inr (Inr (Var 0))))))
 
 --h = In $ Inr $ Inl $ Hole 0 :: PeanoTH -- In (Inl (Succ (In (Inl Zero))))
+
+f :: (Unify f f f) => Term f -> ()
+f _ = ()
+
+bleh = f seven

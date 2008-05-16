@@ -35,6 +35,7 @@ class (Functor f, Functor g, Functor h) => Unify f h g where
 class Unify2 isVarF isVarH f h g where unifyF' :: (MonadPlus m, MonadState (Subst g) m, Unify g g g) => isVarF -> isVarH -> f(Term g) -> h(Term g) -> m ()
 instance (Var :<: g, t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind v (inject t)
 instance (Var :<: g, t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind v (inject t)
+instance (Functor a, Functor g, MatchShape a g) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
 instance (Functor a, Functor b, Functor g) => Unify2 HFalse HFalse a b g where unifyF' _ _ _x _y = const mzero (_x,_y)
 
 instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g

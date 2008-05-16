@@ -161,5 +161,3 @@ class IsVar (a :: * -> *) isvar | a -> isvar
 instance true  ~ HTrue  => IsVar Var true
 instance false ~ HFalse => IsVar b false
 
-proxy :: a
-proxy = undefined

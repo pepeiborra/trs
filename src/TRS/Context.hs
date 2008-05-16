@@ -77,7 +77,7 @@ shiftC n = foldTerm f
 instance Ppr Hole where pprF (Hole i) = brackets (int i)
 instance (Hole :<: f) => MatchShape Hole f where matchShapeF _ _ = Nothing
 
-instance (Hole :<: g) => Match Hole Hole g where matchF _ _ = Nothing
+--instance (Hole :<: g) => Match Hole Hole g where matchF _ _ = Nothing
 --instance (Hole :<: g, a :<: g) => Match Hole a g where matchF _ _ = Nothing
 -- instance (Hole :<: g, Functor h) => Unify Hole g h where unifyF _ _ = mzero
 

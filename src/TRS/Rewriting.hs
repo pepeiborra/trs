@@ -38,10 +38,11 @@ class Match f h g where matchF :: Match g g g => f(Term g) -> h(Term g) -> Maybe
 
 class Match2 isVarF f h g where matchF' :: Match g g g => isVarF -> f(Term g) -> h(Term g) -> Maybe (Subst g)
 instance (Var :<: g, f :<: g) => Match2 HTrue Var f g where matchF' _ (Var i) t = Just $ mkSubst [(i, inject t)]
+instance (Var :<: g, MatchShape f g) => Match2 HFalse f f g where matchF' _ = matchFdefault
 instance Match2 HFalse f g h where matchF' _ _x _y = Nothing
 
 instance (Var :<: g) => Match Var Var g where matchF (Var i) (Var j) = Just$ mkSubst [(i,var j)]
-instance (TypeEq2 f Var isVar, Match2 isVar f h g) => Match f h g where matchF x y = matchF' (proxy::isVar) x y
+instance forall isVar f h g . (TypeEq2 f Var isVar, Match2 isVar f h g) => Match f h g where matchF x y = matchF' (proxy::isVar) x y
 
 instance ( Match c a g, Match d a g) => Match (c :+: d) a g where
     matchF (Inl x) y = matchF x y

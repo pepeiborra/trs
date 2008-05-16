@@ -16,10 +16,10 @@ import TRS.Types
 
 -- narrow1 :: [Rule f] -> Term f -> (Term f, Subst f)
 narrow1' ::
-  (Var :<: f,
+  (Var :<: f,      -- TODO Remove this constraint
    Unify f f f,
    Traversable f,
-   Hole :<: f,
+   Hole :<: f,     -- TODO Remove this constraint
    Functor m,
    MonadPlus m,
    MonadState (Subst f) m) =>
