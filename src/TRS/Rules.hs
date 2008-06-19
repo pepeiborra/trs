@@ -14,7 +14,7 @@ import TRS.Types
 ----------
 -- * Rules
 ----------
-data RuleG a = a :-> a
+data RuleG a = a :-> a deriving Eq
 
 type Rule f = RuleG (Term f)
 
