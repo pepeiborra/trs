@@ -9,7 +9,7 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Rewriting (
-      Match(..), match, matchFdefault,
+      Matchable(..), match, matchFdefault,
       rewrite1, rewrite1', rewrites, rewrites', reduce
     ) where
 
@@ -34,6 +34,9 @@ import TRS.Utils hiding (someSubterm)
 -----------------------------
 -- * Matching
 -----------------------------
+
+class (Var :<: f, Traversable f, Match f f f) => Matchable f
+instance (Var :<: f, Traversable f, Match f f f) => Matchable f
 
 class Match f h g where matchF :: Match g g g => f(Term g) -> h(Term g) -> Maybe (Subst g)
 --instance (Functor a, Functor b, Functor g) => Match a b g where matchF _ _ = Nothing
@@ -73,15 +76,14 @@ match (In t) (In u) = matchF t u
 ----------------------------------------
 -- * Rewriting
 ----------------------------------------
-rewrite1 :: (Traversable f, Match f f f, Var :<: f, MonadPlus m) =>
+rewrite1 :: (Matchable f, MonadPlus m) =>
             [Rule f] -> Term f -> m (Term f)
 rewrite1 rr t = evalU $ rewrite1' rr t
-rewrites :: (MonadPlus m, Var :<: f, Match f f f, Traversable f) =>
+rewrites :: (MonadPlus m, Matchable f) =>
             [Rule f] -> Term f -> m (Term f)
 rewrites rr t = evalU $ rewrites' rr t
 
-rewrite1' :: ( Traversable f, Match f f f, Var :<: f
-            , Functor m, MonadPlus m, MonadState (Subst f) m) => [Rule f] -> Term f -> m (Term f)
+rewrite1' :: ( Matchable f, Functor m, MonadPlus m, MonadState (Subst f) m) => [Rule f] -> Term f -> m (Term f)
 rewrite1' rr t = rewriteTop t `mplus` someSubterm (rewrite1' rr) t
     where -- rewriteTop :: (MonadPlus m, MonadState (Subst f) m) => Term f -> m (Term f)
           rewriteTop t = Data.Foldable.msum $ flip map rr $ \r -> do
@@ -90,29 +92,12 @@ rewrite1' rr t = rewriteTop t `mplus` someSubterm (rewrite1' rr) t
                                Just subst -> return$ applySubst subst rhs
                                Nothing    -> mzero
 
-rewrites' ::
-  (MonadState (Subst f) m,
-   MonadPlus m,
-   Functor m,
-   Var :<: f,
-   Match f f f,
-   Traversable f) =>
-  [Rule f] -> Term f -> m (Term f)
+rewrites' :: (MonadState (Subst f) m, MonadPlus m,  Functor m, Matchable f) => [Rule f] -> Term f -> m (Term f)
 rewrites' rr = closureMP (rewrite1' rr)
 
-reduce :: (Traversable f, Match f f f, Var :<: f, MonadPlus m, Eq (f(Expr f))) => [Rule f] -> Term f -> m(Term f)
-reduce rr x= evalU (reduce1 rr x)
-
-reduce1 ::
-  (MonadPlus m,
-   Eq (f (Expr f)),
-   Var :<: f,
-   Match f f f,
-   Traversable f) =>
-  [Rule f] -> Term f -> m (Term f)
-reduce1 rr x = let
-  tt = rewrite1 rr x
-  in if tt == mzero then return x else msum $ reduce1 rr `map` tt
+reduce :: ( Matchable f, Eq (f(Expr f))
+           , Foldable m, MonadPlus m, Eq (m (Term f))) => [Rule f] -> Term f -> m (Term f)
+reduce rr   = fixMP (rewrite1 rr)
 
 ---------------------------------------
 -- * Examples

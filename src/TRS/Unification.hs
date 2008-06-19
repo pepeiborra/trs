@@ -10,7 +10,7 @@
 
 module TRS.Unification (
       UMonadT(..), evalU, execU, runU,
-      Unify(..), unify, unify1, unifyFdefault,
+      Unifyable(..), unify, unify1, unifyFdefault,
       equal, variant, apply
       ) where
 
@@ -28,6 +28,9 @@ import TRS.Substitutions
 import TRS.Term
 import TRS.Types
 import TRS.UMonad
+
+class Unify f f f => Unifyable f
+instance Unify f f f => Unifyable f
 
 class (Functor f, Functor g, Functor h) => Unify f h g where
     unifyF :: (MonadPlus m, MonadState (Subst g) m, Unify g g g) => f(Term g) -> h(Term g) -> m ()
@@ -70,7 +73,7 @@ instance (Unify a c g, Unify b d g, Unify a d g, Unify b c g) =>
 
 instance (Eq id, T id :<: g) => Unify (T id) (T id) g where unifyF = unifyFdefault
 
-unifyFdefault :: (MonadPlus m, MonadState (Subst g) m, MatchShape f g, Unify g g g) =>
+unifyFdefault :: (MonadPlus m, MonadState (Subst g) m, MatchShape f g, Unifyable g) =>
                  f (Term g) -> f (Term g) -> m ()
 unifyFdefault t1 t2 = do
       pairs <- maybe mzero return $ matchShapeF t1 t2
@@ -83,19 +86,19 @@ instance VarBind Var where
 
 occurs _ _ = True --TODO
 
-unify1 :: (MonadPlus m, MonadState (Subst f) m, Unify f f f) => Term f -> Term f -> m ()
+unify1 :: (MonadPlus m, MonadState (Subst f) m, Unifyable f) => Term f -> Term f -> m ()
 unify1 (In t) (In u) = unifyF t u
 
-unify :: (MonadPlus m, Unify f f f) => Subst f -> Term f -> Term f -> m (Subst f)
+unify :: (MonadPlus m, Unifyable f) => Subst f -> Term f -> Term f -> m (Subst f)
 unify sigma (In t) (In u) = execStateT (unU$ unifyF t u) sigma
 
-unify0 :: (MonadPlus m, Unify f f f) => Term f -> Term f -> m (Subst f)
+unify0 :: (MonadPlus m, Unifyable f) => Term f -> Term f -> m (Subst f)
 unify0 = unify emptySubst
 ---------------------------------------
 -- * Semantic Equality
 ---------------------------------------
 
-equal :: (Var :<: f, Unify f f f) => Term f -> Term f -> Bool
+equal :: (Var :<: f, Unifyable f) => Term f -> Term f -> Bool
 equal t u = maybe False isRenaming (unify0 t u)
 
 

@@ -18,7 +18,7 @@ import TRS.Utils
 -- narrow1 :: [Rule f] -> Term f -> (Term f, Subst f)
 narrow1' ::
   (Var :<: f,      -- TODO Remove this constraint
-   Unify f f f,
+   Unifyable f,
    Traversable f,
    Hole :<: f,     -- TODO Remove this constraint
    Functor m,
@@ -36,11 +36,11 @@ narrow1' rr t = go (t, emptyC)
                           apply rhs
 
 --unify' :: Unify f f f => Term f -> Term f ->  (Subst f)
-unify' :: (MonadPlus m, Unify f f f, MonadState (Subst f) m) =>
+unify' :: (MonadPlus m, Unifyable f, MonadState (Subst f) m) =>
           Term f -> Term f -> m (Subst f)
 unify' t u = unify1 t u >> get
 
-narrow1 :: (Var :<: f, Unify f f f, Traversable f, Hole :<: f, MonadPlus m) =>
+narrow1 :: (Var :<: f, Unifyable f, Traversable f, Hole :<: f, MonadPlus m) =>
            [Rule f] -> Term f -> m (Term f, SubstG (Term f))
 narrow1 rr t = runU $ narrow1' rr t
 

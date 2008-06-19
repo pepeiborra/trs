@@ -47,6 +47,9 @@ class Functor f => Ppr f where pprF :: f Doc -> Doc
 ppr :: Ppr f => Term f -> String
 ppr = render . foldTerm pprF
 
+
+class MatchShape f f => MatchShapeable f
+instance MatchShape f f => MatchShapeable f
 class (f :<: g) => MatchShape f g where matchShapeF :: f(Term g) -> f(Term g) -> Maybe [(Term g, Term g)]
 
 --instance (Functor a, Functor b) => MatchShape a (a :+: b)
@@ -56,7 +59,7 @@ instance (MatchShape a (a :+: b), MatchShape b (a :+: b)) => MatchShape (a :+: b
     matchShapeF (Inr x) (Inr y) = matchShapeF x y
     matchShapeF _ _ = Nothing
 
-matchShape :: (MatchShape t t) => Expr t -> Expr t -> Maybe [(Term t, Term t)]
+matchShape :: (MatchShapeable t) => Expr t -> Expr t -> Maybe [(Term t, Term t)]
 matchShape (In t) (In u) = matchShapeF t u
 
 class Functor f => Children f where childrenF :: f [Term g] -> [Term g]
