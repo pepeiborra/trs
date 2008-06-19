@@ -12,6 +12,7 @@ description: Based on the code from the paper "Generic Unification with two leve
 category:
 author: Pepe Iborra
 exposed-modules: 
+  TRS
   TRS.Utils 
   TRS.Term
   TRS.Types
