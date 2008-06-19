@@ -91,6 +91,9 @@ build = inject
 foldTerm :: Functor f => (f a -> a) -> Expr f -> a
 foldTerm = foldExpr
 
+foldTermM :: (Monad m, Traversable f) => (f a -> m a) -> Expr f -> m a
+foldTermM = foldExprM
+
 var :: (Var :<: s) => Int -> Term s
 var = inject . Var
 
