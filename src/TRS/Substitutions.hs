@@ -4,7 +4,11 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module TRS.Substitutions where
+module TRS.Substitutions (
+     Subst, SubstG(..), MkSubst(..), emptySubst,
+     o, concatSubst, insertSubst,
+     applySubst, isRenaming,
+     substRange, substDomain) where
 
 import Control.Arrow (second)
 import Data.AlaCarte
@@ -31,8 +35,10 @@ instance MkSubst [(Int, Term f)]    f where mkSubst = Subst
 emptySubst :: SubstG a
 emptySubst = Subst []
 
-composeSubst :: (Var :<: f) => Subst f -> Subst f -> Subst f
+composeSubst,o :: (Var :<: f) => Subst f -> Subst f -> Subst f
 composeSubst (Subst l1) s2@(Subst l2) = Subst (l2 ++ (second (applySubst s2) `map` l1))
+
+o = composeSubst
 
 concatSubst :: (Var :<: f) => [Subst f] -> Subst f
 concatSubst = Prelude.foldl composeSubst (Subst [])
