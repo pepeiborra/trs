@@ -22,7 +22,7 @@ exposed-modules:
   TRS.Narrowing
   TRS.Context
 
-other-modules: 
+other-modules: TRS.UMonad
 buildable: True
 extensions: CPP, UndecidableInstances, OverlappingInstances,
 	    MultiParamTypeClasses, FunctionalDependencies,
