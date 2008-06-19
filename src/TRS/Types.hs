@@ -72,12 +72,12 @@ properSubterms t = foldTerm (concat . toList) t
 -- -----------------------------
 -- * The first building blocks
 -- -----------------------------
-type BasicT = Term (Var :+: T)
+type BasicT = Term (Var :+: T String)
 
-data T a = T !String [a]   deriving Eq
-instance Functor T     where fmap f (T s aa) = T s (map f aa)
-instance Traversable T where traverse f (T s tt) = T s <$> traverse f tt
-instance Foldable T    where foldMap = foldMapDefault
+data T id a = T !id [a]   deriving Eq
+instance Functor (T id)     where fmap f (T s aa) = T s (map f aa)
+instance Traversable (T id) where traverse f (T s tt) = T s <$> traverse f tt
+instance Foldable (T id)    where foldMap = foldMapDefault
 
 newtype Var s = Var Int deriving (Eq, Show)
 instance Functor Var     where fmap _ (Var i) = Var i
@@ -106,24 +106,23 @@ varId err t = case match t of
                 Just (Var i) -> i
                 Nothing -> error ("varId/" ++ err ++ ": expected a Var term")
 
-term :: (T :<: f) => String -> [Term f] -> Term f
+term :: (T id :<: f) => id -> [Term f] -> Term f
 term s = inject . T s
 
-term1 :: (T :<: f) => String -> Term f -> Term f
+term1 :: (T id :<: f) => id -> Term f -> Term f
 term1 f t       = term f [t]
-term2 :: (T :<: f) => String -> Term f -> Term f -> Term f
+term2 :: (T id :<: f) => id -> Term f -> Term f -> Term f
 term2 f t t'    = term f [t,t']
-term3 ::
-  (T :<: f) => String -> Term f -> Term f -> Term f -> Term f
+term3 :: (T id :<: f) => id -> Term f -> Term f -> Term f -> Term f
 term3 f t t' t''= term f [t,t',t'']
-constant :: (T :<: f) => String -> Term f
+constant :: (T id :<: f) => id -> Term f
 constant f      = term f []
 
 
-instance Ppr T           where
-    pprF (T n []) = text n
-    pprF (T n [x,y]) | not (any isAlpha n) = x <+> text n <+> y
-    pprF (T n tt) = text n <+> parens (cat$ punctuate comma tt)
+instance Show id => Ppr (T id) where
+    pprF (T n []) = text (show n)
+    pprF (T n [x,y]) | not (any isAlpha $ show n) = x <+> text (show n) <+> y
+    pprF (T n tt) = text (show n) <+> parens (cat$ punctuate comma tt)
 instance Ppr Var         where pprF (Var i) = text$ showsVar 0 i ""
 instance (Ppr a, Ppr b) => Ppr (a:+:b) where
     pprF (Inr x) = pprF x
@@ -131,17 +130,17 @@ instance (Ppr a, Ppr b) => Ppr (a:+:b) where
 
 instance Ppr f => Show (Term f) where show = ppr
 
-instance Children T           where childrenF (T _ s)   = concat s
+instance Children (T id)      where childrenF (T _ s)   = concat s
 instance Children Var         where childrenF _         = []
 
-instance Ord a => Ord (T a) where
-    (T s1 tt1) `compare` (T s2 tt2) = 
+instance (Ord id, Ord a) => Ord (T id a) where
+    (T s1 tt1) `compare` (T s2 tt2) =
         case compare s1 s2 of
           EQ -> compare tt1 tt2
           x  -> x
 
 --instance (Var :<: g) => MatchShape Var g where matchShapeF _ _ = Nothing
-instance ( T  :<: g) => MatchShape T g where
+instance (Eq id, T id :<: g) => MatchShape (T id) g where
     matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
 
 

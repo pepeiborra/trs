@@ -61,7 +61,7 @@ instance ( Match a c g, Match b c g, Match a d g, Match b d g, (a :+: b) :<: g) 
     matchF (Inl x) (Inr y) = matchF x y
     matchF (Inr x) (Inl y) = matchF x y
 
-instance (T :<: g, Var :<: g) => Match T T g where matchF = matchFdefault
+instance (Eq id, T id :<: g, Var :<: g) => Match (T id) (T id) g where matchF = matchFdefault
 
 matchFdefault :: (Var :<: g, Match g g g, MatchShape f g) => f (Term g) -> f (Term g) -> Maybe (Subst g)
 matchFdefault t1 t2 = concatSubst <$> (mapM (uncurry match) =<< matchShapeF t1 t2)

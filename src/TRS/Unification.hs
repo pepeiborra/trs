@@ -68,7 +68,7 @@ instance (Unify a c g, Unify b d g, Unify a d g, Unify b c g) =>
     unifyF (Inl x) (Inr y) = unifyF x y
     unifyF (Inr x) (Inl y) = unifyF x y
 
-instance (T :<: g) => Unify T T g where unifyF = unifyFdefault
+instance (Eq id, T id :<: g) => Unify (T id) (T id) g where unifyF = unifyFdefault
 
 unifyFdefault :: (MonadPlus m, MonadState (Subst g) m, MatchShape f g, Unify g g g) =>
                  f (Term g) -> f (Term g) -> m ()
@@ -107,13 +107,13 @@ x,y :: (Var :<: f) => Term f
 x = var 0
 y = var 1
 
-(+:) :: (T :<: f) => Term f -> Term f -> Term f
+(+:) :: (T String :<: f) => Term f -> Term f -> Term f
 (+:) = term2 "+"
 
-t :: Term (Var :+: T)
+t :: Term (Var :+: T String)
 t = x +: y
 
-t1 :: (T :<: f) => Term f
+t1 :: (T String :<: f) => Term f
 t1 = constant "1" +: constant "0"
 
 u1  = unify0 t t1 `asTypeOf` Nothing
@@ -122,7 +122,7 @@ u1' = unify0 t1 t `asTypeOf` Nothing
 u2 :: Maybe (Subst Var)
 u2 = unify0 x y
 
-u3 = unify0 x (constant "1") :: Maybe (Subst (T :+: Var))
+u3 = unify0 x (constant "1") :: Maybe (Subst (T String :+: Var))
 
 e1 = t `equal` (y +: x)
 e2 = t `equal` t1
