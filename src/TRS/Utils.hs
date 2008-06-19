@@ -159,6 +159,9 @@ deleteByM p x (y:ys) =
 closureMP :: MonadPlus m => (a -> m a) -> (a -> m a)
 closureMP f x = (f x >>= closureMP f) `mplus` return x
 
+fixMP :: (MonadPlus m, Eq (m a), Foldable m) => (a -> m a) -> (a -> m a)
+fixMP f x = let x' = f x in if x' == mzero then return x else msum (fixMP f `liftM` x')
+
 -- Fixpoint of a monadic function, using Eq comparison (this is a memory eater)
 fixM_Eq :: (Monad m, Eq a) => (a -> m a) -> a -> m a
 fixM_Eq f = go (0::Int)  where 

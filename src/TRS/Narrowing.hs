@@ -13,6 +13,7 @@ import TRS.Unification
 import TRS.Substitutions
 import TRS.Context
 import TRS.Types
+import TRS.Utils
 
 -- narrow1 :: [Rule f] -> Term f -> (Term f, Subst f)
 narrow1' ::
@@ -42,3 +43,6 @@ unify' t u = unify1 t u >> get
 narrow1 :: (Var :<: f, Unify f f f, Traversable f, Hole :<: f, MonadPlus m) =>
            [Rule f] -> Term f -> m (Term f, SubstG (Term f))
 narrow1 rr t = runU $ narrow1' rr t
+
+narrow  rr t = fixMP     (\(t,s) -> narrow1 rr t >>= \(t', s') -> return (t', s `o` s')) (t,emptySubst)
+narrows rr t = closureMP (\(t,s) -> narrow1 rr t >>= \(t', s') -> return (t', s `o` s')) (t,emptySubst)
