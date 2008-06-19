@@ -1,6 +1,9 @@
 module Test.Test2 where
 
 import Data.AlaCarte
+import Data.Maybe
+import System.Environment
+
 
 import TRS.Rules
 import TRS.Types
@@ -13,10 +16,19 @@ import TRS.Context
 type PeanoT  = Term (Var :+: Peano)
 type PeanoTH = Term (Var :+: Hole :+: Peano)
 
+main = do
+  [i] <- getArgs
+  print $ fromJust $ reduce fibTRS (fib $ (iterate s z) !! read i)
+
 peanoTRS = [ x +: s(y) :-> s(x +: y)
            , y +: z    :-> y         ] :: [RuleG PeanoTH]
 opeanoTRS'= [ s x +: y :-> s(x +: y)
             , z   +: y :-> y         ] :: [RuleG PeanoTH]
+
+fibTRS = peanoTRS ++
+         [ fib z :-> s z
+         , fib (s z) :-> s z
+         , fib (s (s x)) :-> fib (s x) +: fib x]
 
 x :: (Var :<: f) => Term f
 x = var 0

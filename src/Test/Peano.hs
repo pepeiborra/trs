@@ -32,6 +32,7 @@ data Peano a = a :+ a
              | Zero
              | a :* a
              | Fact a a
+             | Fib a
     deriving (Eq, Ord)
 
 prec_succ = 3
@@ -59,6 +60,9 @@ instance Show x => Show (Peano x) where
                          . showsPrec (succ prec_app) b
   showsPrec p (Pred a) = showParen (p>prec_pred) 
                        $ ("p " ++) . showsPrec (succ prec_pred) a
+  showsPrec p (Fib x) = showParen (p>prec_succ) $ 
+                         ("fib " ++ ) . showsPrec (succ prec_app) x
+
 {-
 instance Enum (Peano f) where
    succ(x) = s(x)
@@ -83,6 +87,7 @@ z        = inject Zero
 x *: y = inject (x :* y)
 fact x = inject . Fact x
 p x    = inject (Pred x)
+fib x  = inject (Fib x)
 
 isSum t | Just (x :+ y) <- Carte.match t = True
         | otherwise                = False
@@ -94,6 +99,7 @@ instance Traversable Peano where
     traverse f (a :* b) = (:*) <$> f a <*> f b
     traverse f (Fact a b) = Fact <$> f a <*> f b
     traverse f (Pred a) = Pred <$> f a
+    traverse f (Fib a)  = Fib  <$> f a
 
 instance Functor Peano where
     fmap = fmapDefault
@@ -107,6 +113,7 @@ instance (Peano :<: g) => MatchShape Peano g where
     matchShapeF (a :* b) (c :* d) = Just [(a,c),(b,d)] 
     matchShapeF (Fact a b) (Fact c d) = Just [(a,c),(b,d)]
     matchShapeF (Pred a) (Pred b) = Just [(a,b)]
+    matchShapeF (Fib a)  (Fib b)  = Just [(a,b)]
     matchShapeF x y = Nothing
 
 instance Ppr Peano where
@@ -116,6 +123,7 @@ instance Ppr Peano where
     pprF (a :* b) = parens (a <+> text "*" <+> b)
     pprF (Fact a b) = parens(text "Fact" <+> a <+> b)
     pprF (Pred a) = text "p" <+> a
+    pprF (Fib  a) = text "fib" <+> parens a
 
 instance Children Peano where
     childrenF (a :+ b) = a ++ b
@@ -123,6 +131,7 @@ instance Children Peano where
     childrenF (Succ x) = x
     childrenF (Pred x) = x
     childrenF (Fact a b) = a ++ b
+    childrenF (Fib  x) = x
     childrenF _ = []
 
 -- instance (Var :<: g, Peano :<: g) => Unify Peano Var g where unifyF t v = unifyF v t
