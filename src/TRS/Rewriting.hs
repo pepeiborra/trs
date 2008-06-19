@@ -5,6 +5,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE PolymorphicComponents #-}
+{-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Rewriting (
       Match(..), match, matchFdefault,
