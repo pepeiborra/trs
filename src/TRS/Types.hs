@@ -25,7 +25,8 @@ import Data.AlaCarte
 import Data.Char (isAlpha)
 import Data.Foldable as Foldable
 import Data.AlaCarte
-import Data.Traversable as Traversable
+import Data.Monoid
+import Data.Traversable
 import Text.PrettyPrint
 import Control.Monad       hiding (msum, mapM)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
@@ -59,6 +60,10 @@ instance (MatchShape a (a :+: b), MatchShape b (a :+: b)) => MatchShape (a :+: b
     matchShapeF (Inr x) (Inr y) = matchShapeF x y
     matchShapeF _ _ = Nothing
 
+
+instance (Var :<: g) => MatchShape Var g where matchShapeF _ _ = Nothing
+instance (Eq id, T id :<: g) => MatchShape (T id) g where
+    matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
 matchShape :: (MatchShapeable t) => Expr t -> Expr t -> Maybe [(Term t, Term t)]
 matchShape (In t) (In u) = matchShapeF t u
 
@@ -141,11 +146,6 @@ instance (Ord id, Ord a) => Ord (T id a) where
         case compare s1 s2 of
           EQ -> compare tt1 tt2
           x  -> x
-
---instance (Var :<: g) => MatchShape Var g where matchShapeF _ _ = Nothing
-instance (Eq id, T id :<: g) => MatchShape (T id) g where
-    matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
-
 
 ------------------------------
 -- MaybeT MonadPlus instance
