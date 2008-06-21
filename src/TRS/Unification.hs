@@ -10,7 +10,7 @@
 
 module TRS.Unification (
       UMonadT(..), evalU, execU, runU,
-      Unifyable(..), unify, unify1, unifyFdefault,
+      Unifyable, unify, unify', unify1, unifyFdefault,
       equal, variant, apply
       ) where
 
@@ -89,17 +89,17 @@ occurs _ _ = True --TODO
 unify1 :: (MonadPlus m, MonadState (Subst f) m, Unifyable f) => Term f -> Term f -> m ()
 unify1 (In t) (In u) = unifyF t u
 
-unify :: (MonadPlus m, Unifyable f) => Subst f -> Term f -> Term f -> m (Subst f)
-unify sigma (In t) (In u) = execStateT (unU$ unifyF t u) sigma
+unify' :: (MonadPlus m, Unifyable f) => Subst f -> Term f -> Term f -> m (Subst f)
+unify' sigma (In t) (In u) = execStateT (unU$ unifyF t u) sigma
 
-unify0 :: (MonadPlus m, Unifyable f) => Term f -> Term f -> m (Subst f)
-unify0 = unify emptySubst
+unify :: (MonadPlus m, Unifyable f) => Term f -> Term f -> m (Subst f)
+unify = unify' emptySubst
 ---------------------------------------
 -- * Semantic Equality
 ---------------------------------------
 
 equal :: (Var :<: f, Unifyable f) => Term f -> Term f -> Bool
-equal t u = maybe False isRenaming (unify0 t u)
+equal t u = maybe False isRenaming (unify t u)
 
 
 ---------------------------------------
@@ -119,13 +119,13 @@ t = x +: y
 t1 :: (T String :<: f) => Term f
 t1 = constant "1" +: constant "0"
 
-u1  = unify0 t t1 `asTypeOf` Nothing
-u1' = unify0 t1 t `asTypeOf` Nothing
+u1  = unify t t1 `asTypeOf` Nothing
+u1' = unify t1 t `asTypeOf` Nothing
 
 u2 :: Maybe (Subst Var)
-u2 = unify0 x y
+u2 = unify x y
 
-u3 = unify0 x (constant "1") :: Maybe (Subst (T String :+: Var))
+u3 = unify x (constant "1") :: Maybe (Subst (T String :+: Var))
 
 e1 = t `equal` (y +: x)
 e2 = t `equal` t1
