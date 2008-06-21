@@ -80,7 +80,7 @@ type BasicT = Term (Var :+: T String)
 data T id a = T !id [a]   deriving Eq
 instance Functor (T id)     where fmap f (T s aa) = T s (map f aa)
 instance Traversable (T id) where traverse f (T s tt) = T s <$> traverse f tt
-instance Foldable (T id)    where foldMap = foldMapDefault
+instance Foldable (T id)    where foldMap  f (T s tt) = mconcat $ map f tt
 
 newtype Var s = Var Int deriving (Eq, Show)
 instance Functor Var     where fmap _ (Var i) = Var i
