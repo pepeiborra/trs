@@ -51,7 +51,7 @@ updateAt' pos x x' = go x pos >>= \ (t',a) -> a >>= \v->return (t',v)
     go x [] = return (x', return x)
 
 vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
-vars t = snub [ v | u <- subterms t, let Just v@Var{} = Data.AlaCarte.match u]
+vars t = snub [ v | u <- subterms t, Just v@Var{} <- [Data.AlaCarte.match u]]
 
 collect :: (Foldable f, Functor f) => (Term f -> Bool) -> Term f -> [Term f]
 collect pred t = [ u | u <- subterms t, pred u]
