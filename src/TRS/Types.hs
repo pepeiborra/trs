@@ -68,9 +68,9 @@ instance (Children f, Children g) => Children (f :+: g) where
     childrenF (Inr y) = childrenF y
 
 subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
-subterms t = t : properSubterms t
+subterms (In t) = In t : concat (subterms <$> toList t)
 
-properSubterms t = foldTerm (concat . toList) t
+properSubterms = tail . subterms
 
 -- -----------------------------
 -- * The first building blocks
