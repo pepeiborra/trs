@@ -14,18 +14,14 @@ module TRS.Unification (
       equal, variant, apply
       ) where
 
-import Control.Applicative
 import Control.Monad.State hiding (mapM_)
 import Data.AlaCarte
 import Data.Foldable
-import Data.List
 import Prelude hiding (mapM_)
 import TypePrelude
-import TypeEqGeneric1
 
-import TRS.Rules
+
 import TRS.Substitutions
-import TRS.Term
 import TRS.Types
 import TRS.UMonad
 

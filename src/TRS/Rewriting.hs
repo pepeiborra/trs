@@ -21,8 +21,6 @@ import Data.Foldable
 import Data.Traversable
 import Prelude hiding (mapM, concat)
 import TypePrelude
-import TypeEqGeneric1
-
 
 import TRS.Term
 import TRS.Types
