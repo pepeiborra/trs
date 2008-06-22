@@ -9,7 +9,7 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Rewriting (
-      Matchable(..), match, matchFdefault,
+      Matchable, match, matchFdefault,
       rewrite1, rewrite1', rewrites, rewrites', reduce
     ) where
 
