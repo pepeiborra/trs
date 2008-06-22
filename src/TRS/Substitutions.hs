@@ -28,8 +28,8 @@ newtype SubstG a = Subst {fromSubst::[(Int, a)]}
 type Subst f = SubstG (Term f)
 
 class MkSubst a f | a -> f where mkSubst :: a -> Subst f
-instance MkSubst [(Var g, Term f)]  f where mkSubst dict = Subst [(i,t) | (Var i, t) <- dict]
-instance (Var :<: f) => MkSubst [(Term f, Term f)] f where mkSubst dict = Subst [(i,t) | (v, t) <- dict, let Just (Var i) = match v]
+instance MkSubst [(Var g, Term f)]  f where mkSubst dict = Subst [(i,t) | (Var _ i, t) <- dict]
+instance (Var :<: f) => MkSubst [(Term f, Term f)] f where mkSubst dict = Subst [(i,t) | (v, t) <- dict, let Just (Var _ i) = match v]
 instance MkSubst [(Int, Term f)]    f where mkSubst = Subst
 
 emptySubst :: SubstG a
@@ -44,7 +44,7 @@ concatSubst :: (Var :<: f) => [Subst f] -> Subst f
 concatSubst = Prelude.foldl composeSubst (Subst [])
 
 insertSubst :: Var (Term f) -> Term f -> Subst f -> Subst f
-insertSubst (Var i) t (Subst sigma) = Subst (snubBy (compare `on` fst) ((i,t) : sigma))
+insertSubst (Var _ i) t (Subst sigma) = Subst (snubBy (compare `on` fst) ((i,t) : sigma))
 
 {-
 mkSubstM :: [Int] -> [a] -> SubstM a
@@ -67,7 +67,7 @@ instance Applicative SubstM where
 -}
 applySubst :: (Var :<: f) => Subst f -> Term f -> Term f
 applySubst (Subst s) = foldTerm f where
-  f t | Just (Var i) <- prj t = fromMaybe (In t) (lookup i s)
+  f t | Just (Var _ i) <- prj t = fromMaybe (In t) (lookup i s)
       | otherwise             = In t
 
 substRange :: SubstG t -> [t]

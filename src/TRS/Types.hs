@@ -82,11 +82,11 @@ instance Functor (T id)     where fmap f (T s aa) = T s (map f aa)
 instance Traversable (T id) where traverse f (T s tt) = T s <$> traverse f tt
 instance Foldable (T id)    where foldMap  f (T s tt) = mconcat $ map f tt
 
-newtype Var s = Var Int deriving (Eq, Show)
-instance Functor Var     where fmap _ (Var i) = Var i
-instance Traversable Var where traverse _ (Var i) = pure (Var i)
+data Var s = Var (Maybe String) Int deriving (Eq, Show)
+instance Functor Var     where fmap _ (Var s i) = Var s i
+instance Traversable Var where traverse _ (Var s i) = pure (Var s i)
 instance Foldable Var    where foldMap = foldMapDefault
-instance Ord (Var a) where compare (Var a) (Var b) = compare a b
+instance Ord (Var a) where compare (Var _ a) (Var _ b) = compare a b
 
 build :: (g :<: f) => g(Term f) -> Term f
 build = inject
@@ -98,7 +98,9 @@ foldTermM :: (Monad m, Traversable f) => (f a -> m a) -> Expr f -> m a
 foldTermM = foldExprM
 
 var :: (Var :<: s) => Int -> Term s
-var = inject . Var
+var = inject . Var Nothing
+
+varLabeled l = inject . Var (Just l)
 
 isVar :: (Var :<: s) => Term s -> Bool
 isVar t | Just (Var{}) <- match t = True
@@ -106,7 +108,7 @@ isVar t | Just (Var{}) <- match t = True
 
 varId :: (Var :<: s) => String -> Term s -> Int
 varId err t = case match t of
-                Just (Var i) -> i
+                Just (Var _ i) -> i
                 Nothing -> error ("varId/" ++ err ++ ": expected a Var term")
 
 term :: (T id :<: f) => id -> [Term f] -> Term f
@@ -126,7 +128,9 @@ instance Show id => Ppr (T id) where
     pprF (T n []) = text (show n)
     pprF (T n [x,y]) | not (any isAlpha $ show n) = x <+> text (show n) <+> y
     pprF (T n tt) = text (show n) <+> parens (cat$ punctuate comma tt)
-instance Ppr Var         where pprF (Var i) = text$ showsVar 0 i ""
+instance Ppr Var where
+    pprF (Var Nothing i)  = text$ showsVar 0 i ""
+    pprF (Var (Just l) i) = text l
 instance (Ppr a, Ppr b) => Ppr (a:+:b) where
     pprF (Inr x) = pprF x
     pprF (Inl y) = pprF y

@@ -41,7 +41,7 @@ instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g
          ,Functor f, Functor g, Functor h) => Unify f h g where unifyF x y = unifyF' (proxy::isVarF) (proxy::isVarH) x y
 
 instance (Var :<: g) => Unify Var Var g where
-    unifyF v@(Var i) w@(Var j)
+    unifyF v@(Var _ i) w@(Var _ j)
         | i == j    = return ()
         | otherwise = do
               v' <- apply (inject v)

@@ -27,7 +27,7 @@ execU m = execStateT m emptySubst
 variant ::(Var :<: f, Foldable f, MonadState (Subst f) m) => Rule f -> Term f -> m(Rule f)
 variant r@(lhs:->_) t = do
   sigma <- get
-  let new_vars = var <$> ([1..] \\ ([i | Var i <- vars t] ++ substDomain sigma))
+  let new_vars = var <$> ([1..] \\ ([i | Var _ i <- vars t] ++ substDomain sigma))
   return $ applySubst (mkSubst (vars lhs `zip` new_vars)) <$>  r
 
 apply  :: (Var :<: g, MonadState (Subst g) m) => Term g -> m (Term g)
