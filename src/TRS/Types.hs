@@ -67,11 +67,6 @@ instance (Eq id, T id :<: g) => MatchShape (T id) g where
 matchShape :: (MatchShapeable t) => Expr t -> Expr t -> Maybe [(Term t, Term t)]
 matchShape (In t) (In u) = matchShapeF t u
 
-class Functor f => Children f where childrenF :: f [Term g] -> [Term g]
-instance (Children f, Children g) => Children (f :+: g) where
-    childrenF (Inl x) = childrenF x
-    childrenF (Inr y) = childrenF y
-
 subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
 subterms (In t) = In t : concat (subterms <$> toList t)
 
@@ -137,9 +132,6 @@ instance (Ppr a, Ppr b) => Ppr (a:+:b) where
     pprF (Inl y) = pprF y
 
 instance Ppr f => Show (Term f) where show = ppr
-
-instance Children (T id)      where childrenF (T _ s)   = concat s
-instance Children Var         where childrenF _         = []
 
 instance (Ord id, Ord a) => Ord (T id a) where
     (T s1 tt1) `compare` (T s2 tt2) =
