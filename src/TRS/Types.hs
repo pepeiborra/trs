@@ -127,7 +127,7 @@ constant f      = term f []
 instance Show id => Ppr (T id) where
     pprF (T n []) = text (show n)
     pprF (T n [x,y]) | not (any isAlpha $ show n) = x <+> text (show n) <+> y
-    pprF (T n tt) = text (show n) <+> parens (cat$ punctuate comma tt)
+    pprF (T n tt) = text (show n) <> parens (cat$ punctuate comma tt)
 instance Ppr Var where
     pprF (Var Nothing i)  = text$ showsVar 0 i ""
     pprF (Var (Just l) i) = text l
