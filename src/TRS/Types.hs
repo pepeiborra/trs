@@ -20,7 +20,6 @@
 module TRS.Types where
 
 import Control.Applicative
-import Control.Monad.Maybe (MaybeT(..))
 import Data.AlaCarte
 import Data.Char (isAlpha)
 import Data.Foldable as Foldable
@@ -32,7 +31,6 @@ import Control.Monad       hiding (msum, mapM)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, elem, notElem)
 
-import TypePrelude
 
 import TRS.Utils hiding ( parens )
 
@@ -142,25 +140,3 @@ instance (Ord id, Ord a) => Ord (T id a) where
         case compare s1 s2 of
           EQ -> compare tt1 tt2
           x  -> x
-
-------------------------------
--- MaybeT MonadPlus instance
-------------------------------
-instance Monad m => MonadPlus (MaybeT m) where
-    m1 `mplus` m2 = MaybeT$ runMaybeT m1 >>= \t1 ->
-                     case t1 of
-                       Nothing -> runMaybeT m2
-                       _       -> return t1
-    mzero = MaybeT (return Nothing)
-
-------------------------------
--- Type Class Programming
-------------------------------
-class IsSum (a :: * -> *) issum | a -> issum
-instance true  ~ HTrue  =>IsSum (a :+: b) true
-instance false ~ HFalse => IsSum b false
-
-class IsVar (a :: * -> *) isvar | a -> isvar
-instance true  ~ HTrue  => IsVar Var true
-instance false ~ HFalse => IsVar b false
-
