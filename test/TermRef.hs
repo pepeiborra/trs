@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 
-module Test.TermRef where
+module TermRef where
 import Control.Applicative
 import Control.Exception (assert)
 import Control.Monad hiding (mapM, sequence )

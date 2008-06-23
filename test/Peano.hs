@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
-module Test.Peano where
+module Peano where
 
 import TRS.Types
 import TRS.Unification

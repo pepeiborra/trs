@@ -4,7 +4,7 @@
 {-# OPTIONS_GHC -fno-mono-pat-binds #-}
 {-# LANGUAGE  DisambiguateRecordFields #-}
 
-module Test.Test where
+module Test where
 
 import Data.AlaCarte
 import Data.AlaCarte.Instances

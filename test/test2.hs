@@ -1,4 +1,4 @@
-module Test.Test2 where
+module Test2 where
 
 import Data.AlaCarte
 import Data.Maybe
