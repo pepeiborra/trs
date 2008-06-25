@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
-{-# OPTIONS_GHC -fno-mono-pat-binds #-}
+
 
 module TRS.Term where
 
@@ -37,7 +37,6 @@ updateAt [] _ t' = t'
 updateAt (0:_) _ _ = error "updateAt: 0 is not a position!"
 updateAt (i:ii) t' (In t) = In$ fmap (\(j,st) -> if i==j then updateAt ii t' st else st)
                                 (unsafeZipG [1..] t)
-updateAt _ _ x = x
 
 updateAt'  :: (Traversable f, MonadPlus m, Functor m) => Position -> Term f -> (Term f -> m (Term f, Term f))
 updateAt' pos x x' = go x pos >>= \ (t',a) -> a >>= \v->return (t',v)

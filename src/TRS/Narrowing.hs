@@ -6,6 +6,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.State (get, MonadState)
 import Data.AlaCarte
+import Data.Foldable (Foldable)
 import Data.Traversable
 
 import TRS.Rules
@@ -44,5 +45,16 @@ narrow1 :: (Var :<: f, Unifyable f, Traversable f, Hole :<: f, MonadPlus m) =>
            [Rule f] -> Term f -> m (Term f, SubstG (Term f))
 narrow1 rr t = runU $ narrow1' rr t
 
+narrow :: (Var :<: f,
+           Unifyable f,
+           Traversable f,
+           Hole :<: f,
+           MonadPlus m,
+           Eq (m (Term f, Subst f)),
+           Foldable m) =>
+          [Rule f] -> Term f -> m (Term f, Subst f)
 narrow  rr t = fixMP     (\(t,s) -> narrow1 rr t >>= \(t', s') -> return (t', s `o` s')) (t,emptySubst)
+
+narrows :: (Var :<: f, TRS.Unification.Unifyable f, Traversable f, Hole :<: f, MonadPlus m) =>
+           [Rule f] -> Term f -> m (Term f, Subst f)
 narrows rr t = closureMP (\(t,s) -> narrow1 rr t >>= \(t', s') -> return (t', s `o` s')) (t,emptySubst)

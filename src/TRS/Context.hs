@@ -17,19 +17,14 @@
 
 module TRS.Context where
 import Control.Applicative
-import Control.Monad ( mzero )
 import Data.AlaCarte
 import Data.Foldable
-import Data.Maybe
 import Data.Traversable
-import Debug.Trace
 import Text.PrettyPrint
 
 import TRS.Utils hiding (brackets)
 import TRS.Types
 import TRS.Term
-import TRS.Rewriting
-import TRS.Unification
 
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, notElem, sum)
