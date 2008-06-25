@@ -87,7 +87,6 @@ inBounds1 :: (Ord t1, Num t1) => t1 -> [t] -> Bool
 inBounds1 _ [] = False
 inBounds1 0 _  = True
 inBounds1 i (_:xs) = inBounds1 (i-1) xs
-inBounds1 i _ | i < 0 = False
 
 inBounds :: Int -> [a] -> Bool
 inBounds i _ | i < 0 = False
@@ -95,7 +94,6 @@ inBounds i xx = length (take (i+1) xx) == i+1
 
 propInBounds :: Int -> [()] -> Bool
 propInBounds i xx = inBounds i xx == inBounds1 i xx
-    where types = xx :: [()]
 
 isSubsetOf :: (Eq a, Foldable f) => f a -> f a -> Bool
 x `isSubsetOf` y = all (`elem` y) x

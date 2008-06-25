@@ -16,8 +16,9 @@ import TRS.Types
 ----------
 data RuleG a = a :-> a deriving Eq
 
-lhs (l :-> r) = l
-rhs (l :-> r) = r
+lhs,rhs :: forall t. RuleG t -> t
+lhs (l :-> _) = l
+rhs (_ :-> r) = r
 
 type Rule f = RuleG (Term f)
 
