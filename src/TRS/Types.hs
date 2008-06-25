@@ -89,11 +89,14 @@ instance Ord (Var a) where compare (Var _ a) (Var _ b) = compare a b
 build :: (g :<: f) => g(Term f) -> Term f
 build = inject
 
-foldTerm :: Functor f => (f a -> a) -> Expr f -> a
+foldTerm :: Functor f => (f a -> a) -> Term f -> a
 foldTerm = foldExpr
 
-foldTermM :: (Monad m, Traversable f) => (f a -> m a) -> Expr f -> m a
+foldTermM :: (Monad m, Traversable f) => (f a -> m a) -> Term f -> m a
 foldTermM = foldExprM
+
+foldTermTop :: Functor f => (f (Term f) -> f(Term f)) -> Term f -> Term f
+foldTermTop = foldExprTop
 
 var :: (Var :<: s) => Int -> Term s
 var = inject . Var Nothing
@@ -126,6 +129,12 @@ instance Show id => Ppr (T id) where
     pprF (T n []) = text (show n)
     pprF (T n [x,y]) | not (any isAlpha $ show n) = x <+> text (show n) <+> y
     pprF (T n tt) = text (show n) <> parens (cat$ punctuate comma tt)
+
+instance Ppr (T String) where
+    pprF (T n []) = text n
+    pprF (T n [x,y]) | not (any isAlpha $ n) = x <+> text n <+> y
+    pprF (T n tt) = text n <> parens (cat$ punctuate comma tt)
+
 instance Ppr Var where
     pprF (Var Nothing i)  = text$ showsVar 0 i ""
     pprF (Var (Just l) i) = text l
