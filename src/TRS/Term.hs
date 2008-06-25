@@ -63,7 +63,9 @@ annotateWithPos = mergePositions . foldExpr annotateWithPosF where
    appendPos p (In (Note (p', t'))) = In (Note (p++p', t'))
 
 class (t :<: f) => AnnotateWithPos t f where annotateWithPosF :: t (Term (WithNote Position f)) -> Term (WithNote Position f)
-instance (T id :<: f) => AnnotateWithPos (T id) f where annotateWithPosF (T n tt) = In$ Note ([], (inj$ T n [In (Note (i:p, t)) | (i, In(Note (p,t))) <- zip [1..] tt]))
+instance (T id :<: f) => AnnotateWithPos (T id) f where
+    annotateWithPosF (T n tt) =
+        In$ Note ([], (inj$ T n [In (Note (i:p, t)) | (i, In(Note (p,t))) <- zip [0..] tt]))
 instance (t  :<: f) => AnnotateWithPos t f where annotateWithPosF t = In $ Note ([], inj t)
 instance ((a :+: b) :<: f, AnnotateWithPos a f, AnnotateWithPos b f) => AnnotateWithPos (a :+: b) f where
     annotateWithPosF (Inr x) = annotateWithPosF x
