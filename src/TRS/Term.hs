@@ -12,11 +12,12 @@ import Data.AlaCarte hiding (match)
 import Data.Foldable (toList, Foldable, msum)
 import Data.Maybe
 import Data.Traversable (Traversable, mapM)
+import Text.PrettyPrint
 import Prelude hiding (sequence, concatMap, mapM)
 import qualified Prelude
 
 import TRS.Types
-import TRS.Utils
+import TRS.Utils hiding ( parens )
 
 ------------------------------------
 -- * Inspecting and modifying terms
@@ -49,6 +50,27 @@ updateAt' pos x x' = go x pos >>= \ (t',a) -> a >>= \v->return (t',v)
                      . unsafeZipG [1..]
                      $ t
     go x [] = return (x', return x)
+{-
+findIn :: Term f -> Term f -> [Position]
+findIn t = fmap fst . collect (==t) . annotateWithPos
+    where annotateWithPos = annotateWithPos
+-}
+
+annotateWithPos :: AnnotateWithPos f f => Term f -> Term (WithNote Position f)
+annotateWithPos = mergePositions . foldExpr annotateWithPosF where
+   mergePositions :: Functor f => Term (WithNote Position f) -> Term (WithNote Position f)
+   mergePositions = foldTermTop f
+   f (Note (p,t))  = Note (p, fmap (appendPos p) t)
+   appendPos p (In (Note (p', t'))) = In (Note (p++p', t'))
+
+class (t :<: f) => AnnotateWithPos t f where annotateWithPosF :: t (Term (WithNote Position f)) -> Term (WithNote Position f)
+instance (T id :<: f) => AnnotateWithPos (T id) f where annotateWithPosF (T n tt) = In$ Note ([], (inj$ T n [In (Note (i:p, t)) | (i, In(Note (p,t))) <- zip [1..] tt]))
+instance (t  :<: f) => AnnotateWithPos t f where annotateWithPosF t = In $ Note ([], inj t)
+instance ((a :+: b) :<: f, AnnotateWithPos a f, AnnotateWithPos b f) => AnnotateWithPos (a :+: b) f where
+    annotateWithPosF (Inr x) = annotateWithPosF x
+    annotateWithPosF (Inl y) = annotateWithPosF y
+
+instance (Show note, Ppr t) => Ppr (WithNote note t) where pprF (Note (p,t)) = parens(text (show p) <> comma <> pprF t)
 
 vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
 vars t = snub [ v | u <- subterms t, Just v@Var{} <- [Data.AlaCarte.match u]]
