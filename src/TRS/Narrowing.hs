@@ -47,3 +47,17 @@ narrow  rr t = fixMP  (\(t,s) -> narrow1 rr t >>= \(t', s') -> return (t', s `o`
 
 narrows :: (Narrowable f, MonadPlus m) => [Rule f] -> Term f -> m (Term f, Subst f)
 narrows rr t = closureMP (\(t,s) -> narrow1 rr t >>= \(t', s') -> return (t', s `o` s')) (t,emptySubst)
+
+-- * Basic Narrowing
+
+narrowsBasic :: (Narrowable f, MonadPlus m) => [Rule f] -> Term f -> m (Term f, Subst f)
+narrowsBasic rr = runU . closureMP (narrow1' rr)
+
+--narrowBasic :: (Narrowable f, MonadPlus1 m) => [Rule f] -> Term f -> m (Term f, Subst f)
+narrowBasic rr = runU . fixMP (narrow1' rr)
+
+narrowBounded :: (Narrowable f, MonadPlus m) => (Term f -> Bool) -> [Rule f] -> Term f -> m (Term f, Subst f)
+narrowBounded pred rr t = go t emptySubst where
+  go t s = do
+    (t',s') <- narrow1 rr t
+    if pred t then go t' (s `o` s') else return (t,s)
