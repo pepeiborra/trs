@@ -1,5 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE PolymorphicComponents #-}
 
 module TRS.Rules where
 
@@ -42,13 +44,13 @@ instance Functor RuleG where
 swapRule :: RuleG t -> RuleG t
 swapRule (lhs:->rhs) = rhs:->lhs
 
-isConstructor :: (MatchShape s s, Var :<: s) => [RuleG (Expr s)] -> Term s -> Bool
+isConstructor :: (MatchShape s s, Var :<: s) => [Rule s] -> Term s -> Bool
 isConstructor rules t
   | isVar t   = True
   | otherwise = null$ [ () | lhs:->_ <- rules
                            , isJust $ matchShape lhs t]
 
-isDefined :: (Var :<: s, MatchShape s s) => [RuleG (Expr s)] -> Term s -> Bool
+isDefined :: (Var :<: s, MatchShape s s) => [Rule s] -> Term s -> Bool
 isDefined rules = not . isConstructor rules
 
 instance Show (a) => Show (RuleG (a)) where

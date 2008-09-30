@@ -17,13 +17,12 @@
 -- Home for all types and helpers. Internal
 -----------------------------------------------------------------------------
 
-module TRS.Types where
+module TRS.Types (module Data.AlaCarte, module TRS.Types) where
 
 import Control.Applicative
-import Data.AlaCarte
+import Data.AlaCarte hiding (Expr(..), match, inject)
 import Data.Char (isAlpha)
 import Data.Foldable as Foldable
-import Data.AlaCarte
 import Data.Monoid
 import Data.Traversable
 import Text.PrettyPrint
@@ -40,35 +39,34 @@ type Unique = Int
 -- * A la Carte Terms
 -- --------------------------
 
-type Term t = Expr t
+newtype Term t = In (t (Term t))
+
+deriving instance Eq (f (Term f))  => Eq (Term f)
+deriving instance Ord (f (Term f)) => Ord (Term f)
+
+foldTerm :: Functor f => (f a -> a) -> Term f -> a
+foldTerm f (In t) = f (fmap (foldTerm f) t)
+
+foldTermM :: (Monad m, Traversable f) => (f a -> m a) -> Term f -> m a
+foldTermM f (In t) = f =<< mapM (foldTermM f) t
+
+foldTermTop :: Functor f => (f (Term f) -> f(Term f)) -> Term f -> Term f
+foldTermTop f (In t)= In (foldTermTop f `fmap` f t)
+
+inject :: (g :<: f) => g (Term f) -> Term f
+inject = In . inj
+
+match :: (g :<: f) => Term f -> Maybe (g (Term f))
+match (In t) = prj t
+
+-- ------------------
+-- Basic stuff
+-- ------------------
 
 class Functor f => Ppr f where pprF :: f Doc -> Doc
 ppr :: Ppr f => Term f -> String
 ppr = render . foldTerm pprF
 
-
-class MatchShape f f => MatchShapeable f
-instance MatchShape f f => MatchShapeable f
-class (f :<: g) => MatchShape f g where matchShapeF :: f(Term g) -> f(Term g) -> Maybe [(Term g, Term g)]
-
---instance (Functor a, Functor b) => MatchShape a (a :+: b)
---instance (Functor a, Functor b) => MatchShape b (a :+: b)
-instance (MatchShape a (a :+: b), MatchShape b (a :+: b)) => MatchShape (a :+: b) (a :+: b) where
-    matchShapeF (Inl x) (Inl y) = matchShapeF x y
-    matchShapeF (Inr x) (Inr y) = matchShapeF x y
-    matchShapeF _ _ = Nothing
-
-
-instance (Var :<: g) => MatchShape Var g where matchShapeF _ _ = Nothing
-instance (Eq id, T id :<: g) => MatchShape (T id) g where
-    matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
-matchShape :: (MatchShapeable t) => Expr t -> Expr t -> Maybe [(Term t, Term t)]
-matchShape (In t) (In u) = matchShapeF t u
-
-subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
-subterms (In t) = In t : concat (subterms <$> toList t)
-
-properSubterms = tail . subterms
 
 -- -----------------------------
 -- * The first building blocks
@@ -86,20 +84,11 @@ instance Traversable Var where traverse _ (Var s i) = pure (Var s i)
 instance Foldable Var    where foldMap = foldMapDefault
 instance Ord (Var a) where compare (Var _ a) (Var _ b) = compare a b
 
-build :: (g :<: f) => g(Term f) -> Term f
-build = inject
-
-foldTerm :: Functor f => (f a -> a) -> Term f -> a
-foldTerm = foldExpr
-
-foldTermM :: (Monad m, Traversable f) => (f a -> m a) -> Term f -> m a
-foldTermM = foldExprM
-
-foldTermTop :: Functor f => (f (Term f) -> f(Term f)) -> Term f -> Term f
-foldTermTop = foldExprTop
-
 var :: (Var :<: s) => Int -> Term s
 var = inject . Var Nothing
+
+var' :: (Var :<: s) => Maybe String -> Int -> Term s
+var' = (inject.) . Var
 
 varLabeled l = inject . Var (Just l)
 
@@ -137,7 +126,7 @@ instance Ppr (T String) where
 
 instance Ppr Var where
     pprF (Var Nothing i)  = text$ showsVar 0 i ""
-    pprF (Var (Just l) i) = text l
+    pprF (Var (Just l) _) = text l
 instance (Ppr a, Ppr b) => Ppr (a:+:b) where
     pprF (Inr x) = pprF x
     pprF (Inl y) = pprF y
@@ -149,3 +138,29 @@ instance (Ord id, Ord a) => Ord (T id a) where
         case compare s1 s2 of
           EQ -> compare tt1 tt2
           x  -> x
+
+-- -----------
+-- MatchShape
+--------------
+
+class MatchShape f f => MatchShapeable f
+instance MatchShape f f => MatchShapeable f
+class (f :<: g) => MatchShape f g where matchShapeF :: f(Term g) -> f(Term g) -> Maybe [(Term g, Term g)]
+
+--instance (Functor a, Functor b) => MatchShape a (a :+: b)
+--instance (Functor a, Functor b) => MatchShape b (a :+: b)
+instance (MatchShape a (a :+: b), MatchShape b (a :+: b)) => MatchShape (a :+: b) (a :+: b) where
+    matchShapeF (Inl x) (Inl y) = matchShapeF x y
+    matchShapeF (Inr x) (Inr y) = matchShapeF x y
+    matchShapeF _ _ = Nothing
+
+--instance (Var :<: g) => MatchShape Var g where matchShapeF _ _ = Nothing
+instance (f :<: g) => MatchShape f g where matchShapeF _ _ = Nothing
+instance (Eq id, T id :<: g) => MatchShape (T id) g where
+    matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
+matchShape :: (MatchShapeable t) => Term t -> Term t -> Maybe [(Term t, Term t)]
+matchShape (In t) (In u) = matchShapeF t u
+
+subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
+subterms (In t) = In t : concat (subterms <$> toList t)
+properSubterms = tail . subterms

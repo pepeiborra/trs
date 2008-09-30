@@ -12,7 +12,6 @@ module TRS.Substitutions (
      substRange, substDomain) where
 
 import Control.Arrow (second)
-import Data.AlaCarte
 import Data.Maybe
 
 import TRS.Types

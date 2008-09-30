@@ -36,9 +36,9 @@ instance (Ref :<: g, MatchShape g g) => MatchShape Ref g where matchShapeF (Ref 
 
 
 class (Functor g, Functor f, f :<: g) => StripRefs f g where stripRefsF :: f(Term g) -> Term g
-instance (T :<: g)   => StripRefs T   g where stripRefsF (T s tt) = term s tt
-instance (Var :<: g) => StripRefs Var g where stripRefsF (Var t)  = var t
-instance (Ref :<: g) => StripRefs Ref g where stripRefsF (Ref t)  = t
+instance (T i :<: g) => StripRefs (T i) g where stripRefsF (T s tt) = term s tt
+instance (Var :<: g) => StripRefs Var   g where stripRefsF (Var t i)= var' t i
+instance (Ref :<: g) => StripRefs Ref   g where stripRefsF (Ref t)  = t
 
 instance (StripRefs a (a :+: b), StripRefs b (a :+: b)) => StripRefs (a :+: b) (a :+: b) where
     stripRefsF (Inl x) = stripRefsF x

@@ -9,21 +9,20 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Rewriting (
-      Matchable, match, matchFdefault,
+      Match(..), Matchable, match, matchFdefault,
       rewrite1, rewrite1', rewrites, rewrites', reduce
     ) where
 
 import Control.Applicative
 import Control.Monad (mzero, mplus, MonadPlus)
 import Control.Monad.State (MonadState)
-import Data.AlaCarte hiding (match)
 import Data.Foldable
 import Data.Traversable
 import Prelude hiding (mapM, concat)
 import TypePrelude
 
 import TRS.Term
-import TRS.Types
+import TRS.Types hiding (match)
 import TRS.Rules
 import TRS.Substitutions
 import TRS.Unification
@@ -67,7 +66,7 @@ instance (Eq id, T id :<: g, Var :<: g) => Match (T id) (T id) g where matchF = 
 matchFdefault :: (Var :<: g, Match g g g, MatchShape f g) => f (Term g) -> f (Term g) -> Maybe (Subst g)
 matchFdefault t1 t2 = concatSubst <$> (mapM (uncurry match) =<< matchShapeF t1 t2)
 
-match :: (Match t t t) => Expr t -> Expr t -> Maybe (Subst t)
+match :: (Match t t t) => Term t -> Term t -> Maybe (Subst t)
 match (In t) (In u) = matchF t u
 
 
@@ -81,7 +80,7 @@ rewrites :: (MonadPlus m, Matchable f) =>
             [Rule f] -> Term f -> m (Term f)
 rewrites rr t = evalU $ rewrites' rr t
 
-rewrite1' :: ( Matchable f, Functor m, MonadPlus m, MonadState (Subst f) m) => [Rule f] -> Term f -> m (Term f)
+rewrite1' :: ( Matchable f, MonadPlus m, Functor m, MonadState (Subst f) m) => [Rule f] -> Term f -> m (Term f)
 rewrite1' rr t = rewriteTop t `mplus` someSubterm (rewrite1' rr) t
     where -- rewriteTop :: (MonadPlus m, MonadState (Subst f) m) => Term f -> m (Term f)
           rewriteTop t = Data.Foldable.msum $ flip map rr $ \r -> do
@@ -90,11 +89,10 @@ rewrite1' rr t = rewriteTop t `mplus` someSubterm (rewrite1' rr) t
                                Just subst -> return$ applySubst subst rhs
                                Nothing    -> mzero
 
-rewrites' :: (MonadState (Subst f) m, MonadPlus m,  Functor m, Matchable f) => [Rule f] -> Term f -> m (Term f)
+rewrites' :: (Matchable f, MonadState (Subst f) m, MonadPlus m,  Functor m) => [Rule f] -> Term f -> m (Term f)
 rewrites' rr = closureMP (rewrite1' rr)
 
-reduce :: ( Matchable f, Eq (f(Expr f))
-           , Foldable m, MonadPlus m, Eq (m (Term f))) => [Rule f] -> Term f -> m (Term f)
+reduce :: (Matchable f, MonadPlus1 m) => [Rule f] -> Term f -> m (Term f)
 reduce rr   = fixMP (rewrite1 rr)
 
 ---------------------------------------
@@ -105,20 +103,20 @@ x,y :: (Var :<: f) => Term f
 x = var 0
 y = var 1
 
-(+:) :: (T :<: f) => Term f -> Term f -> Term f
+(+:) :: (T String :<: f) => Term f -> Term f -> Term f
 (+:) = term2 "+"
 
-t :: Term (Var :+: T)
+t :: Term (Var :+: T String)
 t = x +: y
 
-t1 :: (T :<: f) => Term f
+t1 :: (T String :<: f) => Term f
 t1 = constant "1" +: constant "0"
 
 m1 = match t t1
 m1' = match t1 t
 
-m2 :: Maybe (Subst (Var :+: T))
+m2 :: Maybe (Subst (Var :+: T String))
 m2 = match x y
 
-m3 = match x (constant "1") :: Maybe (Subst (Var :+: T))
+m3 = match x (constant "1") :: Maybe (Subst (Var :+: T String))
 -}

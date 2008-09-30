@@ -22,6 +22,7 @@ import Control.Monad.List (ListT(..))
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
 import Data.AlaCarte
 import Data.List (group, sort, sortBy, groupBy, intersperse)
+import Data.Maybe
 import Data.Traversable
 import Data.Foldable
 import qualified Prelude
@@ -157,8 +158,12 @@ deleteByM p x (y:ys) =
 closureMP :: MonadPlus m => (a -> m a) -> (a -> m a)
 closureMP f x = (f x >>= closureMP f) `mplus` return x
 
-fixMP :: (MonadPlus m, Eq (m a), Foldable m) => (a -> m a) -> (a -> m a)
-fixMP f x = let x' = f x in if x' == mzero then return x else msum (fixMP f `liftM` x')
+class MonadPlus m => MonadPlus1 m where isMZero :: m a -> Bool
+instance MonadPlus1 []            where isMZero = null
+instance MonadPlus1 Maybe         where isMZero = isNothing
+
+fixMP :: (MonadPlus1 m) => (a -> m a) -> (a -> m a)
+fixMP f x = let x' = f x in if isMZero x' then return x else fixMP f =<< x' -- msum (fixMP f `liftM` x')
 
 -- Fixpoint of a monadic function, using Eq comparison (this is a memory eater)
 fixM_Eq :: (Monad m, Eq a) => (a -> m a) -> a -> m a

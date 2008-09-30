@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeOperators, FlexibleContexts #-}
 module Test2 where
 
 import Data.AlaCarte
@@ -10,7 +11,7 @@ import TRS.Types
 import TRS.Rewriting
 import TRS.Narrowing
 import TRS.Unification
-import Test.Peano
+import Peano
 import TRS.Context
 
 type PeanoT  = Term (Var :+: Peano)
@@ -18,7 +19,10 @@ type PeanoTH = Term (Var :+: Hole :+: Peano)
 
 main = do
   [i] <- getArgs
-  print $ fromJust $ reduce fibTRS (fib $ (iterate s z) !! read i)
+  print $ fromJust $ reduceFib (read i)
+
+reduceFib i = reduce fibTRS (fib $ (iterate s z) !! i)
+narrowFib i = narrow fibTRS (fib $ (iterate s z) !! i)
 
 peanoTRS = [ x +: s(y) :-> s(x +: y)
            , y +: z    :-> y         ] :: [RuleG PeanoTH]
@@ -59,7 +63,7 @@ sz = s z :: PeanoTH
 
 --h = In $ Inr $ Inl $ Hole 0 :: PeanoTH -- In (Inl (Succ (In (Inl Zero))))
 
-f :: (Unify f f f) => Term f -> ()
+f :: Unifyable f => Term f -> ()
 f _ = ()
 
 bleh = f seven

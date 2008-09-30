@@ -7,8 +7,6 @@ module TRS.Term where
 
 import Control.Arrow ((***))
 import Control.Monad hiding ( mapM, sequence, msum)
-import qualified Data.AlaCarte
-import Data.AlaCarte hiding (match)
 import Data.Foldable (toList, Foldable, msum)
 import Data.Maybe
 import Data.Traversable (Traversable, mapM)
@@ -56,7 +54,7 @@ findIn t = fmap fst . collect (==t) . annotateWithPos
 -}
 
 annotateWithPos :: AnnotateWithPos f f => Term f -> Term (WithNote Position f)
-annotateWithPos = mergePositions . foldExpr annotateWithPosF where
+annotateWithPos = mergePositions . foldTerm annotateWithPosF where
    mergePositions :: Functor f => Term (WithNote Position f) -> Term (WithNote Position f)
    mergePositions = foldTermTop f
    f (Note (p,t))  = Note (p, fmap (appendPos p) t)
@@ -74,7 +72,7 @@ instance ((a :+: b) :<: f, AnnotateWithPos a f, AnnotateWithPos b f) => Annotate
 instance (Show note, Ppr t) => Ppr (WithNote note t) where pprF (Note (p,t)) = parens(text (show p) <> comma <> pprF t)
 
 vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
-vars t = snub [ v | u <- subterms t, Just v@Var{} <- [Data.AlaCarte.match u]]
+vars t = snub [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.match u]]
 
 collect :: (Foldable f, Functor f) => (Term f -> Bool) -> Term f -> [Term f]
 collect pred t = [ u | u <- subterms t, pred u]
@@ -88,6 +86,6 @@ replace []   = id
 replace dict = foldTerm f where
     f t = fromMaybe (In t) $ lookup (In t) dict
 
--- Only 1st level children
+-- Only 1st level subterms
 someSubterm :: (Traversable f, Functor m, MonadPlus m) => (Term f -> m(Term f)) -> Term f -> m (Term f)
 someSubterm f (In x) = msum (In <$$> interleaveM f return x)

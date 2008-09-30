@@ -17,7 +17,6 @@
 
 module TRS.Context where
 import Control.Applicative
-import Data.AlaCarte
 import Data.Foldable
 import Data.Traversable
 import Text.PrettyPrint

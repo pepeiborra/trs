@@ -6,10 +6,10 @@ module Peano where
 
 import TRS.Types
 import TRS.Unification
-import Test.TermRef
 import TRS.Rewriting
 import TRS.Term
 import TRS.Substitutions
+import TermRef
 
 import Control.Applicative
 import Control.Monad hiding ( sequence, mapM )
@@ -124,15 +124,6 @@ instance Ppr Peano where
     pprF (Fact a b) = parens(text "Fact" <+> a <+> b)
     pprF (Pred a) = text "p" <+> a
     pprF (Fib  a) = text "fib" <+> parens a
-
-instance Children Peano where
-    childrenF (a :+ b) = a ++ b
-    childrenF (a :* b) = a ++ b
-    childrenF (Succ x) = x
-    childrenF (Pred x) = x
-    childrenF (Fact a b) = a ++ b
-    childrenF (Fib  x) = x
-    childrenF _ = []
 
 -- instance (Var :<: g, Peano :<: g) => Unify Peano Var g where unifyF t v = unifyF v t
 --instance (Peano :<: g, Functor g) => Unify Peano Peano g where unifyF = unifyFdefault

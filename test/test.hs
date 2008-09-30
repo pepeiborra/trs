@@ -39,8 +39,8 @@ import TRS.Context
 import TRS.Utils
 import TRS.Types
 
-import Test.Peano
-import Test.TermRef
+import Peano
+import TermRef
 
 htests = TestList
         [ TestLabel "testRewriting" testRewriting
@@ -392,7 +392,7 @@ type PeanoTH = Term (Var :+: Peano :+: Hole)
 
 
 instance Arbitrary (Hole a) where arbitrary = Hole <$> arbitrary
-instance Arbitrary (Var a)  where arbitrary = Var <$> oneof [return 0, return 1, return 2]
+instance Arbitrary (Var a)  where arbitrary = Var Nothing <$> oneof [return 0, return 1, return 2]
 instance Arbitrary a => Arbitrary (Peano a) where
     arbitrary = sized $ \size ->
       let half m = resize (size `div` 2) m in
@@ -401,7 +401,7 @@ instance Arbitrary a => Arbitrary (Peano a) where
         , (2, return Zero)
         , (4, Succ <$> arbitrary)]
 
-instance Arbitrary a => Arbitrary (T a) where
+instance Arbitrary a => Arbitrary (T String a) where
     arbitrary = sized $ \size ->
       let half m = resize (size `div` 2) m in
       oneof [ (`T` []) <$> oneof [return "a", return "b"]

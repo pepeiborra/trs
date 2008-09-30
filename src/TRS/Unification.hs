@@ -15,11 +15,9 @@ module TRS.Unification (
       ) where
 
 import Control.Monad.State hiding (mapM_)
-import Data.AlaCarte
 import Data.Foldable
 import Prelude hiding (mapM_)
 import TypePrelude
-
 
 import TRS.Substitutions
 import TRS.Types
@@ -38,7 +36,8 @@ instance (Functor a, Functor g, MatchShape a g) => Unify2 HFalse HFalse a a g wh
 instance (Functor a, Functor b, Functor g) => Unify2 HFalse HFalse a b g where unifyF' _ _ _x _y = const mzero (_x,_y)
 
 instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g
-         ,Functor f, Functor g, Functor h) => Unify f h g where unifyF x y = unifyF' (proxy::isVarF) (proxy::isVarH) x y
+         ,Functor f, Functor g, Functor h) => Unify f h g where
+    unifyF x y = unifyF' (proxy::isVarF) (proxy::isVarH) x y
 
 instance (Var :<: g) => Unify Var Var g where
     unifyF v@(Var _ i) w@(Var _ j)
@@ -97,11 +96,12 @@ unify = unify' emptySubst
 equal :: (Var :<: f, Unifyable f) => Term f -> Term f -> Bool
 equal t u = maybe False isRenaming (unify t u)
 
+--instance (Var :<: f, Unifyable f) => Eq (Term f) where (==) = equal
 
 ---------------------------------------
 -- * Examples
 ---------------------------------------
-
+{-
 x,y :: (Var :<: f) => Term f
 x = var 0
 y = var 1
@@ -125,3 +125,4 @@ u3 = unify x (constant "1") :: Maybe (Subst (T String :+: Var))
 
 e1 = t `equal` (y +: x)
 e2 = t `equal` t1
+-}
