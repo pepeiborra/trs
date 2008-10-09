@@ -1,13 +1,13 @@
 name: TRS
-version: 0.14
+version: 0.15
 Cabal-Version:  >= 1.2
 license: AllRightsReserved
 license-file: ""
 copyright: Pepe Iborra, All Rights Reserved
 build-depends: base -any, mtl, QuickCheck, containers, pretty, alacarte, typeprelude
 homepage:
-synopsis: A Term Rewriting & Extensions (narrowing) library
-description: Based on the code from the paper "Generic Unification with two level types and parameterized modules"
+synopsis: A Term Rewriting & Extensions library using Data Types a la Carte
+description: 
 category:
 author: Pepe Iborra
 exposed-modules: 
