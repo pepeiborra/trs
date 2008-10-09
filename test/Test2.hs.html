@@ -1,0 +1,109 @@
+<html><style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE TypeOperators, FlexibleContexts #-}
+<span class="lineno">    2 </span>module Test2 where
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>import Control.Applicative
+<span class="lineno">    5 </span>import Data.Maybe
+<span class="lineno">    6 </span>import System.Environment
+<span class="lineno">    7 </span>import Test.QuickCheck
+<span class="lineno">    8 </span>
+<span class="lineno">    9 </span>
+<span class="lineno">   10 </span>import TRS
+<span class="lineno">   11 </span>import TRS.Rules
+<span class="lineno">   12 </span>import TRS.Types
+<span class="lineno">   13 </span>import TRS.Rewriting
+<span class="lineno">   14 </span>import TRS.Narrowing
+<span class="lineno">   15 </span>import TRS.Unification
+<span class="lineno">   16 </span>import TRS.Utils
+<span class="lineno">   17 </span>import TRS.Context
+<span class="lineno">   18 </span>import Peano
+<span class="lineno">   19 </span>import Test
+<span class="lineno">   20 </span>
+<span class="lineno">   21 </span>{-
+<span class="lineno">   22 </span>main = do
+<span class="lineno">   23 </span>  [i] &lt;- getArgs
+<span class="lineno">   24 </span>  print $ fromJust $ narrowFib (read i)
+<span class="lineno">   25 </span>-}
+<span class="lineno">   26 </span>
+<span class="lineno">   27 </span><span class="decl"><span class="istickedoff">main = do</span>
+<span class="lineno">   28 </span><span class="spaces">  </span><span class="istickedoff">putStrLn &quot;Narrowing Soundness 1 &quot; &gt;&gt;  quickCheck (propNarrowingSoundness peanoTRS)</span>
+<span class="lineno">   29 </span><span class="spaces">  </span><span class="istickedoff">putStrLn &quot;Narrowing Soundness 2 &quot; &gt;&gt; quickCheck (propNarrowingSoundness peanoTRS')</span>
+<span class="lineno">   30 </span><span class="spaces">  </span><span class="istickedoff">putStrLn &quot;Reduce gives Normal Forms 1&quot; &gt;&gt; quickCheck (propReduceNF peanoTRS :: Term PeanoT  -&gt; Bool)</span>
+<span class="lineno">   31 </span><span class="spaces">  </span><span class="istickedoff">putStrLn &quot;Reduce gives Normal Forms 2&quot; &gt;&gt; quickCheck (propReduceNF peanoTRS':: Term PeanoTH -&gt; Bool)</span></span>
+<span class="lineno">   32 </span>
+<span class="lineno">   33 </span>reduceFib,narrowFib :: MonadPlus1 m =&gt; Int -&gt; m (Term PeanoTH)
+<span class="lineno">   34 </span><span class="nottickedoff"><span class="decl"><span class="nottickedoff">reduceFib i = reduce fibTRS (fib $ (iterate s z) !! i)</span></span></span>
+<span class="lineno">   35 </span><span class="nottickedoff"><span class="decl"><span class="nottickedoff">narrowFib i = fst &lt;$&gt; narrow fibTRS (fib $ (iterate s z) !! i)</span></span></span>
+<span class="lineno">   36 </span>
+<span class="lineno">   37 </span><span class="decl"><span class="istickedoff">peanoTRS = [ x +: s(y) :-&gt; s(x +: y)</span>
+<span class="lineno">   38 </span><span class="spaces">           </span><span class="istickedoff">, y +: z    :-&gt; <span class="nottickedoff">y</span>         ] :: [Rule PeanoT]</span></span>
+<span class="lineno">   39 </span><span class="decl"><span class="istickedoff">peanoTRS'= [ s x +: y :-&gt; s(x +: y)</span>
+<span class="lineno">   40 </span><span class="spaces">           </span><span class="istickedoff">, z   +: y :-&gt; y         ] :: [Rule PeanoT]</span></span>
+<span class="lineno">   41 </span>
+<span class="lineno">   42 </span><span class="decl"><span class="nottickedoff">fibTRS = peanoTRS ++</span>
+<span class="lineno">   43 </span><span class="spaces">         </span><span class="nottickedoff">[ fib z :-&gt; s z</span>
+<span class="lineno">   44 </span><span class="spaces">         </span><span class="nottickedoff">, fib (s z) :-&gt; s z</span>
+<span class="lineno">   45 </span><span class="spaces">         </span><span class="nottickedoff">, fib (s (s x)) :-&gt; fib (s x) +: fib x]</span></span>
+<span class="lineno">   46 </span>
+<span class="lineno">   47 </span>x,y :: (Var :&lt;: f) =&gt; Term f
+<span class="lineno">   48 </span><span class="decl"><span class="istickedoff">x = var 0</span></span>
+<span class="lineno">   49 </span><span class="decl"><span class="istickedoff">y = var 1</span></span>
+<span class="lineno">   50 </span>
+<span class="lineno">   51 </span>------------------
+<span class="lineno">   52 </span>-- Properties
+<span class="lineno">   53 </span>------------------
+<span class="lineno">   54 </span>
+<span class="lineno">   55 </span><span class="decl"><span class="nottickedoff">propNarrowingVars rr t = isVar t ==&gt; isNothing $ narrow1 rr (reinject t :: Term PeanoTH)</span>
+<span class="lineno">   56 </span><span class="spaces"> </span><span class="nottickedoff">where types = (rr :: [Rule PeanoT], t :: Term PeanoT)</span></span>
+<span class="lineno">   57 </span>
+<span class="lineno">   58 </span><span class="decl"><span class="istickedoff">propNarrowingSoundness rr t = and $ do</span>
+<span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">(t', sigma) &lt;- take 100 $ narrows rr (reinject t :: Term PeanoTH)</span>
+<span class="lineno">   60 </span><span class="spaces">    </span><span class="istickedoff">return ( EqModulo t'  `elem` map EqModulo (rewrites rr (t // sigma)))</span>
+<span class="lineno">   61 </span><span class="spaces">  </span><span class="istickedoff">where <span class="nottickedoff">types = (rr :: [Rule PeanoT], t :: Term PeanoT)</span></span></span>
+<span class="lineno">   62 </span>
+<span class="lineno">   63 </span><span class="decl"><span class="istickedoff">propReduceNF rr t = and $ do</span>
+<span class="lineno">   64 </span><span class="spaces">    </span><span class="istickedoff">t' &lt;- reduce rr t</span>
+<span class="lineno">   65 </span><span class="spaces">    </span><span class="istickedoff">return (isNothing $ reduce rr t')</span></span>
+<span class="lineno">   66 </span>
+<span class="lineno">   67 </span>--------------------------
+<span class="lineno">   68 </span>-- Testing Reductions
+<span class="lineno">   69 </span>--------------------------
+<span class="lineno">   70 </span>
+<span class="lineno">   71 </span>-- Testing rewriting
+<span class="lineno">   72 </span><span class="decl"><span class="nottickedoff">two   = s(s(z)) :: Term PeanoTH</span></span>
+<span class="lineno">   73 </span><span class="decl"><span class="nottickedoff">five  = s(s(s(two))) :: Term PeanoTH</span></span>
+<span class="lineno">   74 </span><span class="decl"><span class="nottickedoff">seven = two +: five  :: Term PeanoTH</span></span>
+<span class="lineno">   75 </span>
+<span class="lineno">   76 </span>
+<span class="lineno">   77 </span>--seven' :: Monad m =&gt; m PeanoTH
+<span class="lineno">   78 </span><span class="decl"><span class="nottickedoff">seven' = rewrite1 peanoTRS seven :: [Term PeanoTH]</span></span>
+<span class="lineno">   79 </span><span class="decl"><span class="nottickedoff">eight' = rewrite1 peanoTRS (seven +: s(z)) `asTypeOf` Nothing</span></span>
+<span class="lineno">   80 </span><span class="decl"><span class="nottickedoff">test1 = TRS.Rewriting.match z (z :: Term PeanoTH) `asTypeOf` Nothing</span></span>
+<span class="lineno">   81 </span>
+<span class="lineno">   82 </span><span class="decl"><span class="nottickedoff">narr = fst `map` narrow1 peanoTRS seven</span></span>
+<span class="lineno">   83 </span>
+<span class="lineno">   84 </span><span class="decl"><span class="nottickedoff">sx = s x :: Term PeanoTH</span></span>
+<span class="lineno">   85 </span>
+<span class="lineno">   86 </span><span class="decl"><span class="nottickedoff">sz = s z :: Term PeanoTH</span></span>
+<span class="lineno">   87 </span>
+<span class="lineno">   88 </span>--v = In $ Inr $ Inr $ Var 0 :: PeanoTH  -- In (Inl (Succ (In (Inr (Inr (Var 0))))))
+<span class="lineno">   89 </span>
+<span class="lineno">   90 </span>--h = In $ Inr $ Inl $ Hole 0 :: PeanoTH -- In (Inl (Succ (In (Inl Zero))))
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>f :: Unifyable f =&gt; Term f -&gt; ()
+<span class="lineno">   93 </span><span class="decl"><span class="nottickedoff">f _ = ()</span></span>
+<span class="lineno">   94 </span>
+<span class="lineno">   95 </span><span class="decl"><span class="nottickedoff">bleh = f seven</span></span>
+
+</pre>
+</html>

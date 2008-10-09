@@ -3,10 +3,10 @@
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fno-mono-pat-binds #-}
 {-# LANGUAGE  DisambiguateRecordFields #-}
+{-# LANGUAGE TemplateHaskell #-}
 
-module Test where
+module TRS.Test (PeanoT, PeanoTH) where
 
-import Data.AlaCarte
 import Data.AlaCarte.Instances
 import Data.Char
 import Data.Foldable hiding (elem)
@@ -24,8 +24,11 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , (+) )
 
 import Test.HUnit
-import Test.QuickCheck 
-import Test.QuickCheck.Test
+import Test.QuickCheck (Arbitrary(..), quickCheck, oneof, sized, resize, frequency)
+import Test.QuickCheck.Test (quickCheckResult, isSuccess)
+import Test.SmallCheck hiding (two, three, four, test)
+import qualified Test.SmallCheck     as Small
+import qualified Test.LazySmallCheck as LS
 import Text.PrettyPrint
 import Text.Show.Functions
 import Debug.Trace
@@ -39,8 +42,9 @@ import TRS.Context
 import TRS.Utils
 import TRS.Types
 
-import Peano
-import TermRef
+import TRS.Test.Instances
+import TRS.Test.Peano
+import TRS.Test.TermRef
 
 htests = TestList
         [ TestLabel "testRewriting" testRewriting
@@ -61,7 +65,7 @@ qtests = [
 --         ,("Rule Equality"    , q propRuleEquality)
 --         ,("Full Narrowing Normal Forms", q propNarrowFullNF)
          ]
-    where q = quickCheck'
+    where q = fmap isSuccess . quickCheckResult
 
 {-
 -------------------------
@@ -87,9 +91,9 @@ rule2 = x +: y :-> y
 -- Peano numbers
 ----------------------------
 peanoTRS = [ x +: s(y) :-> s(x +: y)
-           , y +: z    :-> y        ] :: [RuleG PeanoTH]
+           , y +: z    :-> y        ] :: [Rule PeanoTH]
 peanoTRS'= [ s x +: y :-> s(x +: y)
-           , z   +: y :-> y         ] :: [RuleG PeanoTH]
+           , z   +: y :-> y         ] :: [Rule PeanoTH]
 
 x :: (Var :<: f) => Term f
 x = var 0
@@ -107,13 +111,13 @@ testRewriting = TestLabel "Test Rewriting" $ TestList
         , testRewNoRules ]
 
 -- Testing rewriting
-two   = s(s(z)) :: PeanoTH
-five  = s(s(s(two))) :: PeanoTH
-seven = two +: five  :: PeanoTH
+two   = s(s(z)) :: Term PeanoTH
+five  = s(s(s(two))) :: Term PeanoTH
+seven = two +: five  :: Term PeanoTH
 
-seven' :: MonadPlus m => m PeanoTH
+seven' :: MonadPlus m => m (Term PeanoTH)
 seven' = rewrite1 peanoTRS seven
-eight' = rewrite1 peanoTRS (seven +: s(z)) :: [PeanoTH]
+eight' = rewrite1 peanoTRS (seven +: s(z)) :: [Term PeanoTH]
 
 -- One Step rewriting
 testRewriting0 = [s(s(s(z)) +: s(s(s(s(z)))))] ~=? seven'
@@ -133,7 +137,7 @@ sillyRules = [ z :-> s(z), z :-> s(s(z)) ]
 testRewriting4 = test (assert True) --TODO
 
 -- Corner cases
-testRewNoRules = TestLabel "No Rules" $ rewrite1 [] seven ~?= []
+testRewNoRules = TestLabel "No Rules" $ rewrite1 ([] :: [Rule PeanoT]) seven ~?= []
 
 
 ------------------------
@@ -141,7 +145,7 @@ testRewNoRules = TestLabel "No Rules" $ rewrite1 [] seven ~?= []
 ------------------------
 peanoTRS2 = [ s(s(z)) +: s(x) :-> s(s(s(x)))
             , z +: s(x) :-> s(x)
-            ] :: [RuleG PeanoTH]
+            ] :: [Rule PeanoTH]
 
 
 testNarrowing = TestList [ [s(s(s(s(z)))), s(s(z))] ~=? fourN1
@@ -154,7 +158,7 @@ testNarrowing = TestList [ [s(s(s(s(z)))), s(s(z))] ~=? fourN1
 --                         , fst <$> narrow1 [g (g x) :-> x :: RuleG PeanoTH] (f (g x) x :: PeanoTH) ~?= [f x (g x :: PeanoTH) :: PeanoTH]
 --                         , testPropagation
                          ]
-four = y +: s(s(z)) :: PeanoTH
+four = y +: s(s(z)) :: Term PeanoTH
 
 fourN1 = fst `map` narrow1 peanoTRS2 four
 --fourNFix =(fixM (fmap snd $ narrow1 peanoTRS2) four)
@@ -266,22 +270,22 @@ ts x = term "s" [x]
 
 testEquality = TestLabel "test equality" $
                TestList [ -- x   ==  y    ~? "Eq modulo Vars"
-                           (s x ::PeanoT) `equal` (s y :: PeanoT)  ~? "With a context"
-                        ,  (x+y ::BasicT) `equal` (y+x) ~? "Same Name, but unrelated"
+                           (s x ::Term PeanoT) `equal` (s y :: Term PeanoT)  ~? "With a context"
+                        ,  (x+y ::Term Basic)  `equal` (y+x) ~? "Same Name, but unrelated"
                         ]
 
 -----------------------------------------------
 -- Verifying the new implementation of contexts
 -----------------------------------------------
  -- REVIEW these properties
-propCIdentity, propCTransiti :: PeanoTH -> Bool
+propCIdentity, propCTransiti :: Term PeanoTH -> Bool
 propCIdentity x = and [ ct|>y == x | (y,ct) <- contexts x ]
 
 propCTransiti x = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts x
                                        , (y,ct) <- contexts ct1]
 
-propCSubterms :: PeanoT -> Bool
-propCSubterms x@(In f) = length (toList f) == length (contexts (reinject x :: PeanoTH))
+propCSubterms :: Term PeanoT -> Bool
+propCSubterms x@(In f) = length (toList f) == length (contexts (reinject x :: Term PeanoTH))
 
 --nSubterms :: Term f -> Int
 nSubterms = foldTerm (\x -> 1 Prelude.+ Data.Foldable.sum x)
@@ -387,25 +391,6 @@ arbitraryTerm sig size = do
       where size2 = size `div` 2
 
 -}
-type PeanoT  = Term (Var :+: Peano)
-type PeanoTH = Term (Var :+: Peano :+: Hole)
 
-
-instance Arbitrary (Hole a) where arbitrary = Hole <$> arbitrary
-instance Arbitrary (Var a)  where arbitrary = Var Nothing <$> oneof [return 0, return 1, return 2]
-instance Arbitrary a => Arbitrary (Peano a) where
-    arbitrary = sized $ \size ->
-      let half m = resize (size `div` 2) m in
-      frequency
-        [ (2, liftM2 (:+) (half arbitrary) (half arbitrary))
-        , (2, return Zero)
-        , (4, Succ <$> arbitrary)]
-
-instance Arbitrary a => Arbitrary (T String a) where
-    arbitrary = sized $ \size ->
-      let half m = resize (size `div` 2) m in
-      oneof [ (`T` []) <$> oneof [return "a", return "b"]
-            , arbitrary >>= \t1  ->
-              (`T` [t1]) <$> oneof [return "f1", return "g1"]
-            , arbitrary >>= \t1 -> arbitrary >>= \t2 ->
-              (`T` [t1,t2]) <$> oneof [return "f2", return "g2"] ]
+-- $( derive makeSerial ''Var)
+-- $( derive makeSerial ''RuleG)

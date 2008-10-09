@@ -4,7 +4,7 @@ Cabal-Version:  >= 1.2
 license: AllRightsReserved
 license-file: ""
 copyright: Pepe Iborra, All Rights Reserved
-build-depends: base -any, mtl, QuickCheck, containers, pretty, alacarte, typeprelude
+build-depends: base -any, mtl, containers, pretty, alacarte, typeprelude, smallcheck, QuickCheck, HUnit, lazysmallcheck
 homepage:
 synopsis: A Term Rewriting & Extensions library using Data Types a la Carte
 description: 
@@ -23,12 +23,15 @@ exposed-modules:
   TRS.Context
   TRS.UMonad
 
-other-modules: TRS.UMonad
+  TRS.Test
+  TRS.Test.Instances
+  TRS.Test.Peano
+  TRS.Test.TermRef
 buildable: True
 extensions: CPP, UndecidableInstances, OverlappingInstances,
 	    MultiParamTypeClasses, FunctionalDependencies,
 	    FlexibleContexts, FlexibleInstances, TypeSynonymInstances
 	    GeneralizedNewtypeDeriving, TypeOperators, ScopedTypeVariables
-hs-source-dirs: src
+hs-source-dirs: src, test
 ghc-prof-options: -prof -auto-all
 ghc-options: -O2 -Wall -fno-warn-name-shadowing
