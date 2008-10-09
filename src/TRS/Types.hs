@@ -20,7 +20,7 @@
 module TRS.Types (module Data.AlaCarte, module TRS.Types) where
 
 import Control.Applicative
-import Data.AlaCarte hiding (Expr(..), match, inject)
+import Data.AlaCarte hiding (Expr(..), match, inject, reinject)
 import Data.Char (isAlpha)
 import Data.Foldable as Foldable
 import Data.Monoid
@@ -56,6 +56,12 @@ foldTermTop f (In t)= In (foldTermTop f `fmap` f t)
 inject :: (g :<: f) => g (Term f) -> Term f
 inject = In . inj
 
+reinject :: (f :<: g) => Term f -> Term g
+reinject = foldTerm inject
+
+reinject' :: (f :<: fs, fs :<: gs) => f (Term fs) -> f (Term gs)
+reinject' = fmap reinject
+
 match :: (g :<: f) => Term f -> Maybe (g (Term f))
 match (In t) = prj t
 
@@ -64,14 +70,14 @@ match (In t) = prj t
 -- ------------------
 
 class Functor f => Ppr f where pprF :: f Doc -> Doc
-ppr :: Ppr f => Term f -> String
-ppr = render . foldTerm pprF
+ppr :: Ppr f => Term f -> Doc
+ppr = foldTerm pprF
 
 
 -- -----------------------------
 -- * The first building blocks
 -- -----------------------------
-type BasicT = Term (Var :+: T String)
+type Basic = Var :+: T String
 
 data T id a = T !id [a]   deriving Eq
 instance Functor (T id)     where fmap f (T s aa) = T s (map f aa)
@@ -101,6 +107,9 @@ varId err t = case match t of
                 Just (Var _ i) -> i
                 Nothing -> error ("varId/" ++ err ++ ": expected a Var term")
 
+varId' :: Var f -> Int
+varId' (Var _ i) = i
+
 term :: (T id :<: f) => id -> [Term f] -> Term f
 term s = inject . T s
 
@@ -126,12 +135,12 @@ instance Ppr (T String) where
 
 instance Ppr Var where
     pprF (Var Nothing i)  = text$ showsVar 0 i ""
-    pprF (Var (Just l) _) = text l
+    pprF (Var (Just l) i) = text l -- <> char '_' <> int i
 instance (Ppr a, Ppr b) => Ppr (a:+:b) where
     pprF (Inr x) = pprF x
     pprF (Inl y) = pprF y
 
-instance Ppr f => Show (Term f) where show = ppr
+instance Ppr f => Show (Term f) where show = render . ppr
 
 instance (Ord id, Ord a) => Ord (T id a) where
     (T s1 tt1) `compare` (T s2 tt2) =
@@ -143,22 +152,30 @@ instance (Ord id, Ord a) => Ord (T id a) where
 -- MatchShape
 --------------
 
-class MatchShape f f => MatchShapeable f
-instance MatchShape f f => MatchShapeable f
-class (f :<: g) => MatchShape f g where matchShapeF :: f(Term g) -> f(Term g) -> Maybe [(Term g, Term g)]
+class    MatchShape f g f g => MatchShapeable f g
+instance MatchShape f g f g => MatchShapeable f g
 
---instance (Functor a, Functor b) => MatchShape a (a :+: b)
---instance (Functor a, Functor b) => MatchShape b (a :+: b)
-instance (MatchShape a (a :+: b), MatchShape b (a :+: b)) => MatchShape (a :+: b) (a :+: b) where
+class (f :<: fs, g :<: gs, fs :<: gs) => MatchShape f g fs gs where matchShapeF :: f(Term fs) -> g(Term gs) -> Maybe [(Term fs, Term gs)]
+
+instance (f :<: g, (c :+: d) :<: f, MatchShape c a f g, MatchShape d a f g) => MatchShape (c :+: d) a f g where
+    matchShapeF (Inl x) y = matchShapeF x y
+    matchShapeF (Inr x) y = matchShapeF x y
+
+instance (fs :<: gs, (c :+: d) :<: gs, MatchShape a c fs gs, MatchShape a d fs gs) => MatchShape a (c :+: d) fs gs where
+    matchShapeF x (Inl y) = matchShapeF x y
+    matchShapeF x (Inr y) = matchShapeF x y
+
+instance (fs :<: gs, MatchShape a c fs gs, MatchShape b c fs gs, MatchShape a d fs gs, MatchShape b d fs gs, (a :+: b) :<: fs, (c :+: d) :<: gs) =>
+        MatchShape (a :+: b) (c :+: d) fs gs where
     matchShapeF (Inl x) (Inl y) = matchShapeF x y
     matchShapeF (Inr x) (Inr y) = matchShapeF x y
-    matchShapeF _ _ = Nothing
+    matchShapeF (Inl x) (Inr y) = matchShapeF x y
+    matchShapeF (Inr x) (Inl y) = matchShapeF x y
 
---instance (Var :<: g) => MatchShape Var g where matchShapeF _ _ = Nothing
-instance (f :<: g) => MatchShape f g where matchShapeF _ _ = Nothing
-instance (Eq id, T id :<: g) => MatchShape (T id) g where
+instance (f :<: fs, g :<: gs, fs :<: gs) => MatchShape f g fs gs where matchShapeF _ _ = Nothing
+instance (Eq id, T id :<: fs, T id :<: gs, fs :<: gs) => MatchShape (T id) (T id) fs gs where
     matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
-matchShape :: (MatchShapeable t) => Term t -> Term t -> Maybe [(Term t, Term t)]
+matchShape :: (MatchShapeable f g) => Term f -> Term g -> Maybe [(Term f, Term g)]
 matchShape (In t) (In u) = matchShapeF t u
 
 subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]

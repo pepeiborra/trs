@@ -17,12 +17,14 @@
 
 module TRS.Utils where
 import Control.Applicative
-import Control.Monad.State hiding (mapM, sequence, msum)
+import Control.Monad.State hiding (mapM, mapM_, sequence, msum)
 import Control.Monad.List (ListT(..))
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
 import Data.AlaCarte
 import Data.List (group, sort, sortBy, groupBy, intersperse)
 import Data.Maybe
+import Data.Monoid
+import qualified Data.Set as Set
 import Data.Traversable
 import Data.Foldable
 import qualified Prelude
@@ -75,6 +77,8 @@ splitOn x xs = let (l, r) = break (==x) xs in
 ---------------------------------------------------------
 snub :: Ord a => [a] -> [a]
 snub = map head . group . sort
+
+snub' l1 l2 = Set.toList $ Set.fromList l1 `mappend` Set.fromList l2
 
 snubBy :: (a -> a -> Ordering) -> [a] -> [a]
 snubBy f = map head . groupBy (((==EQ).) . f) . sortBy f
@@ -156,14 +160,15 @@ deleteByM p x (y:ys) =
 -- |A fixpoint-like monadic operation. Currenty a bit ugly, maybe there is a 
 --- better way to do this 'circularly'
 closureMP :: MonadPlus m => (a -> m a) -> (a -> m a)
-closureMP f x = (f x >>= closureMP f) `mplus` return x
+closureMP f x = return x `mplus` (f x >>= closureMP f)
 
-class MonadPlus m => MonadPlus1 m where isMZero :: m a -> Bool
-instance MonadPlus1 []            where isMZero = null
-instance MonadPlus1 Maybe         where isMZero = isNothing
+class (Functor m, MonadPlus m) => MonadPlus1 m where isMZero :: m a -> m Bool
+instance MonadPlus1 []            where isMZero = return . null
+instance MonadPlus1 Maybe         where isMZero = return . isNothing
+instance MonadPlus1 m => MonadPlus1 (StateT s m) where isMZero m = get >>= lift . isMZero . evalStateT m
 
 fixMP :: (MonadPlus1 m) => (a -> m a) -> (a -> m a)
-fixMP f x = let x' = f x in if isMZero x' then return x else fixMP f =<< x' -- msum (fixMP f `liftM` x')
+fixMP f x = let x' = f x in isMZero x' >>= \c -> if c then return x else fixMP f =<< x' -- msum (fixMP f `liftM` x')
 
 -- Fixpoint of a monadic function, using Eq comparison (this is a memory eater)
 fixM_Eq :: (Monad m, Eq a) => (a -> m a) -> a -> m a
@@ -233,6 +238,10 @@ zipG' t1 t2
        where zipG' y = do (x:xx) <- get
                           put xx
                           return (x,y)
+
+zipWith f t1 t2  = fmap (uncurry f) (zipG t1 t2)
+zipWithM  f t1 t2 = mapM (uncurry f) (zipG t1 t2)
+zipWithM_ f t1 t2 = mapM_ (uncurry f) (zipG t1 t2)
 
 -- | Crappy unzip, takes two traversals
 -- TODO: optimize
@@ -416,10 +425,11 @@ return2 :: (Monad m, Monad n) => a -> m(n a)
 return2 = return . return
 
 fmap2 :: (Functor f1, Functor f) => (a -> b) -> f1 (f a) -> f1 (f b)
-fmap2 f x = fmap (fmap  f) x
-fmap3 :: (Functor f2, Functor f1, Functor f) => 
-         (a -> b) -> f2 (f (f1 a)) -> f2 (f (f1 b))
-fmap3 f x = fmap (fmap2 f) x 
+fmap2 = fmap . fmap
+fmap3 :: (Functor f2, Functor f1, Functor f) => (a -> b) -> f2 (f (f1 a)) -> f2 (f (f1 b))
+fmap3 = fmap . fmap . fmap
+fmap4 :: (Functor f3, Functor f2, Functor f1, Functor f) => (a -> b) -> f3 (f2 (f (f1 a))) -> f3(f2 (f (f1 b)))
+fmap4 = fmap . fmap . fmap . fmap
 
 ($>) :: (Functor f) => f a -> (a -> b) -> f b
 ($>) = flip (<$>)

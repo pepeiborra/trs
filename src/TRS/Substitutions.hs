@@ -4,15 +4,20 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE GADTs #-}
 
 module TRS.Substitutions (
+     (//),
      Subst, SubstG(..), MkSubst(..), emptySubst,
-     o, concatSubst, insertSubst,
-     applySubst, isRenaming,
+     o, zonkSubst, restrictTo, concatSubst, insertSubst,
+     applySubst, applySubstF, isRenaming,
      substRange, substDomain) where
 
-import Control.Arrow (second)
+import Control.Applicative
+import Control.Arrow (first, second)
 import Data.Maybe
+import Text.PrettyPrint
 
 import TRS.Types
 import TRS.Utils
@@ -20,17 +25,38 @@ import TRS.Utils
 ----------------------
 -- * Substitutions
 ----------------------
-newtype SubstG a = Subst {fromSubst::[(Int, a)]}
-   deriving (Show)
+(//) :: (Var :<: f, f :<: fs) => Term f -> Subst fs -> Term fs
+(//) = flip applySubst
+
+applySubst :: (Var :<: f, f :<: fs) => Subst fs -> Term f -> Term fs
+applySubst s = foldTerm (applySubstF s)
+
+applySubstF :: (Var :<: f, f :<: fs) => Subst fs -> f (Term fs) -> Term fs
+applySubstF (Subst s) t
+  | Just v@Var{} <- prj t   = fromMaybe (inject t) $ lookup (Exists v) s
+  | otherwise               = inject t  -- Can we save some injects here and make this more efficient
+
+data ExistsVar where Exists :: Var f -> ExistsVar
+instance Eq  ExistsVar where Exists (Var _ i1) == Exists (Var _ i2) = i1 == i2
+instance Ord ExistsVar where compare (Exists (Var _ i1)) (Exists (Var _ i2)) = compare i1 i2
+
+newtype SubstG a = Subst [(ExistsVar, a)]
+
+instance Functor SubstG where fmap f (Subst s) = Subst (map (second f) s)
+instance (Eq a) => Eq (SubstG a) where Subst s1 == Subst s2 = s1 == s2
 
 --newtype SubstM a = SubstM {fromSubstM :: [Maybe a]} deriving (Show, Monoid)
 
 type Subst f = SubstG (Term f)
 
 class MkSubst a f | a -> f where mkSubst :: a -> Subst f
-instance MkSubst [(Var g, Term f)]  f where mkSubst dict = Subst [(i,t) | (Var _ i, t) <- dict]
-instance (Var :<: f) => MkSubst [(Term f, Term f)] f where mkSubst dict = Subst [(i,t) | (v, t) <- dict, let Just (Var _ i) = match v]
-instance MkSubst [(Int, Term f)]    f where mkSubst = Subst
+--instance MkSubst [(Var g, Term f)]  f where mkSubst dict = Subst [(i,t) | (Var _ i, t) <- dict]
+instance MkSubst [(Var(Term f), Term fs)] fs where mkSubst = Subst . map (first Exists)
+instance MkSubst [(Int, Term f)]    f where mkSubst = Subst . map (first (Exists . Var Nothing))
+
+instance Ppr f => Show (Subst f) where
+    show (Subst s) = render $ braces $ fsep $ punctuate comma
+                     [ ppr (In(Var n i)) <+> char '/' <+> ppr t  | (Exists (Var n i), t) <- s]
 
 emptySubst :: SubstG a
 emptySubst = Subst []
@@ -43,36 +69,21 @@ o = composeSubst
 concatSubst :: (Var :<: f) => [Subst f] -> Subst f
 concatSubst = Prelude.foldl composeSubst (Subst [])
 
-insertSubst :: Var (Term f) -> Term f -> Subst f -> Subst f
-insertSubst (Var _ i) t (Subst sigma) = Subst (snubBy (compare `on` fst) ((i,t) : sigma))
+insertSubst :: (Var :<: fs) => Var (Term g) -> Term fs -> Subst fs -> Subst fs
+insertSubst v t sigma | Subst sigma' <- applySubst (mkSubst [(v,t)]) <$> sigma
+   = Subst (snubBy (compare `on` fst) ((Exists v, t) : sigma'))
 
-{-
-mkSubstM :: [Int] -> [a] -> SubstM a
-mkSubstM [] _  = mempty
-mkSubstM ii vv = let
-    table = Map.fromList (zip ii vv)
-  in SubstM (map (`Map.lookup` table) [0 .. maximum ii])
+restrictTo :: (Eq (Term f), Var :<: f) => Subst f -> [Var (Term f)] -> Subst f
+restrictTo (Subst s) vv = Subst [ binding | binding@(Exists (Var _ i),t) <- s, i `elem` indexes]
+    where indexes = [i | Var _ i <- vv]
 
-instance Traversable SubstM where
-    traverse f (SubstM x) = SubstM <$> (traverse .traverse) f x
-
-instance Functor SubstM where 
-    fmap f (SubstM x) = SubstM $ map (fmap f) x
-
-instance Foldable SubstM where foldMap = foldMapDefault
-
-instance Applicative SubstM where
-    pure = SubstM . (:[]) . Just
-    SubstM f <*> SubstM xx = SubstM (zipWith ap f xx)
--}
-applySubst :: (Var :<: f) => Subst f -> Term f -> Term f
-applySubst (Subst s) = foldTerm f where
-  f t | Just (Var _ i) <- prj t = fromMaybe (In t) (lookup i s)
-      | otherwise             = In t
+-- flatten a substitution (pointers are replaced with their values)
+zonkSubst :: (Var :<: f, Eq (Term f)) => Subst f -> Subst f
+zonkSubst s = fixEq (applySubst s <$>) s
 
 substRange :: SubstG t -> [t]
 substRange (Subst subst)  = snd $ unzip subst
-substDomain :: SubstG t -> [Int]
-substDomain (Subst subst) = fst $ unzip subst
+substDomain :: SubstG t -> [(Maybe String, Int)]
+substDomain (Subst subst) = [ (n,i) | Exists(Var n i) <- fst (unzip subst)]
 isRenaming :: (Var :<: s) => SubstG (Term s) -> Bool
 isRenaming subst = isVar `all` substRange subst

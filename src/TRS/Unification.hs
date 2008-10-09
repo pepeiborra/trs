@@ -10,36 +10,37 @@
 
 module TRS.Unification (
       UMonadT(..), evalU, execU, runU,
-      Unifyable, unify, unify', unify1, unifyFdefault,
-      equal, variant, apply
+      Unifyable, Unify(..), unify, unify', unify1, unifyFdefault,
+      EqModulo_(..), EqModulo, equal, equalG, variant, apply
       ) where
 
-import Control.Monad.State hiding (mapM_)
+import Control.Monad.State hiding (mapM_, zipWithM_)
 import Data.Foldable
+import Data.Traversable
 import Prelude hiding (mapM_)
 import TypePrelude
 
 import TRS.Substitutions
 import TRS.Types
 import TRS.UMonad
+import TRS.Utils
 
-class Unify f f f => Unifyable f
-instance Unify f f f => Unifyable f
+class    (Var :<: f, Eq (Term f), Unify f f f) => Unifyable f
+instance (Var :<: f, Eq (Term f), Unify f f f) => Unifyable f
 
-class (Functor f, Functor g, Functor h) => Unify f h g where
-    unifyF :: (MonadPlus m, MonadState (Subst g) m, Unify g g g) => f(Term g) -> h(Term g) -> m ()
+class (f:<:g, h:<:g) => Unify f h g where
+    unifyF :: (MonadPlus m, MonadEnv g m, Unifyable g) => f(Term g) -> h(Term g) -> m ()
 
-class Unify2 isVarF isVarH f h g where unifyF' :: (MonadPlus m, MonadState (Subst g) m, Unify g g g) => isVarF -> isVarH -> f(Term g) -> h(Term g) -> m ()
-instance (Var :<: g, t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind v (inject t)
-instance (Var :<: g, t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind v (inject t)
-instance (Functor a, Functor g, MatchShape a g) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
-instance (Functor a, Functor b, Functor g) => Unify2 HFalse HFalse a b g where unifyF' _ _ _x _y = const mzero (_x,_y)
+class Unify2 isVarF isVarH f h g where unifyF' :: (MonadPlus m, MonadEnv g m, Unifyable g) => isVarF -> isVarH -> f(Term g) -> h(Term g) -> m ()
+instance (t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind v (inject t)
+instance (t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind v (inject t)
+instance (a:<: g, MatchShape a a g g) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
+instance (a:<:g, b:<:g)       => Unify2 HFalse HFalse a b g  where unifyF' _ _ _x _y = const mzero (_x,_y)
 
-instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g
-         ,Functor f, Functor g, Functor h) => Unify f h g where
+instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g, f:<:g, h:<:g) => Unify f h g where
     unifyF x y = unifyF' (proxy::isVarF) (proxy::isVarH) x y
 
-instance (Var :<: g) => Unify Var Var g where
+instance (Var :<: g) =>Unify Var Var g where
     unifyF v@(Var _ i) w@(Var _ j)
         | i == j    = return ()
         | otherwise = do
@@ -48,8 +49,8 @@ instance (Var :<: g) => Unify Var Var g where
               case (match v', match w') of
                  (Nothing, Nothing) -> unify1 v' w'
                  (Nothing, Just _)  -> unify1 w' v'  -- TODO: remove unnecessary extra lookup on w
-                 (Just v', Nothing)  -> varBind v' w'
-                 (Just v'@Var{}, Just Var{}) -> varBind v' w'
+                 (Just var, Nothing)  -> varBind var w'
+                 (Just var@Var{}, Just Var{}) -> varBind var w'
 
 instance ((a :+: b) :<: g, Unify c a g, Unify c b g) => Unify c (a :+: b) g where
     unifyF x (Inl y) = unifyF x y
@@ -59,7 +60,7 @@ instance ((a :+: b) :<: g, Unify c a g, Unify c b g) => Unify (a :+: b) c g wher
     unifyF (Inl y) x = unifyF x y
     unifyF (Inr y) x = unifyF x y
 
-instance (Unify a c g, Unify b d g, Unify a d g, Unify b c g) =>
+instance (Unify a c g, Unify b d g, Unify a d g, Unify b c g, (c:+:d) :<: g, (a:+:b) :<: g) =>
     Unify (a :+: b) (c :+: d) g where
     unifyF (Inl x) (Inl y) = unifyF x y
     unifyF (Inr x) (Inr y) = unifyF x y
@@ -68,20 +69,13 @@ instance (Unify a c g, Unify b d g, Unify a d g, Unify b c g) =>
 
 instance (Eq id, T id :<: g) => Unify (T id) (T id) g where unifyF = unifyFdefault
 
-unifyFdefault :: (MonadPlus m, MonadState (Subst g) m, MatchShape f g, Unifyable g) =>
+unifyFdefault :: (MonadPlus m, MonadEnv g m, MatchShape f f g g, Unifyable g) =>
                  f (Term g) -> f (Term g) -> m ()
 unifyFdefault t1 t2 = do
       pairs <- maybe mzero return $ matchShapeF t1 t2
       mapM_ (uncurry unify1) pairs
 
-
-class Functor f => VarBind f where varBind :: (MonadState (Subst g) m, MonadPlus m) => f(Term g) -> Term g -> m ()
-instance VarBind Var where
-    varBind t u = do guard (occurs t u) >> get >>= \sigma -> put$ insertSubst t u sigma
-
-occurs _ _ = True --TODO
-
-unify1 :: (MonadPlus m, MonadState (Subst f) m, Unifyable f) => Term f -> Term f -> m ()
+unify1 :: (MonadPlus m, MonadEnv f m, Unifyable f) => Term f -> Term f -> m ()
 unify1 (In t) (In u) = unifyF t u
 
 unify' :: (MonadPlus m, Unifyable f) => Subst f -> Term f -> Term f -> m (Subst f)
@@ -93,8 +87,22 @@ unify = unify' emptySubst
 -- * Semantic Equality
 ---------------------------------------
 
-equal :: (Var :<: f, Unifyable f) => Term f -> Term f -> Bool
+equal :: (Unifyable f) => Term f -> Term f -> Bool
 equal t u = maybe False isRenaming (unify t u)
+
+equalG :: (Unifyable f, Traversable t) => t(Term f) -> t(Term f) -> Bool
+equalG t u = maybe False isRenaming (execU (zipWithM_ unify1 t u))
+
+-- Equality modulo renaming on Terms
+type EqModulo f = EqModulo_(Term f)
+
+newtype EqModulo_ a = EqModulo {eqModulo :: a}
+
+instance Functor EqModulo_ where fmap f (EqModulo x) = EqModulo (f x)
+deriving instance (Eq (EqModulo_ a), Ord  a) => Ord (EqModulo_ a)
+instance Show a => Show (EqModulo_ a) where showsPrec p (EqModulo x) = showsPrec p x
+
+instance Unifyable f => Eq (EqModulo f) where EqModulo t1 == EqModulo t2 = t1 `equal` t2
 
 --instance (Var :<: f, Unifyable f) => Eq (Term f) where (==) = equal
 

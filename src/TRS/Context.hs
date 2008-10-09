@@ -33,7 +33,7 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
 type Context f = Term f
 
 -- A CtxVar carries an index, which must be unique
-newtype Hole f = Hole Int deriving (Show, Eq)
+newtype Hole f = Hole Int deriving (Show, Eq, Ord)
 
 instance Functor Hole     where fmap _ (Hole i) = Hole i
 instance Foldable Hole    where foldMap = foldMapDefault
@@ -69,7 +69,7 @@ shiftC n = foldTerm f
                      | otherwise = In t
 
 instance Ppr Hole where pprF (Hole i) = brackets (int i)
-instance (Hole :<: f) => MatchShape Hole f where matchShapeF _ _ = Nothing
+instance (Hole :<: fs, g :<: gs, fs :<: gs) => MatchShape Hole g fs gs where matchShapeF _ _ = Nothing
 
 --instance (Hole :<: g) => Match Hole Hole g where matchF _ _ = Nothing
 --instance (Hole :<: g, a :<: g) => Match Hole a g where matchF _ _ = Nothing

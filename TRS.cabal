@@ -21,6 +21,7 @@ exposed-modules:
   TRS.Unification
   TRS.Narrowing
   TRS.Context
+  TRS.UMonad
 
 other-modules: TRS.UMonad
 buildable: True
