@@ -85,5 +85,5 @@ substRange :: SubstG t -> [t]
 substRange (Subst subst)  = snd $ unzip subst
 substDomain :: SubstG t -> [(Maybe String, Int)]
 substDomain (Subst subst) = [ (n,i) | Exists(Var n i) <- fst (unzip subst)]
-isRenaming :: (Var :<: s) => SubstG (Term s) -> Bool
+isRenaming :: (IsVar s, Var :<: s) => SubstG (Term s) -> Bool
 isRenaming subst = isVar `all` substRange subst

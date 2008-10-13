@@ -10,7 +10,7 @@
 
 module TRS.Unification (
       UMonadT(..), evalU, execU, runU,
-      Unifyable, Unify(..), unify, unify', unify1, unifyFdefault,
+      Unifyable, Unify(..), Unify2(..), unify, unify', unify1, unifyFdefault,
       EqModulo_(..), EqModulo, equal, equalG, variant, apply
       ) where
 
@@ -35,7 +35,7 @@ class Unify2 isVarF isVarH f h g where unifyF' :: (MonadPlus m, MonadEnv g m, Un
 instance (t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind v (inject t)
 instance (t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind v (inject t)
 instance (a:<: g, MatchShape a a g g) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
-instance (a:<:g, b:<:g)       => Unify2 HFalse HFalse a b g  where unifyF' _ _ _x _y = const mzero (_x,_y)
+instance (a:<:g, b:<:g)               => Unify2 HFalse HFalse a b g  where unifyF' _ _ _x _y = const mzero (_x,_y)
 
 instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g, f:<:g, h:<:g) => Unify f h g where
     unifyF x y = unifyF' (proxy::isVarF) (proxy::isVarH) x y
@@ -87,10 +87,10 @@ unify = unify' emptySubst
 -- * Semantic Equality
 ---------------------------------------
 
-equal :: (Unifyable f) => Term f -> Term f -> Bool
+equal :: (IsVar f, Unifyable f) => Term f -> Term f -> Bool
 equal t u = maybe False isRenaming (unify t u)
 
-equalG :: (Unifyable f, Traversable t) => t(Term f) -> t(Term f) -> Bool
+equalG :: (IsVar f, Unifyable f, Traversable t) => t(Term f) -> t(Term f) -> Bool
 equalG t u = maybe False isRenaming (execU (zipWithM_ unify1 t u))
 
 -- Equality modulo renaming on Terms
@@ -102,7 +102,7 @@ instance Functor EqModulo_ where fmap f (EqModulo x) = EqModulo (f x)
 deriving instance (Eq (EqModulo_ a), Ord  a) => Ord (EqModulo_ a)
 instance Show a => Show (EqModulo_ a) where showsPrec p (EqModulo x) = showsPrec p x
 
-instance Unifyable f => Eq (EqModulo f) where EqModulo t1 == EqModulo t2 = t1 `equal` t2
+instance (IsVar f, Unifyable f) => Eq (EqModulo f) where EqModulo t1 == EqModulo t2 = t1 `equal` t2
 
 --instance (Var :<: f, Unifyable f) => Eq (Term f) where (==) = equal
 

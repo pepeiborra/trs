@@ -9,6 +9,7 @@ import Control.Monad.State
 import Data.Foldable
 import Data.List ((\\))
 
+
 import TRS.Substitutions
 import TRS.Types
 import TRS.Term
@@ -32,19 +33,24 @@ instance (Eq (Term f), Var :<: f, MonadPlus m) => MonadEnv f (StateT (Subst f, b
 
 occurs _ _ = True --TODO
 
-class (Functor m, Monad m) => MonadFresh m where variant :: (f :<: fs, Var :<: f, Var :<: fs, Foldable f, Foldable fs) => Rule f -> Term fs -> m(Rule fs)
+class (Functor m, Monad m) => MonadFresh m where
+    fresh :: m Int
+    variant :: (f :<: fs, Var :<: f, Var :<: fs, Foldable f, Foldable fs) => Rule f -> Term fs -> m(Rule fs)
   -- The Functor requirement is not necessary, but I find it convenient
   -- Functor should be a siuperclass of Monad
 
 instance Monad m => MonadFresh (StateT [Int] m) where
-  variant r@(lhs:->rhs) t = do
+    fresh = get >>= \(x:xs) -> put xs >> return x
+    variant r@(lhs:->rhs) t = do
      names <- get
      let vars_r = snub (vars lhs ++ vars rhs)
          (vars', names') = splitAt (length vars_r) (names \\ map varId' (vars t))
      put names'
      return $ applySubst (mkSubst (vars_r `zip` map var vars')) <$>  r
 
-instance (Monad m) => MonadFresh (StateT (b, [Int]) m) where variant r t = withSnd $ variant r t
+instance (Monad m) => MonadFresh (StateT (b, [Int]) m) where
+    variant r t = withSnd $ variant r t
+    fresh       = withSnd fresh
 
 newtype GMonadT s m a = GMonadT {unU :: StateT s m a}
     deriving (Functor, Monad, MonadPlus, MonadPlus1, MonadState s, MonadTrans)
@@ -52,7 +58,9 @@ newtype GMonadT s m a = GMonadT {unU :: StateT s m a}
 -- Don't understand why deriving does not work for these. Oh well.
 --deriving instance (MonadPlus m, MonadEnv f (StateT (Subst f) m)) => MonadEnv f (GMonadT (Subst f) m)
 --deriving instance (Functor m, Monad m) => MonadFresh (GMonadT [Int] m)
-instance (Monad m, MonadFresh (StateT s m)) => MonadFresh (GMonadT s m) where variant r t = GMonadT $ variant r t
+instance (Monad m, MonadFresh (StateT s m)) => MonadFresh (GMonadT s m) where
+    variant r t = GMonadT $ variant r t
+    fresh       = GMonadT   fresh
 instance (MonadPlus m, MonadEnv f (StateT s m)) => MonadEnv f (GMonadT s m) where
     varBind t u = GMonadT (varBind t u)
     apply  = GMonadT . apply

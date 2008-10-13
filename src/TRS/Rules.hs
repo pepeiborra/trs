@@ -44,13 +44,13 @@ instance Functor RuleG where
 swapRule :: RuleG t -> RuleG t
 swapRule (lhs:->rhs) = rhs:->lhs
 
-isConstructor :: (MatchShapeable f s, Var :<: s) => [Rule f] -> Term s -> Bool
+isConstructor :: (IsVar s, MatchShapeable f s, Var :<: s) => [Rule f] -> Term s -> Bool
 isConstructor rules t
   | isVar t   = True
   | otherwise = null$ [ () | lhs:->_ <- rules
                            , isJust $ matchShape lhs t]
 
-isDefined :: (Var :<: s, MatchShapeable f s) => [Rule f] -> Term s -> Bool
+isDefined :: (IsVar s, Var :<: s, MatchShapeable f s) => [Rule f] -> Term s -> Bool
 isDefined rules = not . isConstructor rules
 
 instance Show (a) => Show (RuleG (a)) where

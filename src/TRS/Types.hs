@@ -1,7 +1,6 @@
 {-# OPTIONS_GHC -fglasgow-exts -cpp #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
 {-# OPTIONS_GHC -fallow-overlapping-instances #-}
-{-# OPTIONS_GHC -fignore-breakpoints #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -98,9 +97,15 @@ var' = (inject.) . Var
 
 varLabeled l = inject . Var (Just l)
 
-isVar :: (Var :<: s) => Term s -> Bool
-isVar t | Just (Var{}) <- match t = True
-        | otherwise             = False
+class Functor f => IsVar f where isVarF :: f Bool -> Bool
+instance IsVar Var where isVarF _ = True
+instance (IsVar a, IsVar b) => IsVar (a:+:b) where
+    isVarF (Inr x) = isVarF x
+    isVarF (Inl y) = isVarF y
+instance Functor otherwise => IsVar otherwise where isVarF _ = False
+
+isVar :: IsVar f => Term f -> Bool
+isVar = foldTerm isVarF
 
 varId :: (Var :<: s) => String -> Term s -> Int
 varId err t = case match t of

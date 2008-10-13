@@ -26,8 +26,8 @@ import TRS.Types
 import TRS.Utils
 
 -- The Var and Hole constraints should be made unnecessary
-class    (Var :<: f, Hole :<: f, Unifyable f, Traversable f, Var :<: rf, Foldable rf, rf :<: f) => Narrowable rf f
-instance (Var :<: f, Hole :<: f, Unifyable f, Traversable f, Var :<: rf, Foldable rf, rf :<: f) => Narrowable rf f
+class    (Var :<: f, Hole :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, Foldable rf, rf :<: f) => Narrowable rf f
+instance (Var :<: f, Hole :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, Foldable rf, rf :<: f) => Narrowable rf f
 
 -- narrow1 :: [Rule f] -> Term f -> (Term f, Subst f)
 narrowStepBasic :: forall rf f m. (Narrowable rf f, MonadPlus m, MonadFresh m, MonadEnv f m) => [Rule rf] -> Term f -> m (Term f)
@@ -73,7 +73,7 @@ narrowsBasic rr t = second (`restrictTo` vars t) <$> runN(closureMP (narrowStepB
 narrowBasic :: (Narrowable rf f, MonadPlus1 m) => [Rule rf] -> Term f -> m (Term f, Subst f)
 narrowBasic rr t = second (`restrictTo` vars t) <$> runN(fixMP (narrowStepBasic rr) t >>= apply)
 
-narrowBasicBounded :: forall rf f m. (Narrowable rf f, Functor m, MonadPlus m) => (Term f -> Bool) -> [Rule rf] -> Term f -> m (Term f, Subst f)
+narrowBasicBounded :: forall rf f m. (IsVar f, Narrowable rf f, Functor m, MonadPlus m) => (Term f -> Bool) -> [Rule rf] -> Term f -> m (Term f, Subst f)
 narrowBasicBounded pred rr t = second (`restrictTo` vars t) <$> runN (go t >>= apply) where
     go :: (MonadFresh m1, MonadEnv f m1) => Term f -> m1(Term f)
     go t = do
