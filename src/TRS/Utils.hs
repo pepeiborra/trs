@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -cpp -fglasgow-exts #-}
 {-# OPTIONS_GHC -fallow-undecidable-instances #-}
-{-# OPTIONS_GHC -fignore-breakpoints #-}
+{-# LANGUAGE OverlappingInstances #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  TRS.Utils
@@ -20,7 +20,10 @@ import Control.Applicative
 import Control.Monad.State hiding (mapM, mapM_, sequence, msum)
 import Control.Monad.List (ListT(..))
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
+import Control.Monad.LogicT as LogicT (LogicT(ifte))
+import qualified Control.Monad.LogicT.LogicM as LogicM
 import Data.AlaCarte
+import Control.Monad.LogicT.SFK1
 import Data.List (group, sort, sortBy, groupBy, intersperse)
 import Data.Maybe
 import Data.Monoid
@@ -166,6 +169,11 @@ class (Functor m, MonadPlus m) => MonadPlus1 m where isMZero :: m a -> m Bool
 instance MonadPlus1 []            where isMZero = return . null
 instance MonadPlus1 Maybe         where isMZero = return . isNothing
 instance MonadPlus1 m => MonadPlus1 (StateT s m) where isMZero m = get >>= lift . isMZero . evalStateT m
+
+instance (Functor (t m), MonadPlus (t m), Monad m, LogicT t) => MonadPlus1 (t m) where isMZero m = ifte m (\_ -> return False) (return True)
+instance (Functor m, LogicM.LogicM m) => MonadPlus1 m where isMZero m = LogicM.ifte m (\_ -> return False) (return True)
+
+instance MonadPlus1 SFK where isMZero (SFK m) = m (\_ _ -> return False) (return True)
 
 fixMP :: (MonadPlus1 m) => (a -> m a) -> (a -> m a)
 fixMP f x = let x' = f x in isMZero x' >>= \c -> if c then return x else fixMP f =<< x' -- msum (fixMP f `liftM` x')
