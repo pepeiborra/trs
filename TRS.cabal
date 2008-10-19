@@ -4,7 +4,7 @@ Cabal-Version:  >= 1.2
 license: AllRightsReserved
 license-file: ""
 copyright: Pepe Iborra, All Rights Reserved
-build-depends: base -any, mtl, containers, pretty, alacarte, typeprelude, smallcheck, QuickCheck >= 2.0, HUnit, lazysmallcheck, LogicT
+build-depends: base -any, mtl, containers, pretty, alacarte, typeprelude, smallcheck, QuickCheck >= 2.0, HUnit, lazysmallcheck, logict
 homepage:
 synopsis: A Term Rewriting & Extensions library using Data Types a la Carte
 description: 
