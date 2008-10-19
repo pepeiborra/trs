@@ -95,10 +95,6 @@ peanoTRS = [ x +: s(y) :-> s(x +: y)
 peanoTRS'= [ s x +: y :-> s(x +: y)
            , z   +: y :-> y         ] :: [Rule PeanoTH]
 
-x :: (Var :<: f) => Term f
-x = var 0
-y = var 1
-
 --------------------------
 -- Testing Reductions
 --------------------------
