@@ -181,8 +181,14 @@ instance (f :<: fs, g :<: gs, fs :<: gs) => MatchShape f g fs gs where matchShap
 instance (Eq id, T id :<: fs, T id :<: gs, fs :<: gs) => MatchShape (T id) (T id) fs gs where
     matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
 matchShape :: (MatchShapeable f g) => Term f -> Term g -> Maybe [(Term f, Term g)]
-matchShape (In t) (In u) = matchShapeF t u
+matchShape (In t) (In u) = {-# SCC "matchShape" #-}
+                           matchShapeF t u
 
-subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
-subterms (In t) = In t : concat (subterms <$> toList t)
-properSubterms = tail . subterms
+-----------------
+-- Size measures
+-----------------
+class Foldable f => Size f where sizeF :: f Int -> Int
+instance Foldable f => Size f where sizeF f = 1 + sum f
+
+termSize :: (Functor f, Foldable f) => Term f -> Int
+termSize = foldTerm sizeF

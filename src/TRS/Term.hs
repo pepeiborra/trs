@@ -17,6 +17,13 @@ import qualified Prelude
 import TRS.Types
 import TRS.Utils hiding ( parens )
 
+
+subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
+subterms (In t) = In t : {-# SCC "subterms" #-}
+                  concat (subterms <$> toList t)
+properSubterms = {-# SCC "properSubterms" #-}
+                 tail . subterms
+
 ------------------------------------
 -- * Inspecting and modifying terms
 ------------------------------------
