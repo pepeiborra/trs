@@ -6,18 +6,27 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module TRS.Substitutions (
      (//),
      Subst, SubstG(..), MkSubst(..), emptySubst,
-     o, zonkSubst, restrictTo, concatSubst, insertSubst,
+     o, lookupSubst, restrictTo, insertSubst,
+     mergeSubst, mergeSubsts,
      applySubst, applySubstF, isRenaming,
      substRange, substDomain) where
 
 import Control.Applicative
 import Control.Arrow (first, second)
+import Control.Monad
+import Data.List (intersect)
+import Data.Foldable
+import qualified Data.Map as Map
+import Data.Map (Map)
 import Data.Maybe
+import Data.Monoid
 import Text.PrettyPrint
+import Prelude hiding (elem,all)
 
 import TRS.Types
 import TRS.Utils
@@ -29,40 +38,44 @@ import TRS.Utils
 (//) = flip applySubst
 
 applySubst :: (Var :<: f, f :<: fs) => Subst fs -> Term f -> Term fs
-applySubst s = foldTerm (applySubstF s)
+applySubst s t = {-# SCC "applySubst" #-}
+                 foldTerm (applySubstF s) t
 
 applySubstF :: (Var :<: f, f :<: fs) => Subst fs -> f (Term fs) -> Term fs
 applySubstF (Subst s) t
-  | Just v@Var{} <- prj t   = fromMaybe (inject t) $ lookup (Exists v) s
+  | Just v@Var{} <- prj t   = fromMaybe (inject t) $ Map.lookup (Exists v) s
   | otherwise               = inject t  -- Can we save some injects here and make this more efficient
+
+lookupSubst :: Subst f -> Var whatever -> Maybe (Term f)
+lookupSubst (Subst s) v = {-# SCC "lookupSubst" #-}
+                          Map.lookup (Exists v) s
 
 data ExistsVar where Exists :: Var f -> ExistsVar
 instance Eq  ExistsVar where Exists (Var _ i1) == Exists (Var _ i2) = i1 == i2
 instance Ord ExistsVar where compare (Exists (Var _ i1)) (Exists (Var _ i2)) = compare i1 i2
 
-newtype SubstG a = Subst [(ExistsVar, a)]
-
-instance Functor SubstG where fmap f (Subst s) = Subst (map (second f) s)
-instance (Eq a) => Eq (SubstG a) where Subst s1 == Subst s2 = s1 == s2
-
---newtype SubstM a = SubstM {fromSubstM :: [Maybe a]} deriving (Show, Monoid)
+newtype SubstG a = Subst {fromSubst:: Map.Map ExistsVar a} deriving (Eq, Functor)
 
 type Subst f = SubstG (Term f)
 
 class MkSubst a f | a -> f where mkSubst :: a -> Subst f
---instance MkSubst [(Var g, Term f)]  f where mkSubst dict = Subst [(i,t) | (Var _ i, t) <- dict]
-instance MkSubst [(Var(Term f), Term fs)] fs where mkSubst = Subst . map (first Exists)
-instance MkSubst [(Int, Term f)]    f where mkSubst = Subst . map (first (Exists . Var Nothing))
+instance MkSubst [(Var(Term f), Term fs)] fs where mkSubst = Subst . Map.fromList . map (first Exists)
+instance MkSubst [(Int, Term f)]    f where mkSubst = Subst . Map.fromList . map (first (Exists . Var Nothing))
 
 instance Ppr f => Show (Subst f) where
-    show (Subst s) = render $ braces $ fsep $ punctuate comma
-                     [ ppr (In(Var n i)) <+> char '/' <+> ppr t  | (Exists (Var n i), t) <- s]
+    show (Subst m) = render $ braces $ fsep $ punctuate comma
+                     [ ppr (In(Var n i)) <+> char '/' <+> ppr t  | (Exists (Var n i), t) <- Map.toList m]
+
+instance (Var :<: f) => Monoid (Subst f) where
+    mempty  = emptySubst
+    mappend = composeSubst
 
 emptySubst :: SubstG a
-emptySubst = Subst []
+emptySubst = Subst mempty
 
 composeSubst,o :: (Var :<: f) => Subst f -> Subst f -> Subst f
-composeSubst (Subst l1) s2@(Subst l2) = Subst (l2 ++ (second (applySubst s2) `map` l1))
+composeSubst (Subst map1) s2@(Subst map2) = {-# SCC "composeSubst" #-}
+                                            Subst (map2 `mappend` ( applySubst s2 <$> map1))
 
 o = composeSubst
 
@@ -80,19 +93,22 @@ mergeSubsts = {-# SCC "mergeSubsts" #-} foldM mergeSubst mempty
 
 insertSubst :: (Var :<: fs) => Var (Term g) -> Term fs -> Subst fs -> Subst fs
 insertSubst v t sigma | Subst sigma' <- applySubst (mkSubst [(v,t)]) <$> sigma
-   = Subst (snubBy (compare `on` fst) ((Exists v, t) : sigma'))
+   ={-# SCC "insertSubst" #-}
+     Subst (Map.insert (Exists v) t sigma')
 
 restrictTo :: (Eq (Term f), Var :<: f) => Subst f -> [Var (Term f)] -> Subst f
-restrictTo (Subst s) vv = Subst [ binding | binding@(Exists (Var _ i),t) <- s, i `elem` indexes]
+restrictTo (Subst m) vv = {-# SCC "restrictTo" #-}
+                          Subst $ Map.fromList [ binding | binding@(Exists (Var _ i),t) <- Map.toList m
+                                                         , i `elem` indexes]
     where indexes = [i | Var _ i <- vv]
 
--- flatten a substitution (pointers are replaced with their values)
-zonkSubst :: (Var :<: f, Eq (Term f)) => Subst f -> Subst f
-zonkSubst s = fixEq (applySubst s <$>) s
-
 substRange :: SubstG t -> [t]
-substRange (Subst subst)  = snd $ unzip subst
+substRange (Subst subst)  = Map.elems subst
 substDomain :: SubstG t -> [(Maybe String, Int)]
-substDomain (Subst subst) = [ (n,i) | Exists(Var n i) <- fst (unzip subst)]
+substDomain (Subst subst) = [ (n,i) | Exists(Var n i) <- Map.keys subst]
 isRenaming :: (IsVar s, Var :<: s) => SubstG (Term s) -> Bool
-isRenaming subst = isVar `all` substRange subst
+isRenaming subst = {-# SCC "isRenaming" #-}
+                   isVar `all` substRange subst
+
+normalize :: Subst f -> Subst f
+normalize (Subst map) = undefined --Map.filterWithKey (/=))
