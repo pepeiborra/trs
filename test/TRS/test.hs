@@ -12,7 +12,7 @@ import Data.List (intersect)
 import Data.Maybe
 import Data.Traversable
 import Control.Applicative
-import Control.Arrow hiding (pure)
+import Control.Arrow
 import Control.Monad (guard, unless, replicateM, mplus, foldM, zipWithM, MonadPlus)
 import Control.Monad.Error (runErrorT)
 import Control.Monad.List (ListT(..), liftM, liftM2, lift)
