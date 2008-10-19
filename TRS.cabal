@@ -21,6 +21,8 @@ exposed-modules:
   TRS.Unification
   TRS.Narrowing
   TRS.Context
+  TRS.MonadEnv
+  TRS.MonadFresh
   TRS.UMonad
 
   TRS.Test
