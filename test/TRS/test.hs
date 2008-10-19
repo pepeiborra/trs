@@ -1,7 +1,5 @@
-{-# OPTIONS_GHC -fglasgow-exts -fno-mono-pat-binds #-}
-{-# OPTIONS_GHC -fno-monomorphism-restriction #-}
-{-# OPTIONS_GHC -fallow-undecidable-instances #-}
-{-# OPTIONS_GHC -fno-mono-pat-binds #-}
+{-# LANGUAGE OverlappingInstances, UndecidableInstances #-}
+{-# LANGUAGE NoMonoPatBinds, NoMonomorphismRestriction #-}
 {-# LANGUAGE  DisambiguateRecordFields #-}
 {-# LANGUAGE TemplateHaskell #-}
 
