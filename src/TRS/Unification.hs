@@ -9,9 +9,8 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Unification (
-      UMonadT(..), evalU, execU, runU,
-      Unifyable, Unify(..), Unify2(..), unify, unify', unify1, unifyFdefault,
-      EqModulo_(..), EqModulo, equal, equalG, variant, apply
+      (=.=), EqModulo_(..), EqModulo, equal, equalG,
+      Unifyable, Unify(..), Unify2(..), unify, unify1, unifyFdefault,
       ) where
 
 import Control.Monad.State hiding (mapM_, zipWithM_)
@@ -22,6 +21,7 @@ import TypePrelude
 
 import TRS.Substitutions
 import TRS.Types
+import TRS.MonadEnv
 import TRS.UMonad
 import TRS.Utils
 
@@ -73,22 +73,27 @@ unifyFdefault t1 t2 = do
       mapM_ (uncurry unify1) pairs
 
 unify1 :: (MonadPlus m, MonadEnv f m, Unifyable f) => Term f -> Term f -> m ()
-unify1 (In t) (In u) = unifyF t u
+unify1 (In t) (In u) = {-# SCC "unify1" #-} unifyF t u
 
 unify' :: (MonadPlus m, Unifyable f) => Subst f -> Term f -> Term f -> m (Subst f)
-unify' sigma (In t) (In u) = execStateT (unU$ unifyF t u) sigma
+unify' sigma (In t) (In u) = {-# SCC "unify" #-} execStateT (unU$ unifyF t u) sigma
 
 unify :: (MonadPlus m, Unifyable f) => Term f -> Term f -> m (Subst f)
 unify = unify' emptySubst
+
 ---------------------------------------
 -- * Semantic Equality
 ---------------------------------------
 
-equal :: (IsVar f, Unifyable f) => Term f -> Term f -> Bool
-equal t u = maybe False isRenaming (unify t u)
+(=.=) = equal
+
+equal,(=.=) :: (IsVar f, Unifyable f) => Term f -> Term f -> Bool
+equal t u = {-# SCC "equal" #-}
+            maybe False isRenaming (unify t u)
 
 equalG :: (IsVar f, Unifyable f, Traversable t) => t(Term f) -> t(Term f) -> Bool
-equalG t u = maybe False isRenaming (execU (zipWithM_ unify1 t u))
+equalG t u = {-# SCC "equalG" #-}
+             maybe False isRenaming (execU (zipWithM_ unify1 t u))
 
 -- Equality modulo renaming on Terms
 type EqModulo f = EqModulo_(Term f)

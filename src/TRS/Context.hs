@@ -47,7 +47,8 @@ hole = inject . Hole
 
 -- | Fill a hole in a context
 fill,(|>) :: (Hole :<: f) => Context f -> Term f -> Term f
-fill ct t = foldTerm fill' ct
+fill ct t = {-# SCC "fill" #-}
+            foldTerm fill' ct
     where fill' ct | Just (Hole 0) <- prj ct = t
                    | Just (Hole i) <- prj ct = hole (i-1)
                    | otherwise = In ct
@@ -57,19 +58,20 @@ fill ct t = foldTerm fill' ct
 -- | Returns a list of subterms and the corresponding contexts
 --   | forall subterm ctx . (subterm, ctx) <- contexts t ==> ctx |> subterm = t
 contexts :: (Hole :<: f, Traversable f) => Term f -> [(Term f, Context f)]
-contexts t@(In f) = let t' = shiftC 1 t in
+contexts t@(In f) = {-# SCC "contexts" #-}
+     let t' = shiftC 1 t in
              [ (shiftC (-1) t_i, u)
              | i <- [1..size f]
              , (u, t_i) <- updateAt' [i] t' (hole 0) ]
 
 -- | Shift the indexes of the context vars
 shiftC :: (Hole :<: t) => Int -> Term t -> Term t
-shiftC n = foldTerm f
+shiftC n t = {-# SCC "shiftC" #-} foldTerm f t
            where f t | Just (Hole i) <- prj t = hole $! (i + n)
                      | otherwise = In t
 
 instance Ppr Hole where pprF (Hole i) = brackets (int i)
-instance (Hole :<: fs, g :<: gs, fs :<: gs) => MatchShape Hole g fs gs where matchShapeF _ _ = Nothing
+instance (Hole :<: fs, Hole :<: gs, fs :<: gs) => MatchShape Hole Hole fs gs where matchShapeF _ _ = Nothing
 
 --instance (Hole :<: g) => Match Hole Hole g where matchF _ _ = Nothing
 --instance (Hole :<: g, a :<: g) => Match Hole a g where matchF _ _ = Nothing

@@ -1,12 +1,13 @@
-{-# OPTIONS_GHC -fglasgow-exts -cpp #-}
-{-# OPTIONS_GHC -fallow-undecidable-instances #-}
-{-# OPTIONS_GHC -fallow-overlapping-instances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, UndecidableInstances, OverlappingInstances #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  TRS.Types
--- Copyright   :  (c) Pepe Iborra 2006-2007
---                (c) Universidad Politécnica de Valencia 2006-2007
+-- Copyright   :  (c) Pepe Iborra 2006-
+--                (c) Universidad Politcnica de Valencia 2006-2007
 -- License     :  BSD-style (see LICENSE)
 --
 -- Maintainer  :  pepeiborra@gmail.org
@@ -27,7 +28,7 @@ import Data.Traversable
 import Text.PrettyPrint
 import Control.Monad       hiding (msum, mapM)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
-                      , and, concat, concatMap, sequence, elem, notElem)
+                      , and, concat, concatMap, sequence, sum, elem, notElem)
 
 
 import TRS.Utils hiding ( parens )
@@ -90,12 +91,12 @@ instance Foldable Var    where foldMap = foldMapDefault
 instance Ord (Var a) where compare (Var _ a) (Var _ b) = compare a b
 
 var :: (Var :<: s) => Int -> Term s
-var = inject . Var Nothing
+var = {-# SCC "inject" #-}  inject . Var Nothing
 
 var' :: (Var :<: s) => Maybe String -> Int -> Term s
-var' = (inject.) . Var
+var' = {-# SCC "inject'" #-} (inject.) . Var
 
-varLabeled l = inject . Var (Just l)
+varLabeled l = {-# SCC "varLabeled" #-} inject . Var (Just l)
 
 class Functor f => IsVar f where isVarF :: f Bool -> Bool
 instance IsVar Var where isVarF _ = True
@@ -105,28 +106,16 @@ instance (IsVar a, IsVar b) => IsVar (a:+:b) where
 instance Functor otherwise => IsVar otherwise where isVarF _ = False
 
 isVar :: IsVar f => Term f -> Bool
-isVar = foldTerm isVarF
+isVar = {-# SCC "isVar" #-} foldTerm isVarF
 
 varId :: (Var :<: s) => String -> Term s -> Int
-varId err t = case match t of
+varId err t = {-# SCC "varId" #-}
+              case match t of
                 Just (Var _ i) -> i
                 Nothing -> error ("varId/" ++ err ++ ": expected a Var term")
 
 varId' :: Var f -> Int
-varId' (Var _ i) = i
-
-term :: (T id :<: f) => id -> [Term f] -> Term f
-term s = inject . T s
-
-term1 :: (T id :<: f) => id -> Term f -> Term f
-term1 f t       = term f [t]
-term2 :: (T id :<: f) => id -> Term f -> Term f -> Term f
-term2 f t t'    = term f [t,t']
-term3 :: (T id :<: f) => id -> Term f -> Term f -> Term f -> Term f
-term3 f t t' t''= term f [t,t',t'']
-constant :: (T id :<: f) => id -> Term f
-constant f      = term f []
-
+varId' (Var _ i) = {-# SCC "varId'" #-} i
 
 instance Show id => Ppr (T id) where
     pprF (T n []) = text (show n)
