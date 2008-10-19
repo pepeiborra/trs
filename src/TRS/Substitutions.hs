@@ -66,8 +66,17 @@ composeSubst (Subst l1) s2@(Subst l2) = Subst (l2 ++ (second (applySubst s2) `ma
 
 o = composeSubst
 
-concatSubst :: (Var :<: f) => [Subst f] -> Subst f
-concatSubst = Prelude.foldl composeSubst (Subst [])
+-- | Non biased parallel composition, a partial function which, when succeeds, is
+--   equivalent to standard biased parallel composition
+mergeSubst :: (Var :<: f, Eq (Term f), Monad m) => Subst f -> Subst f -> m (Subst f)
+mergeSubst s1 s2 | agree     = return (Subst s)
+                  | otherwise = fail "not mergeable substitutions"
+  where s = fromSubst s1 `Map.union` fromSubst s2
+        agree = all (\(_,i) -> let v = var i :: Term Var in applySubst s1 v == applySubst s2 v)
+                    (substDomain s1 `intersect` substDomain s2)
+
+mergeSubsts :: (Var :<: f, Eq (Term f), Monad m) => [Subst f] -> m (Subst f)
+mergeSubsts = {-# SCC "mergeSubsts" #-} foldM mergeSubst mempty
 
 insertSubst :: (Var :<: fs) => Var (Term g) -> Term fs -> Subst fs -> Subst fs
 insertSubst v t sigma | Subst sigma' <- applySubst (mkSubst [(v,t)]) <$> sigma
