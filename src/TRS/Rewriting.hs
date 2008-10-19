@@ -10,7 +10,7 @@
 
 module TRS.Rewriting (
       Rewritable, Match(..), Match2(..), Matchable, match, matchFdefault,
-      rewrite1,  reduce,  rewrites,  rewrites',
+      rewrite1,  reduce,  rewrites,
       rewrite1S, reduceS, rewritesS
     ) where
 
