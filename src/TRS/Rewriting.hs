@@ -16,7 +16,8 @@ module TRS.Rewriting (
 
 import Control.Applicative
 import Control.Monad (mzero, mplus, MonadPlus)
-import Control.Monad.State (MonadState)
+import Control.Monad.Logic.Class
+import Control.Monad.State (MonadState, lift)
 import Data.Foldable
 import Data.List ((\\))
 import Data.Traversable
@@ -102,19 +103,22 @@ rewriteStep rr t = {-# SCC "rewriteStep" #-} rewriteTop t `mplus` someSubterm (r
                                Just subst -> return (rhs // subst)
                                Nothing    -> mzero
 
--- | Reflexive, Transitive closure
-rewrites' :: (Rewritable f g, MonadFresh m, MonadPlus m) => [Rule f] -> Term g -> m (Term g)
-rewrites' rr = closureMP (rewrite1' rr)
+-- | Normal forms, starting from leftmost outermost
+--   Assumes no extra variables in the rhs are present
+reduce :: (Rewritable f g, MonadLogic m) => [Rule f] -> Term g -> m (Term g)
+--reduce rr   = fixMP (\t -> rewrite1 rr t)
+reduce rr_ t = evalR ([0..] \\ map varId' (vars t)) $ do
+  rr <- mapM (`variant` t) rr_
+  let f t = msum $ forEach rr $ \ (l:->r) -> case match l t of
+                                               Just subst -> return (r // subst)
+                                               _          -> mzero
+  fixMP f t
 
--- | Normal forms
-reduce :: (Rewritable f g, MonadPlus1 m) => [Rule f] -> Term g -> m (Term g)
-reduce rr   = fixMP (rewrite1 rr)
-
-rewrite1S :: (MatchableSimple f, MonadPlus m) => [Rule Basic] -> Term f -> m (Term f)
+rewrite1S :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 rewrite1S = rewrite1
-rewritesS :: (MatchableSimple g, MonadPlus m) => [Rule Basic] -> Term g -> m(Term g)
+rewritesS :: (MatchableSimple g, MonadLogic m) => [Rule Basic] -> Term g -> m(Term g)
 rewritesS = rewrites
-reduceS :: (MatchableSimple f, MonadPlus1 m) => [Rule Basic] -> Term f -> m (Term f)
+reduceS :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 reduceS = reduce
 
 ---------------------------------------

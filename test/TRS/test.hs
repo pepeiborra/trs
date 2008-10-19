@@ -18,6 +18,8 @@ import Control.Arrow hiding (pure)
 import Control.Monad (guard, unless, replicateM, mplus, foldM, zipWithM, MonadPlus)
 import Control.Monad.Error (runErrorT)
 import Control.Monad.List (ListT(..), liftM, liftM2, lift)
+import Control.Monad.Logic
+
 import qualified Prelude
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, notElem
@@ -128,8 +130,8 @@ testRewriting1 = TestLabel "One step" $ TestList
  ]
 
 -- Normal Rewriting
-testRewriting2 = Just (s(s(five)))    ~=? reduce peanoTRS seven
-testRewriting3 = Just (s(s(s(five)))) ~=? reduce peanoTRS ((seven +: s(z)))
+testRewriting2 = s(s(five))    ~=? observe (reduce peanoTRS seven)
+testRewriting3 = s(s(s(five))) ~=? observe (reduce peanoTRS ((seven +: s(z))))
 
 -- Non confluent rewriting
 sillyRules = [ z :-> s(z), z :-> s(s(z)) ]

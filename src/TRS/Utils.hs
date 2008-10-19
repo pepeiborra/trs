@@ -20,10 +20,8 @@ import Control.Applicative
 import Control.Monad.State hiding (mapM, mapM_, sequence, msum)
 import Control.Monad.List (ListT(..))
 import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
-import Control.Monad.LogicT as LogicT (LogicT(ifte))
-import qualified Control.Monad.LogicT.LogicM as LogicM
+import Control.Monad.Logic (MonadLogic(..), runLogic, Logic)
 import Data.AlaCarte
-import Control.Monad.LogicT.SFK1
 import Data.List (group, sort, sortBy, groupBy, intersperse)
 import Data.Maybe
 import Data.Monoid
@@ -170,13 +168,18 @@ instance MonadPlus1 []            where isMZero = return . null
 instance MonadPlus1 Maybe         where isMZero = return . isNothing
 instance MonadPlus1 m => MonadPlus1 (StateT s m) where isMZero m = get >>= lift . isMZero . evalStateT m
 
-instance (Functor (t m), MonadPlus (t m), Monad m, LogicT t) => MonadPlus1 (t m) where isMZero m = ifte m (\_ -> return False) (return True)
-instance (Functor m, LogicM.LogicM m) => MonadPlus1 m where isMZero m = LogicM.ifte m (\_ -> return False) (return True)
+--instance (Functor (t m), MonadPlus (t m), Monad m, LogicT t) => MonadPlus1 (t m) where isMZero m = ifte m (\_ -> return False) (return True)
+instance (Functor m, MonadLogic m) => MonadPlus1 m where isMZero m = ifte m (\_ -> return False) (return True)
 
-instance MonadPlus1 SFK where isMZero (SFK m) = m (\_ _ -> return False) (return True)
+instance MonadPlus1 Logic where isMZero m = runLogic m (\_ _ -> return False) (return True)
 
-fixMP :: (MonadPlus1 m) => (a -> m a) -> (a -> m a)
-fixMP f x = let x' = f x in isMZero x' >>= \c -> if c then return x else fixMP f =<< x' -- msum (fixMP f `liftM` x')
+-- sort of Fixpoint of a backtracking computation
+fixMP :: MonadLogic m => (a -> m a) -> (a -> m a)
+fixMP f x = ifte (f x) (fixMP f) (return x)
+
+-- custom MonadPlus1 version
+fixMP' :: (MonadPlus1 m) => (a -> m a) -> (a -> m a)
+fixMP' f x = let x' = f x in isMZero x' >>= \c -> if c then return x else fixMP' f =<< x' -- msum (fixMP f `liftM` x')
 
 -- Fixpoint of a monadic function, using Eq comparison (this is a memory eater)
 fixM_Eq :: (Monad m, Eq a) => (a -> m a) -> a -> m a
@@ -280,7 +283,7 @@ modifySpine t xx = assert (xx >=: toList t) $  mapM (\_-> pop) t `evalState` xx
 
 -- Only 1st level children
 someSubterm :: Traversable t => (a -> a) -> t a -> [t a]
-someSubterm f x = interleave f id x
+someSubterm f x = TRS.Utils.interleave f id x
 
 
 -- Only 1st level children
@@ -327,6 +330,11 @@ interleaveM' f g x = let
 #if __GLASGOW_HASKELL__ < 607
 f >=> g = \ x -> f x >>= g
 #endif
+
+-- fair msum
+msum' :: MonadLogic m => [m a] -> m a
+msum' = foldr Control.Monad.Logic.interleave mzero
+
 ----------------------------------------------------------
 -- A monad isomorphic to ListT 
 -- Only the monadError instance is different
@@ -426,7 +434,7 @@ instance (MonadTrans t1) => MonadTrans (MCompT t1 ListT) where
 ----------------------------------------
 
 
-forEach :: [a] -> (a -> b) -> [b]
+-- forEach :: [a] -> (a -> b) -> [b]
 forEach = flip map
 
 return2 :: (Monad m, Monad n) => a -> m(n a)
@@ -506,6 +514,29 @@ noErrors (Right x)  = x
 
 handleError :: MonadError e m =>  (e -> m a) -> m a -> m a
 handleError = flip catchError
+
+
+----------------------
+-- With...
+{-# INLINE with #-}
+{-# INLINE withSnd #-}
+{-# INLINE withFst #-}
+with :: (Monad m, MonadTrans t1, MonadState s (t1 m), MonadState s2 (t2 m)) =>
+        (s -> s2) ->
+        (s2 -> s -> s) ->
+        (t2 m a -> s2 -> m (a,s2)) -> t2 m a -> t1 m a
+with gets puts run m = do
+      s <- gets `liftM` get
+      (res,s') <- lift $ run m s
+      modify (puts s')
+      return res
+
+withFst :: (MonadState (s, b) (t1 m), MonadTrans t1, Monad m) => StateT s m a -> t1 m a
+withFst = with fst (\x' (x,y) -> (x',y)) runStateT
+withSnd :: (MonadState (b, s) (t1 m), MonadTrans t1, Monad m) => StateT s m a -> t1 m a
+withSnd = with snd (\y' (x,y) -> (x,y')) runStateT
+
+------------
 
 
 trace :: t -> t1 -> t1
