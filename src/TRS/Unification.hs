@@ -44,13 +44,10 @@ instance (Var :<: g) =>Unify Var Var g where
     unifyF v@(Var _ i) w@(Var _ j)
         | i == j    = return ()
         | otherwise = do
-              v' <- apply (inject v)
-              w' <- apply (inject w)
-              case (match v', match w') of
-                 (Nothing, Nothing) -> unify1 v' w'
-                 (Nothing, Just _)  -> unify1 w' v'  -- TODO: remove unnecessary extra lookup on w
-                 (Just var, Nothing)  -> varBind var w'
-                 (Just var@Var{}, Just Var{}) -> varBind var w'
+              mb_t <- readVar v
+              case mb_t of
+                Nothing -> varBind v (inject w)
+                Just t ->  unify1 t (inject w)
 
 instance ((a :+: b) :<: g, Unify c a g, Unify c b g) => Unify c (a :+: b) g where
     unifyF x (Inl y) = unifyF x y
