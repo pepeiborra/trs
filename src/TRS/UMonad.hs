@@ -3,10 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
 
-module TRS.UMonad ( module TRS.UMonad,
-                    module TRS.MonadEnv,
-                    module TRS.MonadFresh ) where
-
+module TRS.UMonad where
 import Control.Arrow
 import Control.Monad.State
 import Control.Monad.Logic.Class
@@ -26,10 +23,10 @@ newtype GMonadT s m a = GMonadT {unU :: StateT s m a}
     deriving (Functor, Monad, MonadPlus, MonadPlus1, MonadLogic, MonadState s, MonadTrans)
 
 instance (Monad m) => MonadFresh (GMonadT (b, [Int]) m) where
-    variant r t = withSnd $ variant r t
-    fresh       = withSnd fresh
+    variant = withSnd . variant
+    fresh   = withSnd fresh
 
-instance (Eq (Term f), Var :<: f, Monad m) => MonadEnv f (GMonadT (Subst f, b) m) where
+instance (IsVar f, Monad m) => MonadEnv f (GMonadT (Subst f, b) m) where
     varBind t = withFst . varBind t
     apply     = withFst . apply
     getEnv    = withFst get
@@ -44,9 +41,9 @@ evalG s m  = evalStateT (unU m)  s
 
 -- runR :: Monad m => RMonadT m a -> m (a, [Int])
 runR = runG
-runU :: (Var :<: f, Eq (Term f), Monad m) => UMonadT f m a -> m (a, Subst f)
+runU :: (Monad m) => UMonadT f m a -> m (a, Subst f)
 runU = runG emptySubst
-runN :: (Var :<: f, Eq (Term f), Monad m) => [Int] -> NMonadT f m a -> m (a, Subst f)
+runN :: (Monad m) => [Int] -> NMonadT f m a -> m (a, Subst f)
 runN vars = liftM (second fst) . runG (emptySubst, vars)
 
 evalR :: Monad m => [Int] -> RMonadT m a -> m a
@@ -59,7 +56,7 @@ evalN vars = evalG (emptySubst, vars)
 execU :: Monad m => UMonadT f m a -> m (Subst f)
 execU acc = execStateT (unU acc) emptySubst
 
-applyF  :: (Var :<: f, f:<:fs, MonadState (Subst fs) m) => f(Term fs) -> m (Term fs)
+applyF  :: (IsVar f, f:<:fs, MonadState (Subst fs) m) => f(Term fs) -> m (Term fs)
 applyF t = get >>= \sigma -> return (applySubstF sigma t)
 
 startingFromTerm m t = m 

@@ -24,15 +24,15 @@ import TRS.MonadEnv
 import TRS.UMonad
 import TRS.Utils
 
-class    (Var :<: f, Eq (Term f), Unify f f f) => Unifyable f
-instance (Var :<: f, Eq (Term f), Unify f f f) => Unifyable f
+class    (IsVar f, Eq (Term f), Unify f f f) => Unifyable f
+instance (IsVar f, Eq (Term f), Unify f f f) => Unifyable f
 
 class (f:<:g, h:<:g) => Unify f h g where
     unifyF :: (MonadPlus m, MonadEnv g m, Unifyable g) => f(Term g) -> h(Term g) -> m ()
 
 class Unify2 isVarF isVarH f h g where unifyF' :: (MonadPlus m, MonadEnv g m, Unifyable g) => isVarF -> isVarH -> f(Term g) -> h(Term g) -> m ()
-instance (t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind v (inject t)
-instance (t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind v (inject t)
+instance (t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind (inV v) (inject t)
+instance (t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind (inV v) (inject t)
 instance (a:<: g, MatchShape a a g g) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
 instance (a:<:g, b:<:g)               => Unify2 HFalse HFalse a b g  where unifyF' _ _ _x _y = const mzero (_x,_y)
 
@@ -43,9 +43,9 @@ instance (Var :<: g) =>Unify Var Var g where
     unifyF v@(Var _ i) w@(Var _ j)
         | i == j    = return ()
         | otherwise = do
-              mb_t <- readVar v
+              mb_t <- readVar (inV v)
               case mb_t of
-                Nothing -> varBind v (inject w)
+                Nothing -> varBind (inV v) (inject w)
                 Just t ->  unify1 t (inject w)
 
 instance ((a :+: b) :<: g, Unify c a g, Unify c b g) => Unify c (a :+: b) g where

@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
 {-# LANGUAGE OverlappingInstances, UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
+{-# LANGUAGE PatternGuards #-}
 module TRS.MonadEnv where
 
 import Control.Monad
@@ -10,22 +11,24 @@ import TRS.Types
 import TRS.Utils
 import TRS.Substitutions
 
-class (Functor m, Monad m) => MonadEnv f m | m -> f where
-    varBind :: Var (Term g) -> Term f -> m ()
-    readVar :: Var (Term g) -> m (Maybe (Term f))
-    apply   :: (Var :<: f) => Term f -> m (Term f)
+class (Functor m, Monad m, IsVar f) => MonadEnv f m | m -> f where
+    varBind :: (IsVar g, Ppr g) => Term g -> Term f -> m ()
+    readVar :: IsVar g => Term g -> m (Maybe (Term f))
+    apply   :: (IsVar g, g:<:f) => Term g -> m (Term f)
     getEnv  :: m (Subst f)
 
-readVarDefault :: (Var :<: f, MonadEnv f m) => Var (Term g) -> m (Maybe (Term f))
-readVarDefault v@(Var n i) = do
-  t <- apply (var' n i)
-  return $ case match t of
-             Just (Var _ i') | i == i' -> Nothing
-             otherwise -> Just t
+readVarDefault :: (IsVar g, IsVar f, g:<:f, MonadEnv f m) => Term g -> m (Maybe (Term f))
+readVarDefault v | Just i <- uniqueId v = do
+                               t <- apply v
+                               return $ case uniqueId t of
+                                          Just i' | i == i' -> Nothing
+                                          otherwise -> Just t
+                 | otherwise = return Nothing
 
-instance (Eq (Term f), Var :<: f, Functor m, MonadState (Subst f) m) => MonadEnv f m where
+
+instance (IsVar f, Functor m, MonadState (Subst f) m) => MonadEnv f m where
     varBind t u = {-# SCC "varBind" #-}  modify (insertSubst t u)
-    apply t = {-# SCC "apply" #-}  get >>= \sigma -> return (fixEq (applySubst sigma) t)
+    apply t = {-# SCC "apply" #-}  get >>= \sigma -> return (applySubst sigma t)
     getEnv  = get
     readVar = {-# SCC "readVar" #-}  gets . flip lookupSubst
 

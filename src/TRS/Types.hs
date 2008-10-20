@@ -98,24 +98,29 @@ var' = {-# SCC "inject'" #-} (inject.) . Var
 
 varLabeled l = {-# SCC "varLabeled" #-} inject . Var (Just l)
 
-class Functor f => IsVar f where isVarF :: f Bool -> Bool
-instance IsVar Var where isVarF _ = True
+inV (Var n i) = In (Var n i)
+
+class Functor f => IsVar f where
+    isVarF    :: f x -> Bool
+    uniqueIdF :: f x -> Maybe Int
+
+instance IsVar Var where isVarF _ = True; uniqueIdF (Var _ i) = Just i
 instance (IsVar a, IsVar b) => IsVar (a:+:b) where
     isVarF (Inr x) = isVarF x
     isVarF (Inl y) = isVarF y
-instance Functor otherwise => IsVar otherwise where isVarF _ = False
+    uniqueIdF (Inr x) = uniqueIdF x
+    uniqueIdF (Inl x) = uniqueIdF x
+
+instance Functor otherwise => IsVar otherwise where isVarF _ = False; uniqueIdF _ = Nothing
 
 isVar :: IsVar f => Term f -> Bool
 isVar = {-# SCC "isVar" #-} foldTerm isVarF
 
-varId :: (Var :<: s) => String -> Term s -> Int
-varId err t = {-# SCC "varId" #-}
-              case match t of
-                Just (Var _ i) -> i
-                Nothing -> error ("varId/" ++ err ++ ": expected a Var term")
+uniqueId :: IsVar f => Term f -> Maybe Int
+uniqueId = foldTerm uniqueIdF
 
-varId' :: Var f -> Int
-varId' (Var _ i) = {-# SCC "varId'" #-} i
+varId :: Var f -> Int
+varId (Var _ i) = {-# SCC "varId'" #-} i
 
 instance Show id => Ppr (T id) where
     pprF (T n []) = text (show n)

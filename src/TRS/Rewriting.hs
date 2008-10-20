@@ -21,8 +21,9 @@ import Control.Monad.Logic.Class
 import Control.Monad.State (MonadState, lift)
 import Data.Foldable
 import Data.List ((\\))
+import Data.Maybe (isJust)
 import Data.Traversable
-import Prelude hiding (mapM, concat)
+import Prelude hiding (mapM, concat, zipWith)
 import TypePrelude
 
 import TRS.Term
@@ -30,19 +31,20 @@ import TRS.Types hiding (match)
 import TRS.Rules
 import TRS.Substitutions
 import TRS.UMonad
+import TRS.MonadFresh
 import TRS.Utils hiding (someSubterm)
 
 -----------------------------
 -- * Matching
 -----------------------------
-class (Basic :<: g, Traversable g, Var :<: g, Match g g g g) => MatchableSimple g
-instance (Basic :<: g, Traversable g, Var :<: g, Match g g g g) => MatchableSimple g
+class (Basic :<: g, Traversable g, IsVar g, Var :<: g, Match g g g g) => MatchableSimple g
+instance (Basic :<: g, Traversable g, IsVar g, Var :<: g, Match g g g g) => MatchableSimple g
 
 class    (Var :<: f, Var :<: g, Traversable f, Traversable g, Match f g f g) => Matchable f g
 instance (Var :<: f, Var :<: g, Traversable f, Traversable g, Match f g f g) => Matchable f g
 
-class    (Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
-instance (Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
+class    (IsVar f, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
+instance (IsVar f, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
 
 class (fs :<: gs, f :<: fs, g :<: gs) => Match f g fs gs where matchF :: Matchable fs gs => f(Term fs) -> g(Term gs) -> Maybe (Subst gs)
 
@@ -63,17 +65,17 @@ instance (fs :<: gs, Match a c fs gs, Match b c fs gs, Match a d fs gs, Match b 
 
 
 class (fs :<: gs, f :<: fs, g :<: gs) => Match2 isVarF f g fs gs where matchF' :: {- Match g g g g => -} Matchable fs gs => isVarF -> f(Term fs) -> g(Term gs) -> Maybe (Subst gs)
-instance (Var :<: fs, Var :<: gs, g :<: gs, fs :<: gs) =>
+instance (Var :<: fs, Var :<: gs, IsVar gs, g :<: gs, fs :<: gs) =>
                                             Match2 HTrue Var g fs gs where matchF' _ (Var _ i) t = Just $ mkSubst [(i, inject t)]
-instance (Var :<: gs, fs :<: gs, MatchShape f f fs gs, Eq (Term gs)) =>
+instance (IsVar gs, fs :<: gs, MatchShape f f fs gs, Eq (Term gs)) =>
                                             Match2 HFalse f f fs gs where matchF' _ = matchFdefault
 instance (fs :<: gs, f :<: fs, g :<: gs) => Match2 HFalse f g fs gs where matchF' _ _x _y = Nothing
 
-instance (fs :<: gs, Var :<: gs, Var :<: fs) => Match Var Var fs gs where matchF (Var _ i) vj@Var{} = Just$ mkSubst [(i, inject vj)]
+instance (fs :<: gs, Var :<: gs, Var :<: fs, IsVar gs) => Match Var Var fs gs where matchF (Var _ i) vj@Var{} = Just$ mkSubst [(i, inject vj)]
 instance forall isVar f g fs gs. (TypeEq2 f Var isVar, Match2 isVar f g fs gs) => Match f g fs gs where matchF x y = matchF' (proxy::isVar) x y
 
 
-matchFdefault :: (Var :<: gs, Matchable fs gs, MatchShape f f fs gs, Eq (Term gs)) => f (Term fs) -> f (Term gs) -> Maybe (Subst gs)
+matchFdefault :: (IsVar gs, Matchable fs gs, MatchShape f f fs gs, Eq (Term gs)) => f (Term fs) -> f (Term gs) -> Maybe (Subst gs)
 matchFdefault t1 t2 = mergeSubsts =<< (mapM (uncurry match') =<< matchShapeF t1 t2)
 
 match' :: (Matchable f g) => Term f -> Term g -> Maybe (Subst g)
@@ -88,18 +90,18 @@ match t u = {-# SCC "match" #-} match' t u
 
 {-# INLINE rewrite1 #-}
 rewrite1 :: (Rewritable rf f, MonadPlus m) => [Rule rf] -> Term f -> m(Term f)
-rewrite1 rr t = {-# SCC "rewrite1" #-} evalR ([0..] \\ map varId' (vars t)) $ rewriteStep rr t
+rewrite1 rr t = {-# SCC "rewrite1" #-} evalR ([0..] \\ map varId (vars t)) $ rewriteStep rr t
 
 
 -- | Reflexive, Transitive closure
 rewrites :: (Rewritable f g, MonadPlus m) => [Rule f] -> Term g -> m (Term g)
-rewrites rr t = {-# SCC "rewrites" #-} evalR ([0..] \\ map varId' (vars t)) $ closureMP (rewriteStep rr) t
+rewrites rr t = {-# SCC "rewrites" #-} evalR ([0..] \\ map varId (vars t)) $ closureMP (rewriteStep rr) t
 
 {-# INLINE rewriteStep #-}
 --rewriteStep :: (Matchable f g, Foldable f, MonadFresh m, MonadPlus m) => [Rule f] -> Term g -> m (Term g)
 rewriteStep rr t = {-# SCC "rewriteStep" #-} rewriteTop t `mplus` someSubterm (rewriteStep rr) t
     where rewriteTop t = Data.Foldable.msum $ forEach rr $ \r -> do
-                          lhs:->rhs <- {-# SCC  "rewriteStep/variant" #-} variant r t
+                          lhs:->rhs <- {-# SCC  "rewriteStep/variant" #-} variant r
                           case {-# SCC  "rewriteStep/match" #-} match lhs t of
                                Just subst -> return (rhs // subst)
                                Nothing    -> mzero
@@ -108,8 +110,8 @@ rewriteStep rr t = {-# SCC "rewriteStep" #-} rewriteTop t `mplus` someSubterm (r
 --   Assumes no extra variables in the rhs are present
 reduce :: (Rewritable f g, MonadLogic m) => [Rule f] -> Term g -> m (Term g)
 --reduce rr   = fixMP (\t -> rewrite1 rr t)
-reduce rr_ t = evalR ([0..] \\ map varId' (vars t)) $ do
-  rr <- mapM (`variant` t) rr_
+reduce rr_ t = evalR ([0..] \\ map varId (vars t)) $ do
+  rr <- mapM variant rr_
   let f t = msum $ forEach rr $ \ (l:->r) -> case match l t of
                                                Just subst -> return (r // subst)
                                                _          -> mzero
@@ -117,7 +119,7 @@ reduce rr_ t = evalR ([0..] \\ map varId' (vars t)) $ do
 
 rewrite1S :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 rewrite1S = rewrite1
-rewritesS :: (MatchableSimple g, MonadLogic m) => [Rule Basic] -> Term g -> m(Term g)
+rewritesS :: (IsVar g, MatchableSimple g, MonadLogic m) => [Rule Basic] -> Term g -> m(Term g)
 rewritesS = rewrites
 reduceS :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 reduceS = reduce
