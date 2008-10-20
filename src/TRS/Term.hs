@@ -32,6 +32,10 @@ properSubterms = {-# SCC "properSubterms" #-}
 -- * Inspecting and modifying terms
 ------------------------------------
 
+rootSymbol :: (T id :<: f) => Term f -> Maybe id
+rootSymbol t | Just (T root _) <- match t = Just root
+             | otherwise = Nothing
+
 type Position = [Int]
 
 (!) :: Foldable f => Term f -> Position -> Term f

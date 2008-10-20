@@ -24,6 +24,7 @@ exposed-modules:
   TRS.MonadEnv
   TRS.MonadFresh
   TRS.UMonad
+  TRS.Signature
 
   TRS.Test
   TRS.Test.Instances
