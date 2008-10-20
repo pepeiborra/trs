@@ -43,7 +43,7 @@ narrowStepBasic rr t = {-# SCC "narrowStepBasic1" #-}
           narrowTop :: Term f -> m(Term f)
           narrowTop t = msum$ flip map rr $ \r -> do
                           guard (not $ isVar t)
-                          lhs :-> rhs <- variant r t
+                          lhs :-> rhs <- variant r
                           unify1 lhs t
                           return rhs
 
