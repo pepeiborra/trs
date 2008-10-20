@@ -9,7 +9,6 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Unification (
-      (=.=), EqModulo_(..), EqModulo, equal, equalG,
       Unifyable, Unify(..), Unify2(..), unify, unify1, unifyFdefault,
       ) where
 
@@ -80,33 +79,6 @@ unify' sigma (In t) (In u) = {-# SCC "unify" #-} execStateT (unU$ unifyF t u) si
 
 unify :: (MonadPlus m, Unifyable f) => Term f -> Term f -> m (Subst f)
 unify = unify' emptySubst
-
----------------------------------------
--- * Semantic Equality
----------------------------------------
-
-(=.=) = equal
-
-equal,(=.=) :: (IsVar f, Unifyable f) => Term f -> Term f -> Bool
-equal t u = {-# SCC "equal" #-}
-            maybe False isRenaming (unify t u)
-
-equalG :: (IsVar f, Unifyable f, Traversable t) => t(Term f) -> t(Term f) -> Bool
-equalG t u = {-# SCC "equalG" #-}
-             maybe False isRenaming (execU (zipWithM_ unify1 t u))
-
--- Equality modulo renaming on Terms
-type EqModulo f = EqModulo_(Term f)
-
-newtype EqModulo_ a = EqModulo {eqModulo :: a}
-
-instance Functor EqModulo_ where fmap f (EqModulo x) = EqModulo (f x)
-deriving instance (Eq (EqModulo_ a), Ord  a) => Ord (EqModulo_ a)
-instance Show a => Show (EqModulo_ a) where showsPrec p (EqModulo x) = showsPrec p x
-
-instance (IsVar f, Unifyable f) => Eq (EqModulo f) where EqModulo t1 == EqModulo t2 = t1 `equal` t2
-
---instance (Var :<: f, Unifyable f) => Eq (Term f) where (==) = equal
 
 ---------------------------------------
 -- * Examples

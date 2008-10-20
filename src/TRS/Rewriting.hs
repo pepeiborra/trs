@@ -11,7 +11,8 @@
 module TRS.Rewriting (
       Rewritable, Match(..), Match2(..), Matchable, match, matchFdefault,
       rewrite1,  reduce,  rewrites,
-      rewrite1S, reduceS, rewritesS
+      rewrite1S, reduceS, rewritesS,
+      (=.=), EqModulo_(..), EqModulo, equal, equalG
     ) where
 
 import Control.Applicative
@@ -120,6 +121,35 @@ rewritesS :: (MatchableSimple g, MonadLogic m) => [Rule Basic] -> Term g -> m(Te
 rewritesS = rewrites
 reduceS :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 reduceS = reduce
+
+
+---------------------------------------
+-- * Equivalence modulo renaming
+---------------------------------------
+
+(=.=) = equal
+
+equal,(=.=) :: (Matchable f f, IsVar f) => Term f -> Term f -> Bool
+equal t u | [t'] <- variant' [t] [u] = {-# SCC "equal" #-} isJust (match t' u >> match u t')
+
+equalG :: (Eq (Term f), IsVar f, Matchable f f, Traversable t) => t(Term f) -> t(Term f) -> Bool
+equalG t u | t' <- variant' t u = {-# SCC "equalG" #-}
+                   size t == size u && isJust ((mergeSubsts . toList =<< zipWithM match t' u) >>
+                                               (mergeSubsts . toList =<< zipWithM match u t'))
+
+
+-- Equality modulo renaming on Terms
+type EqModulo f = EqModulo_(Term f)
+
+newtype EqModulo_ a = EqModulo {eqModulo :: a}
+
+instance Functor EqModulo_ where fmap f (EqModulo x) = EqModulo (f x)
+deriving instance (Eq (EqModulo_ a), Ord  a) => Ord (EqModulo_ a)
+instance Show a => Show (EqModulo_ a) where showsPrec p (EqModulo x) = showsPrec p x
+
+instance (Matchable f f, IsVar f) => Eq (EqModulo f) where EqModulo t1 == EqModulo t2 = t1 `equal` t2
+
+--instance (Var :<: f, Unifyable f) => Eq (Term f) where (==) = equal
 
 ---------------------------------------
 -- * Examples
