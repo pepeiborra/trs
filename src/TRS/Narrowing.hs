@@ -28,6 +28,12 @@ import TRS.Context
 import TRS.Types
 import TRS.Utils hiding (interleave)
 
+-- | Rigid Normal Form
+isRNF :: (Narrowable rf f) => [Rule rf] -> Term f -> Bool
+--isRNF rr t = {-# SCC "isRNF" #-} (null . observeMany 1 . narrow1 rr) t
+isRNF = \rr -> {-# SCC "isRNF" #-}  \t -> (null . observeMany 1 . narrow1 rr) t
+
+
 -- The Var and Hole constraints should be made unnecessary
 class    (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
 instance (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f

@@ -69,3 +69,11 @@ instance SignatureC (TRS id f) id where getSignature = sig
 
 tRS rules = TRS rules (getSignature rules)
 rules (TRS r _) = r; sig (TRS _ s) = s
+
+isConstructor :: (T id :<: f, Ord id) => Term f -> TRS id f -> Bool
+isConstructor t trs = (`Set.member` constructorSymbols (sig trs)) `all` collectIds t
+
+collectIds :: (T id :<: f) => Term f -> [id]
+collectIds = foldTerm f where
+    f t | Just (T id ids) <- prj t = id : concat ids
+        | otherwise = []

@@ -12,7 +12,8 @@ module TRS.Rewriting (
       Rewritable, Match(..), Match2(..), Matchable, match, matchFdefault,
       rewrite1,  reduce,  rewrites,
       rewrite1S, reduceS, rewritesS,
-      (=.=), EqModulo_(..), EqModulo, equal, equalG
+      (=.=), EqModulo_(..), EqModulo, equal, equalG,
+      isNF
     ) where
 
 import Control.Applicative
@@ -33,6 +34,9 @@ import TRS.Substitutions
 import TRS.UMonad
 import TRS.MonadFresh
 import TRS.Utils hiding (someSubterm)
+
+isNF :: (Rewritable rf f) => [Rule rf] -> Term f -> Bool
+isNF = (null.) . rewrite1
 
 -----------------------------
 -- * Matching
