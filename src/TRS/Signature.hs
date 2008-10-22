@@ -1,4 +1,6 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GADTs #-}
 
