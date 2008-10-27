@@ -3,7 +3,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE NoMonoPatBinds, NoMonomorphismRestriction #-}
+{-# LANGUAGE PatternGuards #-}
 
 
 module TRS.Term where
@@ -12,11 +12,15 @@ import Control.Applicative
 import Control.Arrow ((***))
 import Control.Monad hiding ( mapM, sequence, msum)
 import Data.Foldable (toList, Foldable, msum)
+import Data.HashTable (hashInt, hashString)
+import qualified Data.HashTable as HT
+import Data.Int
 import Data.Maybe
 import Data.Traversable (Traversable, mapM)
 import Text.PrettyPrint
 import Prelude hiding (sequence, concatMap, mapM)
 import qualified Prelude
+import System.IO.Unsafe
 
 import TRS.Types
 import TRS.Utils hiding ( parens )
@@ -45,15 +49,16 @@ t    ! []     = t
 -- | Updates the subterm at the position given
 --   Note that this function does not guarantee success. A failure to substitute anything
 --   results in the input term being returned untouched
-updateAt  :: (Traversable f) =>  Position -> Term f -> (Term f -> Term f)
+updateAt  :: (Traversable f, HashConsed (Term f)) =>  Position -> Term f -> (Term f -> Term f)
 updateAt [] _ t' = t'
 updateAt (0:_) _ _ = error "updateAt: 0 is not a position!"
 updateAt (i:ii) t' (In t) = {-# SCC "updateAt" #-}
+                            hashCons $
                             In$ fmap (\(j,st) -> if i==j then updateAt ii t' st else st)
                                 (unsafeZipG [1..] t)
 
-updateAt'  :: (Traversable f, MonadPlus m, Functor m) => Position -> Term f -> (Term f -> m (Term f, Term f))
-updateAt' pos x x' = {-# SCC "updateAt'" #-} go x pos >>= \ (t',a) -> a >>= \v->return (t',v)
+updateAt'  :: (Traversable f, HashConsed (Term f), MonadPlus m, Functor m) => Position -> Term f -> (Term f -> m (Term f, Term f))
+updateAt' pos x x' = {-# SCC "updateAt'" #-} go x pos >>= \ (t',a) -> a >>= \v->return (hashCons t',v)
   where
     go _      (0:_)  = error "updateAt: 0 is not a position!"
     go (In t) (i:is) = fmap ((In***msum) . unzipG)
@@ -98,9 +103,9 @@ collect pred t = {-# SCC "collect" #-} [ u | u <- subterms t, pred u]
 --   Do not confuse with substitution application. @replace@ makes no
 --   effort at avoiding variable capture
 --   (you could deduce that from the type signature)
-replace :: (Eq (Term f), Functor f) => [(Term f, Term f)] -> Term f -> Term f
+replace :: (Eq (Term f), Functor f, HashConsed (Term f)) => [(Term f, Term f)] -> Term f -> Term f
 replace []   = id
-replace dict = foldTerm f where
+replace dict = hashCons . foldTerm f where
     f t = fromMaybe (In t) $ lookup (In t) dict
 
 -- Only 1st level subterms
@@ -111,17 +116,48 @@ someSubterm f (In x) = msum (In <$$> interleaveM f return x)
 -- Creating terms
 -- ---------------
 
-term :: (T id :<: f) => id -> [Term f] -> Term f
-term s = inject . T s
+term :: (T id :<: f, HashConsed (Term f)) => id -> [Term f] -> Term f
+term s = hashCons . inject . T s
 
-term1 :: (T id :<: f) => id -> Term f -> Term f
+term1 :: (T id :<: f, HashConsed (Term f)) => id -> Term f -> Term f
 term1 f t       = term f [t]
-term2 :: (T id :<: f) => id -> Term f -> Term f -> Term f
+term2 :: (T id :<: f, HashConsed (Term f)) => id -> Term f -> Term f -> Term f
 term2 f t t'    = term f [t,t']
-term3 :: (T id :<: f) => id -> Term f -> Term f -> Term f -> Term f
+term3 :: (T id :<: f, HashConsed (Term f)) => id -> Term f -> Term f -> Term f -> Term f
 term3 f t t' t''= term f [t,t',t'']
-constant :: (T id :<: f) => id -> Term f
+constant :: (T id :<: f, HashConsed (Term f)) => id -> Term f
 constant f      = term f []
 
 x,y :: (Var :<: f) => Term f
-(x,y) = (var 0, var 1)
+x = var 0
+y = var 1
+
+------------------------
+-- Hash Consing
+-- ---------------------
+type HashCons f = HT.HashTable (Term f) (Term f)
+
+class Functor f => HashTerm f where hashF :: f Int32 -> Int32
+instance HashTerm (T String)  where hashF  (T id tt) = hashString id + sum tt
+instance HashTerm Var where hashF (Var (Just n) i) = hashString n + hashInt i
+                            hashF (Var _ i) = hashInt i
+                                              
+instance (HashTerm f, HashTerm g) => HashTerm (f :+: g) where
+    hashF (Inl l) = hashF l
+    hashF (Inr r) = hashF r
+
+hashTerm :: (HashTerm f) => Term f -> Int32
+hashTerm = foldTerm hashF
+
+class HashConsed a where {-# NOINLINE ht #-} ; ht :: HT.HashTable a a
+instance (Eq (Term f), HashTerm f) => HashConsed (Term f) where ht = newHt
+
+newHt :: (Eq (Term f), HashTerm f) => HashCons f
+newHt = unsafePerformIO (HT.new (==) hashTerm)
+
+hashCons :: HashConsed (Term f) => Term f -> Term f
+hashCons t = unsafePerformIO $ do
+               mb_t <- HT.lookup ht t
+               case mb_t of
+                 Just t' -> return t'
+                 Nothing -> HT.insert ht t t >> return t

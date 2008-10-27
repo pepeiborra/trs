@@ -29,14 +29,15 @@ import Data.Monoid
 import Text.PrettyPrint
 import Prelude hiding (elem,all)
 
+import TRS.Term
 import TRS.Types
 import TRS.Utils
 
 ----------------------
 -- * Substitutions
 ----------------------
-(//) :: (IsVar f, f :<: fs) => Term f -> Subst fs -> Term fs
-(//) = flip applySubst
+(//) :: (IsVar f, f :<: fs, HashConsed (Term fs)) => Term f -> Subst fs -> Term fs
+(//) = (hashCons.) .flip applySubst
 
 applySubst :: (IsVar f, f :<: fs) => Subst fs -> Term f -> Term fs
 applySubst s t = {-# SCC "applySubst" #-}

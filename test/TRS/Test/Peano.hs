@@ -18,6 +18,7 @@ import Control.Applicative
 import Control.Monad hiding ( sequence, mapM )
 import qualified Data.AlaCarte as Carte
 import Data.Foldable
+import Data.HashTable
 import Data.List
 import Data.Maybe
 import Data.Traversable
@@ -49,6 +50,12 @@ prec_pred = prec_succ
 prec_mul  = 2
 prec_plus = 1
 prec_app  = 9
+
+instance HashTerm Peano where
+    hashF (Succ t) = hashString "Succ" + t
+    hashF (x :+ y) = hashString "+:" + x + y
+    hashF Zero     = hashString "Zero"
+    hashF x = hashString (show x)
 
 instance Show x => Show (Peano x) where
   showsPrec p (Succ x) = showParen (p>prec_succ) $ 

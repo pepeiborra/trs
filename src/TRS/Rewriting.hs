@@ -11,7 +11,7 @@
 module TRS.Rewriting (
       Rewritable, Match(..), Match2(..), Matchable, match, matchFdefault,
       rewrite1,  reduce,  rewrites,
-      rewrite1S, reduceS, rewritesS,
+--      rewrite1S, reduceS, rewritesS,
       (=.=), EqModulo_(..), EqModulo, equal, equalG,
       isNF
     ) where
@@ -47,8 +47,8 @@ instance (Basic :<: g, Traversable g, IsVar g, Var :<: g, Match g g g g) => Matc
 class    (Var :<: f, Var :<: g, Traversable f, Traversable g, Match f g f g) => Matchable f g
 instance (Var :<: f, Var :<: g, Traversable f, Traversable g, Match f g f g) => Matchable f g
 
-class    (IsVar f, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
-instance (IsVar f, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
+class    (IsVar f, HashConsed (Term f), IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
+instance (IsVar f, HashConsed (Term f), IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
 
 class (fs :<: gs, f :<: fs, g :<: gs) => Match f g fs gs where matchF :: Matchable fs gs => f(Term fs) -> g(Term gs) -> Maybe (Subst gs)
 
@@ -107,7 +107,7 @@ rewriteStep rr t = {-# SCC "rewriteStep" #-} rewriteTop t `mplus` someSubterm (r
     where rewriteTop t = Data.Foldable.msum $ forEach rr $ \r -> do
                           lhs:->rhs <- {-# SCC  "rewriteStep/variant" #-} variant r
                           case {-# SCC  "rewriteStep/match" #-} match lhs t of
-                               Just subst -> return (rhs // subst)
+                               Just subst -> return (applySubst subst rhs)
                                Nothing    -> mzero
 
 -- | Normal forms, starting from leftmost outermost
@@ -117,17 +117,17 @@ reduce :: (Rewritable f g, MonadLogic m) => [Rule f] -> Term g -> m (Term g)
 reduce rr_ t = evalR ([0..] \\ map varId (vars t)) $ do
   rr <- mapM variant rr_
   let f t = msum $ forEach rr $ \ (l:->r) -> case match l t of
-                                               Just subst -> return (r // subst)
+                                               Just subst -> return (applySubst subst r)
                                                _          -> mzero
-  fixMP f t
-
+  hashCons <$> fixMP f t
+{-
 rewrite1S :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 rewrite1S = rewrite1
 rewritesS :: (IsVar g, MatchableSimple g, MonadLogic m) => [Rule Basic] -> Term g -> m(Term g)
 rewritesS = rewrites
 reduceS :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 reduceS = reduce
-
+-}
 
 ---------------------------------------
 -- * Equivalence modulo renaming

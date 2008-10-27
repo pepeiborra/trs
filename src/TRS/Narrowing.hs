@@ -3,6 +3,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 module TRS.Narrowing
 -- ( Narrowable, narrow1, narrow, narrows, narrowBounded,
@@ -35,8 +36,8 @@ isRNF = \rr -> {-# SCC "isRNF" #-}  \t -> (null . observeMany 1 . narrow1 rr) t
 
 
 -- The Var and Hole constraints should be made unnecessary
-class    (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
-instance (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
+class    (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, HashConsed (Term f), Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
+instance (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, HashConsed (Term f), Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
 
 -- narrow1 :: [Rule f] -> Term f -> (Term f, Subst f)
 {-# INLINE narrowStepBasic #-}
@@ -51,7 +52,7 @@ narrowStepBasic rr t = {-# SCC "narrowStepBasic1" #-}
                           guard (not $ isVar t)
                           lhs :-> rhs <- variant r
                           unify1 lhs t
-                          return rhs
+                          return (hashCons rhs)
 
 --unify' :: Unify f f f => Term f -> Term f ->  (Subst f)
 unify' :: (Unifyable f, MonadEnv f m, MonadEnv g m, MonadPlus m) => Term f -> Term f -> m (Subst g)
@@ -59,18 +60,20 @@ unify' t u = unify1 t u >> getEnv
 
 narrow1' :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, SubstG (Term f))
 narrow1' rr t = {-# SCC "narrow1" #-}
-               runN ([0..] \\ map varId (vars t)) (narrowStepBasic rr t >>= apply)
+               runN ([0..] \\ map varId (vars t)) (narrowStepBasic rr t >>= apply')
 
 narrow' :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
 narrow'  rr t = {-# SCC "narrow" #-}
                runN ([0..] \\ map varId (vars t))
-                    (fixMP(\t -> narrowStepBasic rr t >>= apply) t)
+                    (fixMP(\t -> narrowStepBasic rr t >>= apply') t)
 
 narrows' :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
 narrows' rr t = {-# SCC "narrows" #-}
                runN ([0..] \\ map varId (vars t))
-                    (closureMP (narrowStepBasic rr >=> apply) t)
+                    (closureMP (narrowStepBasic rr >=> apply') t)
 
+apply' :: (HashConsed (Term f), MonadEnv f m) => Term f -> m (Term f)
+apply' = apply >=> return . hashCons
 
 narrow1 :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
 narrow1 rr t = {-# SCC "narrow1" #-}
@@ -89,7 +92,7 @@ narrowBounded pred rr t = {-# SCC "narrowBounded" #-}
                           second (`restrictTo` vars' t) <$> runN ([0..] \\ map varId (vars t)) (go t) where
  go :: (MonadFresh m1, MonadLogic m1, MonadEnv f m1) => Term f -> m1(Term f)
  go t = do
-    t' <- narrowStepBasic rr t >>= apply
+    t' <- narrowStepBasic rr t >>= apply'
     if pred t' then go t' else return t'
 
 -- * Basic Narrowing

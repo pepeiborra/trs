@@ -34,11 +34,14 @@ instance (Show a) => Show (Ref a) where
 instance Ppr Ref where pprF (Ref r) = braces r
 instance (Ref :<: g, MatchShapeable g g) => MatchShape Ref Ref g g where matchShapeF (Ref r) (Ref s) = matchShape r s
 
+instance HashTerm (Ref) where hashF (Ref t) = t
+--instance HashConsed (Term (Ref :+: Basic)) where ht = newHt
+--instance HashConsed (Term (Var :+: Ref)) where ht = newHt
 
-class (f :<: g) => StripRefs f g where stripRefsF :: f(Term g) -> Term g
-instance (T i :<: g) => StripRefs (T i) g where stripRefsF (T s tt) = term s tt
-instance (Var :<: g) => StripRefs Var   g where stripRefsF (Var t i)= var' t i
-instance (Ref :<: g) => StripRefs Ref   g where stripRefsF (Ref t)  = t
+class (f :<: g, HashConsed (Term g)) => StripRefs f g where stripRefsF :: f(Term g) -> Term g
+instance (T i :<: g, HashConsed (Term g)) => StripRefs (T i) g where stripRefsF (T s tt) = term s tt
+instance (Var :<: g, HashConsed (Term g)) => StripRefs Var   g where stripRefsF (Var t i)= var' t i
+instance (Ref :<: g, HashConsed (Term g)) => StripRefs Ref   g where stripRefsF (Ref t)  = t
 
 instance (StripRefs a (a :+: b), StripRefs b (a :+: b)) => StripRefs (a :+: b) (a :+: b) where
     stripRefsF (Inl x) = stripRefsF x
