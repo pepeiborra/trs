@@ -77,7 +77,8 @@ splitOn x xs = let (l, r) = break (==x) xs in
 
 ---------------------------------------------------------
 snub :: Ord a => [a] -> [a]
-snub = map head . group . sort
+--snub = map head . group . sort
+snub = Set.toList . Set.fromList
 
 snub' l1 l2 = Set.toList $ Set.fromList l1 `mappend` Set.fromList l2
 
