@@ -1,10 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeSynonymInstances, UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PolymorphicComponents #-}
 
 module TRS.Rules where
 
+import Control.Parallel.Strategies
 import Control.Applicative
 import Control.Monad
 import Data.AlaCarte
@@ -55,3 +56,5 @@ isDefined rules = not . isConstructor rules
 
 instance Show (a) => Show (RuleG (a)) where
     show (a:->b) = show a ++ " -> " ++ show b
+
+instance NFData (f(Term f)) => NFData (Rule f) where rnf (l :-> r) = rnf l `seq` rnf r `seq` ()

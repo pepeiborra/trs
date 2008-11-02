@@ -20,6 +20,8 @@
 module TRS.Types (module Data.AlaCarte, module TRS.Types) where
 
 import Control.Applicative
+import Control.Monad       hiding (msum, mapM)
+import Control.Parallel.Strategies
 import Data.AlaCarte hiding (Expr(..), match, inject, reinject)
 import Data.Char (isAlpha)
 import Data.Foldable as Foldable
@@ -186,3 +188,11 @@ instance Foldable f => Size f where sizeF f = 1 + sum f
 
 termSize :: (Functor f, Foldable f) => Term f -> Int
 termSize = foldTerm sizeF
+
+-- ----------------
+-- NFData instances
+-- ----------------
+
+instance NFData (f (Term f)) => NFData (Term f) where rnf (In x) = rnf x
+instance NFData a => NFData (T String a) where rnf (T s tt) = rnf s `seq` rnf tt `seq` ()
+instance NFData (Var a)  where rnf (Var n s) = rnf n `seq` rnf s `seq` ()

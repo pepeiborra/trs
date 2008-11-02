@@ -17,6 +17,7 @@
 
 module TRS.Context where
 import Control.Applicative
+import Control.Parallel.Strategies
 import Data.Foldable
 import Data.HashTable (hashInt, hashString)
 import Data.Traversable
@@ -39,6 +40,7 @@ newtype Hole f = Hole Int deriving (Show, Eq, Ord)
 instance Functor Hole     where fmap _ (Hole i) = Hole i
 instance Foldable Hole    where foldMap = foldMapDefault
 instance Traversable Hole where traverse _ (Hole i) = pure (Hole i)
+instance NFData (Hole a) where rnf (Hole i) = rnf i `seq` ()
 
 emptyC :: (Hole :<: f) => Term f
 emptyC = hole 0
