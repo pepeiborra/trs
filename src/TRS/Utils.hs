@@ -450,6 +450,9 @@ fmap4 = fmap . fmap . fmap . fmap
 ($>) :: (Functor f) => f a -> (a -> b) -> f b
 ($>) = flip (<$>)
 
+infixl 4 <$$>
+infixl 4 <$$$>
+
 (<$$>) :: (Functor f1, Functor f) => (a -> b) -> f1 (f a) -> f1 (f b)
 f <$$> x = fmap (fmap  f) x
 
