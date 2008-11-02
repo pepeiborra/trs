@@ -543,7 +543,7 @@ withSnd = with snd (\y' (x,y) -> (x,y')) runStateT
 ------------
 
 
-trace :: t -> t1 -> t1
+trace :: String -> t1 -> t1
 trace msg x = 
 #ifdef DEBUGTRS
   Debug.Trace.trace msg x 
