@@ -419,7 +419,7 @@ instance (Traversable f, TraversableN a b c d) => TraversableN a b (f c) (f d) w
 -- -------------------------------------
 
 newtype MCompT (t1 :: (* -> *) -> * -> *) (t2 :: (* -> *) -> * -> *) (m :: * -> *) a = MCompT {unMCompT :: t1 (t2 m) a}
-  deriving (MonadError e, MonadPlus, Monad, Functor) --, LogicT (MCompT t1 t2))
+  deriving (MonadPlus, Monad, Functor) --, LogicT (MCompT t1 t2))
 
 -- Cant really define a MonadTrans instance!!!
 --instance (MonadTrans t1, MonadTrans t2) => MonadTrans (MCompT t1 t2) where 
