@@ -36,12 +36,12 @@ import TRS.Utils
 ----------------------
 -- * Substitutions
 ----------------------
-(//) :: (IsVar f, f :<: fs, HashConsed (Term fs)) => Term f -> Subst fs -> Term fs
+(//) :: (IsVar f, f :<: fs, HashConsed fs) => Term f -> Subst fs -> Term fs
 (//) = (hashCons.) .flip applySubst
 
-applySubst :: (IsVar f, f :<: fs) => Subst fs -> Term f -> Term fs
+applySubst :: (IsVar f, f :<: fs, HashConsed fs) => Subst fs -> Term f -> Term fs
 applySubst s t = {-# SCC "applySubst" #-}
-                 foldTerm (applySubstF s) t
+                 hashCons $ foldTerm (applySubstF s) t
 
 applySubstF :: (IsVar f, f :<: fs) => Subst fs -> f (Term fs) -> Term fs
 applySubstF s t
@@ -81,14 +81,14 @@ instance Ppr f => Show (Subst f) where
                      [ ppr k <+> char '/' <+> ppr t  | (KeyTerm k, t) <- Map.toList m] ++
                      [ ppr (var i :: Term Var) <+> char '/' <+> ppr t  | (KeyId i, t) <- Map.toList m] )
 
-instance (IsVar f) => Monoid (Subst f) where
+instance (IsVar f, HashConsed f) => Monoid (Subst f) where
     mempty  = emptySubst
     mappend = composeSubst
 
 emptySubst :: SubstG a
 emptySubst = Subst mempty
 
-composeSubst,o :: (IsVar f) => Subst f -> Subst f -> Subst f
+composeSubst,o :: (IsVar f, HashConsed f ) => Subst f -> Subst f -> Subst f
 composeSubst (Subst map1) s2@(Subst map2) = {-# SCC "composeSubst" #-}
                                             subst (map2 `mappend` map1')
   where Subst map1' = subst (applySubst s2 <$> map1)
@@ -104,10 +104,10 @@ mergeSubst s1 s2 | agree     = return (subst s)
         agree = all (\i -> lookupKey s1 i == lookupKey s2 i)
                     (substDomain s1 `intersect` substDomain s2)
 
-mergeSubsts :: (IsVar f, Eq (Term f), Monad m) => [Subst f] -> m (Subst f)
+mergeSubsts :: (IsVar f, Eq (Term f), HashConsed f, Monad m) => [Subst f] -> m (Subst f)
 mergeSubsts ss = {-# SCC "mergeSubsts" #-} foldM mergeSubst mempty ss
 
-insertSubst :: (IsVar g, Ppr g, IsVar fs) => Term g -> Term fs -> Subst fs -> Subst fs
+insertSubst :: (IsVar g, Ppr g, IsVar fs, HashConsed fs) => Term g -> Term fs -> Subst fs -> Subst fs
 insertSubst v t sigma
     | isJust $ uniqueId v
     , t'           <- applySubst sigma t

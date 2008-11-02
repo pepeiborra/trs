@@ -26,7 +26,7 @@ readVarDefault v | Just i <- uniqueId v = do
                  | otherwise = return Nothing
 
 
-instance (IsVar f, Functor m, MonadState (Subst f) m) => MonadEnv f m where
+instance (IsVar f, HashConsed f, Functor m, MonadState (Subst f) m) => MonadEnv f m where
     varBind t u = {-# SCC "varBind" #-}  modify (insertSubst t u)
     apply t = {-# SCC "apply" #-}  get >>= \sigma -> return (applySubst sigma t)
     getEnv  = get

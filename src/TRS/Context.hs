@@ -60,7 +60,7 @@ fill ct t = {-# SCC "fill" #-}
 
 -- | Returns a list of subterms and the corresponding contexts
 --   | forall subterm ctx . (subterm, ctx) <- contexts t ==> ctx |> subterm = t
-contexts :: (Hole :<: f, Traversable f, HashConsed (Term f)) => Term f -> [(Term f, Context f)]
+contexts :: (Hole :<: f, Traversable f, HashConsed f) => Term f -> [(Term f, Context f)]
 contexts t@(In f) = {-# SCC "contexts" #-}
      let t' = shiftC 1 t in
              [ (shiftC (-1) t_i, u)
@@ -81,4 +81,4 @@ instance (Hole :<: fs, Hole :<: gs, fs :<: gs) => MatchShape Hole Hole fs gs whe
 -- instance (Hole :<: g, Functor h) => Unify Hole g h where unifyF _ _ = mzero
 
 instance HashTerm   Hole where hashF (Hole i) = hashInt (1001 + i)
---instance HashConsed (Term (Hole :+: Basic)) where ht = newHt
+--instance HashConsed (Hole :+: Basic) where ht = newHt

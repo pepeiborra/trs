@@ -27,6 +27,7 @@ type Rule f = RuleG (Term f)
 
 infix 1 :->
 
+-- Sort first on lhs, then on rhs
 instance (Eq (RuleG a),Ord a) => Ord (RuleG a) where
   compare (l1 :-> r1) (l2 :-> r2) = case compare l1 l2 of
                                       EQ -> compare r1 r2

@@ -44,11 +44,11 @@ isNF = (null.) . rewrite1
 class (Basic :<: g, Traversable g, IsVar g, Var :<: g, Match g g g g) => MatchableSimple g
 instance (Basic :<: g, Traversable g, IsVar g, Var :<: g, Match g g g g) => MatchableSimple g
 
-class    (Var :<: f, Var :<: g, Traversable f, Traversable g, Match f g f g) => Matchable f g
-instance (Var :<: f, Var :<: g, Traversable f, Traversable g, Match f g f g) => Matchable f g
+class    (Var :<: f, Var :<: g, HashConsed g, Traversable f, Traversable g, Match f g f g) => Matchable f g
+instance (Var :<: f, Var :<: g, HashConsed g, Traversable f, Traversable g, Match f g f g) => Matchable f g
 
-class    (IsVar f, HashConsed (Term f), IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
-instance (IsVar f, HashConsed (Term f), IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
+class    (IsVar f, HashConsed rf, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
+instance (IsVar f, HashConsed rf, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
 
 class (fs :<: gs, f :<: fs, g :<: gs) => Match f g fs gs where matchF :: Matchable fs gs => f(Term fs) -> g(Term gs) -> Maybe (Subst gs)
 
@@ -102,24 +102,24 @@ rewrites :: (Rewritable f g, MonadPlus m) => [Rule f] -> Term g -> m (Term g)
 rewrites rr t = {-# SCC "rewrites" #-} evalR ([0..] \\ map varId (vars t)) $ closureMP (rewriteStep rr) t
 
 {-# INLINE rewriteStep #-}
---rewriteStep :: (Matchable f g, Foldable f, MonadFresh m, MonadPlus m) => [Rule f] -> Term g -> m (Term g)
-rewriteStep rr t = {-# SCC "rewriteStep" #-} rewriteTop t `mplus` someSubterm (rewriteStep rr) t
-    where rewriteTop t = Data.Foldable.msum $ forEach rr $ \r -> do
-                          lhs:->rhs <- {-# SCC  "rewriteStep/variant" #-} variant r
+rewriteStep :: forall f g m. (Rewritable f g, Foldable f, MonadFresh m, MonadPlus m) => [Rule f] -> Term g -> m (Term g)
+rewriteStep rr t = {-# SCC "rewriteStep" #-} do
+   rr' <- mapM variant rr
+   let rewriteTop :: HashConsed g => Term g -> m(Term g)
+       rewriteTop t = Data.Foldable.msum $ forEach rr' $ \r -> do
+                          lhs:->rhs <- {-# SCC  "rewriteStep/variant" #-} return r
                           case {-# SCC  "rewriteStep/match" #-} match lhs t of
                                Just subst -> return (applySubst subst rhs)
                                Nothing    -> mzero
+       go t = rewriteTop t `mplus` someSubterm go t
+   go t
 
 -- | Normal forms, starting from leftmost outermost
 --   Assumes no extra variables in the rhs are present
 reduce :: (Rewritable f g, MonadLogic m) => [Rule f] -> Term g -> m (Term g)
---reduce rr   = fixMP (\t -> rewrite1 rr t)
-reduce rr_ t = evalR ([0..] \\ map varId (vars t)) $ do
-  rr <- mapM variant rr_
-  let f t = msum $ forEach rr $ \ (l:->r) -> case match l t of
-                                               Just subst -> return (applySubst subst r)
-                                               _          -> mzero
-  hashCons <$> fixMP f t
+reduce rr t = evalR ([0..] \\ map varId (vars t)) $ fixMP (rewriteStep rr) t
+
+
 {-
 rewrite1S :: (MatchableSimple f, MonadLogic m) => [Rule Basic] -> Term f -> m (Term f)
 rewrite1S = rewrite1

@@ -36,8 +36,8 @@ isRNF = \rr -> {-# SCC "isRNF" #-}  \t -> (null . observeMany 1 . narrow1 rr) t
 
 
 -- The Var and Hole constraints should be made unnecessary
-class    (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, HashConsed (Term f), Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
-instance (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, HashConsed (Term f), Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
+class    (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
+instance (Hole :<: f, Var :<: f, IsVar f, Unifyable f, Traversable f, Var :<: rf, IsVar rf, Foldable rf, rf :<: f) => Narrowable rf f
 
 -- narrow1 :: [Rule f] -> Term f -> (Term f, Subst f)
 {-# INLINE narrowStepBasic #-}
@@ -72,7 +72,7 @@ narrows' rr t = {-# SCC "narrows" #-}
                runN ([0..] \\ map varId (vars t))
                     (closureMP (narrowStepBasic rr >=> apply') t)
 
-apply' :: (HashConsed (Term f), MonadEnv f m) => Term f -> m (Term f)
+apply' :: (HashConsed f, MonadEnv f m) => Term f -> m (Term f)
 apply' = apply >=> return . hashCons
 
 narrow1 :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)

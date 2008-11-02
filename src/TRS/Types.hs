@@ -1,5 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, UndecidableInstances, OverlappingInstances #-}
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, FlexibleContexts, UndecidableInstances, OverlappingInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
@@ -25,15 +25,20 @@ import Control.Parallel.Strategies
 import Data.AlaCarte hiding (Expr(..), match, inject, reinject)
 import Data.Char (isAlpha)
 import Data.Foldable as Foldable
+import Data.Int
 import Data.Monoid
 import Data.Traversable
+import Data.HashTable (hashInt, hashString)
+import qualified Data.HashTable as HT
+import System.IO.Unsafe
+import System.Mem.Weak
 import Text.PrettyPrint
-import Control.Monad       hiding (msum, mapM)
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, sum, elem, notElem)
 
 
 import TRS.Utils hiding ( parens )
+
 
 type Unique = Int
 
@@ -43,7 +48,10 @@ type Unique = Int
 
 newtype Term t = In (t (Term t))
 
-deriving instance Eq (f (Term f))  => Eq (Term f)
+--instance Eq (t(Term t)) => Eq (Term t) where t1@(In a) == t2@(In b) = unsafePtrEq t1 t2 || let eq = a == b in if eq then trace "Ptr equality miss" eq else eq
+instance Eq (t(Term t)) => Eq (Term t) where t1@(In a) == t2@(In b) = unsafePtrEq t1 t2 || a == b
+
+--deriving instance Eq (f (Term f)) => Eq (Term f)
 deriving instance Ord (f (Term f)) => Ord (Term f)
 
 foldTerm :: Functor f => (f a -> a) -> Term f -> a
@@ -58,10 +66,10 @@ foldTermTop f (In t)= In (foldTermTop f `fmap` f t)
 inject :: (g :<: f) => g (Term f) -> Term f
 inject = In . inj
 
-reinject :: (f :<: g) => Term f -> Term g
-reinject = foldTerm inject
+reinject :: (f :<: g, HashConsed g) => Term f -> Term g
+reinject = hashCons . foldTerm inject
 
-reinject' :: (f :<: fs, fs :<: gs) => f (Term fs) -> f (Term gs)
+reinject' :: (f :<: fs, fs :<: gs, HashConsed gs) => f (Term fs) -> f (Term gs)
 reinject' = fmap reinject
 
 match :: (g :<: f) => Term f -> Maybe (g (Term f))
@@ -92,13 +100,13 @@ instance Traversable Var where traverse _ (Var s i) = pure (Var s i)
 instance Foldable Var    where foldMap = foldMapDefault
 instance Ord (Var a) where compare (Var _ a) (Var _ b) = compare a b
 
-var :: (Var :<: s) => Int -> Term s
-var = {-# SCC "inject" #-}  inject . Var Nothing
+var :: (HashConsed s, Var :<: s) => Int -> Term s
+var = var' Nothing
 
-var' :: (Var :<: s) => Maybe String -> Int -> Term s
-var' = {-# SCC "inject'" #-} (inject.) . Var
+var' :: (HashConsed s, Var :<: s) => Maybe String -> Int -> Term s
+var' =((hashCons . inject) .) . Var
 
-varLabeled l = {-# SCC "varLabeled" #-} inject . Var (Just l)
+varLabeled l = {-# SCC "varLabeled" #-} var' (Just l)
 
 inV (Var n i) = In (Var n i)
 
@@ -188,6 +196,43 @@ instance Foldable f => Size f where sizeF f = 1 + sum f
 
 termSize :: (Functor f, Foldable f) => Term f -> Int
 termSize = foldTerm sizeF
+
+------------------------
+-- Hash Consing
+-- ---------------------
+type HashCons f = HT.HashTable ( (Term f)) (Term f)
+
+class Functor f => HashTerm f where hashF :: f Int32 -> Int32
+instance HashTerm (T String)  where hashF  (T id tt) = hashString id + sum tt
+instance HashTerm Var where hashF (Var (Just n) i) = hashString n + hashInt i
+                            hashF (Var _ i) = hashInt i
+                                              
+instance (HashTerm f, HashTerm g) => HashTerm (f :+: g) where
+    hashF (Inl l) = hashF l
+    hashF (Inr r) = hashF r
+
+--instance (HashTerm t) => HashTerm (Weak t) where hashF w = 
+
+hashTerm :: (HashTerm f) => Term f -> Int32
+hashTerm = foldTerm hashF
+
+class  (Eq (Term f), HashTerm f) => HashConsed f where 
+    {-# NOINLINE ht #-} 
+    ht :: HashCons f
+    ht = unsafePerformIO (HT.new (==) hashTerm)
+
+--instance (Eq (Term f), HashTerm f) => HashConsed f
+instance HashConsed Basic
+instance HashConsed Var
+instance HashConsed (T String)
+
+hashCons :: HashConsed f => Term f -> Term f
+hashCons t = unsafePerformIO $ do
+               mb_t <- HT.lookup ht t
+               case mb_t of
+                 Just t' -> return t'
+                 Nothing -> do 
+                           HT.insert ht t t >> return t
 
 -- ----------------
 -- NFData instances

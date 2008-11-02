@@ -17,7 +17,7 @@ import TRS.Substitutions
 
 class (Functor m, Monad m) => MonadFresh m where
     fresh :: m Int
-    variant :: (Var :<: fs, IsVar fs, Foldable fs, fs :<: f, Var :<: f, IsVar f, Functor t, Foldable t) => t (Term fs) -> m(t (Term f))
+    variant :: (HashConsed f, Var :<: fs, IsVar fs, Foldable fs, fs :<: f, Var :<: f, IsVar f, Functor t, Foldable t) => t (Term fs) -> m(t (Term f))
   -- The Functor requirement is not necessary, but I find it convenient
   -- Functor should be a siuperclass of Monad
 
@@ -32,5 +32,5 @@ instance (Functor m, MonadState [Int] m) => MonadFresh m where
 
 
 -- | Takes a term t and a term u and returns a variant of t which is fresh w.r.t. u
-variant' :: (Var :<: f, IsVar f, Foldable f, Functor t, Foldable t) => t(Term f) -> t(Term f) -> t(Term f)
+variant' :: (Var :<: f, IsVar f, Foldable f, HashConsed f, Functor t, Foldable t) => t(Term f) -> t(Term f) -> t(Term f)
 variant' t u = evalState (variant t) ([0..] \\ (varId <$> concatMap vars u))

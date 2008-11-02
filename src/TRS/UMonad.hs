@@ -26,7 +26,7 @@ instance (Monad m) => MonadFresh (GMonadT (b, [Int]) m) where
     variant = withSnd . variant
     fresh   = withSnd fresh
 
-instance (IsVar f, Monad m) => MonadEnv f (GMonadT (Subst f, b) m) where
+instance (IsVar f, HashConsed f, Monad m) => MonadEnv f (GMonadT (Subst f, b) m) where
     varBind t = withFst . varBind t
     apply     = withFst . apply
     getEnv    = withFst get

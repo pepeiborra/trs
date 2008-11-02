@@ -24,8 +24,8 @@ import TRS.MonadEnv
 import TRS.UMonad
 import TRS.Utils
 
-class    (IsVar f, Eq (Term f), Unify f f f) => Unifyable f
-instance (IsVar f, Eq (Term f), Unify f f f) => Unifyable f
+class    (IsVar f, HashConsed f, Unify f f f) => Unifyable f
+instance (IsVar f, HashConsed f, Unify f f f) => Unifyable f
 
 class (f:<:g, h:<:g) => Unify f h g where
     unifyF :: (MonadPlus m, MonadEnv g m, Unifyable g) => f(Term g) -> h(Term g) -> m ()

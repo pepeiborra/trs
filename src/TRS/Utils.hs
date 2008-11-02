@@ -15,11 +15,12 @@
 -- Internal
 -----------------------------------------------------------------------------
 
+
 module TRS.Utils where
 import Control.Applicative
 import Control.Monad.State hiding (mapM, mapM_, sequence, msum)
 import Control.Monad.List (ListT(..))
-import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError)
+import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError(..))
 import Control.Monad.Logic (MonadLogic(..), runLogic, Logic)
 import Data.AlaCarte
 import Data.List (group, sort, sortBy, groupBy, intersperse)
@@ -33,6 +34,9 @@ import Prelude hiding ( all, any, maximum, minimum, any, mapM_,mapM, foldr, fold
                       , sequence, and, or, elem, concatMap )
 
 import Control.Exception
+import GHC.Prim
+
+import qualified Debug.Trace
 
 #if __GLASGOW_HASKELL__ < 607 
 infixr 1 <=<
@@ -542,6 +546,8 @@ withSnd = with snd (\y' (x,y) -> (x,y')) runStateT
 
 ------------
 
+unsafePtrEq :: a -> a -> Bool
+unsafePtrEq a b = 1# ==# reallyUnsafePtrEquality# a b
 
 trace :: String -> t1 -> t1
 trace msg x = 

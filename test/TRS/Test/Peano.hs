@@ -28,6 +28,8 @@ import Prelude hiding ( sequence, mapM )
 
 type PeanoT  = Var :+: Peano
 type PeanoTH = Var :+: Peano :+: Hole
+instance HashConsed PeanoT
+instance HashConsed PeanoTH
 
 ------------------------
 -- The Terms dataType
