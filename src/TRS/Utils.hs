@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -cpp -fglasgow-exts #-}
-{-# OPTIONS_GHC -fallow-undecidable-instances #-}
-{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE OverlappingInstances, UndecidableInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  TRS.Utils
