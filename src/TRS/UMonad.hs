@@ -10,7 +10,6 @@ import Control.Monad.Logic.Class
 
 import TRS.MonadEnv
 import TRS.MonadFresh
-import TRS.Rules
 import TRS.Substitutions
 import TRS.Types
 import TRS.Utils
@@ -59,4 +58,4 @@ execU acc = execStateT (unU acc) emptySubst
 applyF  :: (IsVar f, f:<:fs, MonadState (Subst fs) m) => f(Term fs) -> m (Term fs)
 applyF t = get >>= \sigma -> return (applySubstF sigma t)
 
-startingFromTerm m t = m 
+startingFromTerm m t = m

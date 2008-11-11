@@ -14,7 +14,6 @@ module TRS.Unification (
 
 import Control.Monad.State hiding (mapM_, zipWithM_)
 import Data.Foldable
-import Data.Traversable
 import Prelude hiding (mapM_)
 import TypePrelude
 
@@ -22,7 +21,6 @@ import TRS.Substitutions
 import TRS.Types
 import TRS.MonadEnv
 import TRS.UMonad
-import TRS.Utils
 
 class    (IsVar f, HashConsed f, Unify f f f) => Unifyable f
 instance (IsVar f, HashConsed f, Unify f f f) => Unifyable f

@@ -20,16 +20,16 @@ module TRS.Utils where
 import Control.Applicative
 import Control.Monad.State hiding (mapM, mapM_, sequence, msum)
 import Control.Monad.List (ListT(..))
-import Control.Monad.Error (throwError, catchError, Error, ErrorT(..), MonadError(..))
+import Control.Monad.Error (Error, ErrorT(..), MonadError(..))
 import Control.Monad.Logic (MonadLogic(..), runLogic, Logic)
 import Data.AlaCarte
-import Data.List (group, sort, sortBy, groupBy, intersperse)
+import Data.List (sortBy, groupBy, intersperse)
 import Data.Maybe
 import Data.Monoid
-import qualified Data.Set as Set
 import Data.Traversable
 import Data.Foldable
 import qualified Prelude
+import qualified Data.Set as Set
 import Prelude hiding ( all, any, maximum, minimum, any, mapM_,mapM, foldr, foldl, concat
                       , sequence, and, or, elem, concatMap )
 
@@ -83,8 +83,6 @@ splitOn x xs = let (l, r) = break (==x) xs in
 snub :: Ord a => [a] -> [a]
 --snub = map head . group . sort
 snub = Set.toList . Set.fromList
-
-snub' l1 l2 = Set.toList $ Set.fromList l1 `mappend` Set.fromList l2
 
 snubBy :: (a -> a -> Ordering) -> [a] -> [a]
 snubBy f = map head . groupBy (((==EQ).) . f) . sortBy f
@@ -442,7 +440,7 @@ instance (MonadTrans t1) => MonadTrans (MCompT t1 ListT) where
 ----------------------------------------
 
 
--- forEach :: [a] -> (a -> b) -> [b]
+forEach :: [a] -> (a -> b) -> [b]
 forEach = flip map
 
 return2 :: (Monad m, Monad n) => a -> m(n a)

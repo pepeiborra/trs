@@ -16,10 +16,8 @@ module TRS.Rewriting (
       isNF
     ) where
 
-import Control.Applicative
 import Control.Monad (mzero, mplus, MonadPlus, foldM)
 import Control.Monad.Logic.Class
-import Control.Monad.State (MonadState, lift)
 import Data.Foldable
 import Data.List ((\\))
 import Data.Maybe (isJust)

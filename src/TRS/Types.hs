@@ -31,7 +31,6 @@ import Data.Traversable
 import Data.HashTable (hashInt, hashString)
 import qualified Data.HashTable as HT
 import System.IO.Unsafe
-import System.Mem.Weak
 import Text.PrettyPrint
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, sum, elem, notElem)
@@ -106,8 +105,10 @@ var = var' Nothing
 var' :: (HashConsed s, Var :<: s) => Maybe String -> Int -> Term s
 var' =((hashCons . inject) .) . Var
 
+varLabeled :: (HashConsed s, Var :<: s) => String -> Int -> Term s
 varLabeled l = {-# SCC "varLabeled" #-} var' (Just l)
 
+inV :: Var t -> Term Var
 inV (Var n i) = In (Var n i)
 
 class Functor f => IsVar f where

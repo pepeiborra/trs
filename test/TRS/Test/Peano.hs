@@ -1,29 +1,16 @@
-{-# OPTIONS_GHC -fallow-undecidable-instances #-}
-{-# OPTIONS_GHC -fallow-overlapping-instances #-}
-{-# OPTIONS_GHC -fglasgow-exts #-}
-
+{-# LANGUAGE UndecidableInstances, OverlappingInstances #-}
 module TRS.Test.Peano where
 
 import TRS.Context
 import TRS.Types
-import TRS.Unification
-import TRS.Rewriting
-import TRS.Rules
-import TRS.Term
-import TRS.Signature
-import TRS.Substitutions
 import TRS.Test.TermRef
 
 import Control.Applicative
-import Control.Monad hiding ( sequence, mapM )
 import qualified Data.AlaCarte as Carte
 import Data.Foldable
 import Data.HashTable
-import Data.List
-import Data.Maybe
 import Data.Traversable
 import Text.PrettyPrint
-import Test.QuickCheck
 import Prelude hiding ( sequence, mapM )
 
 type PeanoT  = Var :+: Peano

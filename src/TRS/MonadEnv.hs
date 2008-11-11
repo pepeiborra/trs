@@ -8,7 +8,6 @@ import Control.Monad
 import Control.Monad.State.Class
 
 import TRS.Types
-import TRS.Utils
 import TRS.Substitutions
 
 class (Functor m, Monad m, IsVar f) => MonadEnv f m | m -> f where
@@ -22,7 +21,7 @@ readVarDefault v | Just i <- uniqueId v = do
                                t <- apply v
                                return $ case uniqueId t of
                                           Just i' | i == i' -> Nothing
-                                          otherwise -> Just t
+                                          _                 -> Just t
                  | otherwise = return Nothing
 
 

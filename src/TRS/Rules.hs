@@ -8,7 +8,6 @@ module TRS.Rules where
 import Control.Parallel.Strategies
 import Control.Applicative
 import Control.Monad
-import Data.AlaCarte
 import Data.Foldable
 import Data.Maybe
 import Data.Traversable
@@ -17,7 +16,7 @@ import TRS.Types
 ----------
 -- * Rules
 ----------
-data RuleG a = a :-> a deriving Eq
+data RuleG a = !a :-> !a deriving Eq
 
 lhs,rhs :: forall t. RuleG t -> t
 lhs (l :-> _) = l

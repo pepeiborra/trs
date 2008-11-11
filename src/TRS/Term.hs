@@ -12,7 +12,6 @@ import Control.Applicative
 import Control.Arrow ((***))
 import Control.Monad hiding ( mapM, sequence, msum)
 import Data.Foldable (toList, Foldable, msum, foldMap)
-import Data.Int
 import Data.Maybe
 import Data.Traversable (Traversable, mapM, traverse)
 import Text.PrettyPrint
@@ -145,4 +144,3 @@ constant f      = term f []
 x,y :: (HashConsed f, Var :<: f) => Term f
 x = var 0
 y = var 1
-

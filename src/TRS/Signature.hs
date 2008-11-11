@@ -1,14 +1,13 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances, TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE PatternGuards, NamedFieldPuns #-}
 {-# LANGUAGE GADTs #-}
 
 
 module TRS.Signature where
 
 import Data.Foldable (Foldable)
-import Data.Generics
 import Data.List ((\\))
 import Data.Maybe
 import Data.Monoid
@@ -38,6 +37,7 @@ class SignatureC a id | a -> id where getSignature :: a -> Signature id
 instance (T id :<: f, Ord id, Foldable f) => SignatureC [Rule f] id where
     getSignature = getSignatureDefault id
 
+getSignatureDefault :: (T id :<: f, Ord id, Foldable f) => (id -> id) -> [Rule f] -> Signature id
 getSignatureDefault mkLabel rules =
       Sig{arity= Map.fromList [(mkLabel f,length tt) | l :-> r <- rules, t <- [l,r]
                                              , Just (T f tt) <- map match (subterms t)]
@@ -49,7 +49,7 @@ getSignatureDefault mkLabel rules =
 -- instance SignatureC (TRS f) where getSignature TRS{..} = getSignature rules
 
 getArity :: (Show id, Ord id) => Signature id -> id -> Int
-getArity Sig{..} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
+getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
                                (Map.lookup f arity)
 
 
@@ -68,6 +68,9 @@ instance (T id :<: f, Ord id, TRSC f) => Monoid (TRS id f) where
    mappend (TRS r1 _) (TRS r2 _) = let rr = (r1 `mappend` r2) in TRS rr (getSignature rr)
 
 instance SignatureC (TRS id f) id where getSignature = sig
+
+tRS :: (T id :<: t, Ord id, TRSC t) => [Rule t] -> TRS id t
+rules :: TRS id t -> [Rule t]
 
 tRS rules = TRS rules (getSignature rules)
 rules (TRS r _) = r; sig (TRS _ s) = s

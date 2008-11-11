@@ -18,7 +18,7 @@ module TRS.Substitutions (
      substRange, substDomain) where
 
 import Control.Applicative
-import Control.Arrow (first, second)
+import Control.Arrow (first)
 import Control.Monad
 import Data.List (intersect)
 import Data.Foldable
@@ -29,9 +29,7 @@ import Data.Monoid
 import Text.PrettyPrint
 import Prelude hiding (elem,all)
 
-import TRS.Term
 import TRS.Types
-import TRS.Utils
 
 ----------------------
 -- * Substitutions
@@ -64,6 +62,7 @@ instance Show Key where
     showsPrec _ (KeyTerm t) = ("KeyTerm" ++ ) . (show t ++)
 
 {-# INLINE unique #-}
+unique :: Key -> Int
 unique (KeyId i) = i
 unique (KeyTerm t) | Just i <- uniqueId t = i
 unique (KeyTerm t) = error ("A substitution is binding on something which is not a variable:  " ++ show t)
@@ -108,6 +107,7 @@ mergeSubst s1 s2 | agree     = return (subst s)
 mergeSubsts :: (IsVar f, Eq (Term f), HashConsed f, Monad m) => [Subst f] -> m (Subst f)
 mergeSubsts ss = {-# SCC "mergeSubsts" #-} foldM mergeSubst mempty ss
 
+unionSubst :: SubstG a -> SubstG a -> SubstG a
 unionSubst s1 s2 = Subst (fromSubst s1 `Map.union` fromSubst s2)
 
 insertSubst :: (IsVar g, Ppr g, IsVar fs, HashConsed fs) => Term g -> Term fs -> Subst fs -> Subst fs

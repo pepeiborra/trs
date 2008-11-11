@@ -61,6 +61,27 @@ narrowStepBasic rr t = {-# SCC "narrowStepBasic1" #-}
 unify' :: (Unifyable f, MonadEnv f m, MonadEnv g m, MonadPlus m) => Term f -> Term f -> m (Subst g)
 unify' t u = unify1 t u >> getEnv
 
+apply' :: (HashConsed f, MonadEnv f m) => Term f -> m (Term f)
+apply' = apply >=> return . hashCons
+
+-- ------------------------------
+-- * Narrowing
+-- ------------------------------
+narrow1 :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
+narrow1 rr t = {-# SCC "narrow1" #-}
+               second (`restrictTo` vars' t) <$> narrow1' rr t
+
+narrow :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
+narrow  rr t = {-# SCC "narrow" #-}
+               second (`restrictTo` vars' t) <$> narrow' rr t
+
+narrows :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
+narrows rr t = {-# SCC "narrows" #-}
+               second (`restrictTo` vars' t) <$> narrows' rr t
+
+-- ** Dirty versions
+--  These versions do not trim the substitution before returning
+
 narrow1' :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, SubstG (Term f))
 narrow1' rr t = {-# SCC "narrow1" #-}
                runN ([0..] \\ map varId (vars t)) (narrowStepBasic rr t >>= apply')
@@ -75,7 +96,12 @@ narrows' rr t = {-# SCC "narrows" #-}
                runN ([0..] \\ map varId (vars t))
                     (closureMP (narrowStepBasic rr >=> apply') t)
 
-inn_narrowing :: forall rf f m. (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
+------------------------------
+-- * Narrowing under Strategies
+-- ---------------------------
+
+-- ** Innermost narrowing
+inn_narrowing :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
 inn_narrowing rr t = runN ([0..] \\ map varId (vars t)) (fixMP (innStepBasic rr >=> apply') t)
 
 innStepBasic rr t = do
@@ -87,24 +113,6 @@ innStepBasic rr t = do
                           return (hashCons rhs)
      go (t, emptyC)
 
-inn_Bnarrowing rr t =  runN ([0..] \\ map varId (vars t)) (fixMP (innStepBasic rr) t)
-
-
-apply' :: (HashConsed f, MonadEnv f m) => Term f -> m (Term f)
-apply' = apply >=> return . hashCons
-
-narrow1 :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
-narrow1 rr t = {-# SCC "narrow1" #-}
-               second (`restrictTo` vars' t) <$> narrow1' rr t
-
-narrow :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
-narrow  rr t = {-# SCC "narrow" #-}
-               second (`restrictTo` vars' t) <$> narrow' rr t
-
-narrows :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
-narrows rr t = {-# SCC "narrows" #-}
-               second (`restrictTo` vars' t) <$> narrows' rr t
-
 narrowBounded :: forall rf f m . (Narrowable rf f, Functor m, MonadLogic m) => (Term f -> Bool) -> [Rule rf] -> Term f -> m (Term f, Subst f)
 narrowBounded pred rr t = {-# SCC "narrowBounded" #-}
                           second (`restrictTo` vars' t) <$> runN ([0..] \\ map varId (vars t)) (go t) where
@@ -113,7 +121,7 @@ narrowBounded pred rr t = {-# SCC "narrowBounded" #-}
     t' <- narrowStepBasic rr t >>= apply'
     if pred t' then go t' else return t'
 
--- * Basic Narrowing
+-- ** Basic Narrowing
 narrow1Basic :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, SubstG (Term f))
 narrow1Basic = narrow1
 
@@ -129,6 +137,12 @@ narrowBasicBounded pred rr t = {-# SCC "narrowBasicBounded" #-} second (`restric
     go t = do
       t' <- narrowStepBasic rr t
       if pred t' then go t' else return t'
+
+-- ** Innermost Basic Narrowing
+
+inn_Bnarrowing :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
+inn_Bnarrowing rr t =  runN ([0..] \\ map varId (vars t)) (fixMP (innStepBasic rr) t)
+
 
 -- like vars' in TRS.Term but with less constraints
 vars' :: (Var :<: f, Foldable f) => Term f -> [Term Var]

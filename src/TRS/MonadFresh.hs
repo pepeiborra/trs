@@ -4,7 +4,6 @@ module TRS.MonadFresh where
 
 import Control.Applicative
 import Control.Monad.State
-import Control.Monad.Logic.Class
 import Data.Foldable
 import Data.List ((\\))
 import Prelude hiding (concatMap)
@@ -12,7 +11,6 @@ import Prelude hiding (concatMap)
 import TRS.Types
 import TRS.Term
 import TRS.Utils
-import TRS.Rules
 import TRS.Substitutions
 
 class (Functor m, Monad m) => MonadFresh m where
