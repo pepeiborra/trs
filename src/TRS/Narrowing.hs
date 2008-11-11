@@ -6,9 +6,12 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
 module TRS.Narrowing
--- ( Narrowable, narrow1, narrow, narrows, narrowBounded,
---   narrow1Basic, narrowBasic, narrowsBasic, narrowBasicBounded
--- )
+ ( Narrowable, isRNF,
+   narrow1, narrow, narrows, narrowBounded,
+   narrow1', narrow', narrows',
+   inn_narrowing, inn_Bnarrowing,
+   narrow1Basic, narrowBasic, narrowsBasic, narrowBasicBounded
+ )
  where
 
 import Control.Applicative
@@ -16,9 +19,9 @@ import Control.Arrow
 import Control.Monad.Logic
 import Data.Foldable (Foldable)
 import Data.List ((\\))
-import Data.Traversable
+import Data.Traversable (Traversable)
 
-import TRS.Term
+import TRS.Term hiding (vars')
 import TRS.Rules
 import TRS.MonadEnv
 import TRS.MonadFresh
@@ -72,6 +75,21 @@ narrows' rr t = {-# SCC "narrows" #-}
                runN ([0..] \\ map varId (vars t))
                     (closureMP (narrowStepBasic rr >=> apply') t)
 
+inn_narrowing :: forall rf f m. (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
+inn_narrowing rr t = runN ([0..] \\ map varId (vars t)) (fixMP (innStepBasic rr >=> apply') t)
+
+innStepBasic rr t = do
+     rr' <- mapM variant rr
+     let go (t, ct) = ifte (msum [go (t, ct|>ct1) | (t, ct1) <- contexts t]) return ((ct |>) `liftM` narrowTop t)
+         narrowTop t = msum $ flip map rr' $ \(lhs:->rhs) -> do
+                          guard (not $ isVar t)
+                          unify1 lhs t
+                          return (hashCons rhs)
+     go (t, emptyC)
+
+inn_Bnarrowing rr t =  runN ([0..] \\ map varId (vars t)) (fixMP (innStepBasic rr) t)
+
+
 apply' :: (HashConsed f, MonadEnv f m) => Term f -> m (Term f)
 apply' = apply >=> return . hashCons
 
@@ -112,5 +130,6 @@ narrowBasicBounded pred rr t = {-# SCC "narrowBasicBounded" #-} second (`restric
       t' <- narrowStepBasic rr t
       if pred t' then go t' else return t'
 
+-- like vars' in TRS.Term but with less constraints
 vars' :: (Var :<: f, Foldable f) => Term f -> [Term Var]
 vars' = map inV . vars
