@@ -48,10 +48,10 @@ narrowStepBasic :: forall rf f m. (Narrowable rf f, MonadLogic m, MonadFresh m, 
 narrowStepBasic rr t = {-# SCC "narrowStepBasic1" #-}
    go (t, emptyC)
     where go (t, ct) = ((ct |>) `liftM` narrowTop t)
-                       `mplus`
-                       msum [go (t, ct|>ct1) | (t, ct1) <- contexts t]
+                       `mplusP`
+                       msumP [go (t, ct|>ct1) | (t, ct1) <- contexts t]
           narrowTop :: Term f -> m(Term f)
-          narrowTop t = msum$ flip map rr $ \r -> do
+          narrowTop t = msumP$ flip map rr $ \r -> do
                           guard (not $ isVar t)
                           lhs :-> rhs <- variant r
                           unify1 lhs t
@@ -80,8 +80,8 @@ inn_narrowing rr t = runN ([0..] \\ map varId (vars t)) (fixMP (innStepBasic rr 
 
 innStepBasic rr t = do
      rr' <- mapM variant rr
-     let go (t, ct) = ifte (msum [go (t, ct|>ct1) | (t, ct1) <- contexts t]) return ((ct |>) `liftM` narrowTop t)
-         narrowTop t = msum $ flip map rr' $ \(lhs:->rhs) -> do
+     let go (t, ct) = ifte (msumP [go (t, ct|>ct1) | (t, ct1) <- contexts t]) return ((ct |>) `liftM` narrowTop t)
+         narrowTop t = msumP $ flip map rr' $ \(lhs:->rhs) -> do
                           guard (not $ isVar t)
                           unify1 lhs t
                           return (hashCons rhs)

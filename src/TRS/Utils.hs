@@ -178,6 +178,9 @@ instance (Functor m, MonadLogic m) => MonadPlus1 m where isMZero m = ifte m (\_ 
 
 instance MonadPlus1 Logic where isMZero m = runLogic m (\_ _ -> return False) (return True)
 
+msumP :: MonadLogic m => [m a] -> m a
+msumP = foldr mplusP mzero
+
 -- sort of Fixpoint of a backtracking computation
 fixMP :: MonadLogic m => (a -> m a) -> (a -> m a)
 fixMP f x = ifte (f x) (fixMP f) (return x)
