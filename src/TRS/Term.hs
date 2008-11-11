@@ -106,6 +106,10 @@ vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
 vars t = {-# SCC "vars" #-}
          snub [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.match u]]
 
+vars' :: (IsVar s, Ord (Term s), Foldable s, Functor s) => Term s -> [Term s]
+vars' t = {-# SCC "vars" #-}
+         snub [ u | u <- subterms t, isVar u]
+
 collect :: (Foldable f, Functor f) => (Term f -> Bool) -> Term f -> [Term f]
 collect pred t = {-# SCC "collect" #-} [ u | u <- subterms t, pred u]
 
