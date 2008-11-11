@@ -7,7 +7,7 @@
 
 module TRS.Signature where
 
-import Data.Typeable
+import Data.Foldable (Foldable)
 import Data.Generics
 import Data.List ((\\))
 import Data.Maybe
@@ -18,15 +18,15 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Traversable
 
-import TRS.Rules
+import TRS.Rules hiding ( isConstructor )
 import TRS.Term
 import TRS.Types
 import TRS.Unification
 import TRS.Utils
 
 data Signature id = Sig { constructorSymbols :: Set id
-                     , definedSymbols        :: Set id
-                     , arity                 :: Map id Int}
+                        , definedSymbols     :: Set id
+                        , arity              :: Map id Int}
      deriving (Show, Eq)
 
 instance Ord id => Monoid (Signature id) where
@@ -35,7 +35,7 @@ instance Ord id => Monoid (Signature id) where
 
 class SignatureC a id | a -> id where getSignature :: a -> Signature id
 
-instance SignatureC [Rule Basic] String where
+instance (T id :<: f, Ord id, Foldable f) => SignatureC [Rule f] id where
     getSignature = getSignatureDefault id
 
 getSignatureDefault mkLabel rules =
@@ -56,24 +56,26 @@ getArity Sig{..} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not i
 -- ----
 -- TRS
 -- ----
-class (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f, Eq (Term f)) => TRSC f
-instance (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f, Eq (Term f)) => TRSC f
+class (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f,HashConsed f) => TRSC f
+instance (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f, HashConsed f) => TRSC f
 
 data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => [Rule f] -> Signature id -> TRS id f
 
 instance Ppr f => Show (TRS id f) where show trs = show $ rules trs
 
-instance (Ord id, TRSC f, SignatureC [Rule f] id) => Monoid (TRS id f) where
-    mempty = TRS mempty mempty
-    mappend (TRS r1 _) (TRS r2 _) = let rr = (r1 `mappend` r2) in TRS rr (getSignature rr)
+instance (T id :<: f, Ord id, TRSC f) => Monoid (TRS id f) where
+   mempty = TRS mempty mempty
+   mappend (TRS r1 _) (TRS r2 _) = let rr = (r1 `mappend` r2) in TRS rr (getSignature rr)
 
 instance SignatureC (TRS id f) id where getSignature = sig
 
 tRS rules = TRS rules (getSignature rules)
 rules (TRS r _) = r; sig (TRS _ s) = s
 
-isConstructor :: (T id :<: f, Ord id) => Term f -> TRS id f -> Bool
-isConstructor t trs = (`Set.member` constructorSymbols (sig trs)) `all` collectIds t
+isDefined, isConstructor :: (T id :<: f, Ord id) => TRS id f -> Term f -> Bool
+isConstructor trs t = (`Set.member` constructorSymbols (sig trs)) `all` collectIds t
+
+isDefined = (not.) . isConstructor
 
 collectIds :: (T id :<: f) => Term f -> [id]
 collectIds = foldTerm f where
