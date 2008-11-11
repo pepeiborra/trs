@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE OverlappingInstances, UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE PatternGuards #-}
@@ -11,10 +11,10 @@ module TRS.Term where
 import Control.Applicative
 import Control.Arrow ((***))
 import Control.Monad hiding ( mapM, sequence, msum)
-import Data.Foldable (toList, Foldable, msum)
+import Data.Foldable (toList, Foldable, msum, foldMap)
 import Data.Int
 import Data.Maybe
-import Data.Traversable (Traversable, mapM)
+import Data.Traversable (Traversable, mapM, traverse)
 import Text.PrettyPrint
 import Prelude hiding (sequence, concatMap, mapM)
 import qualified Prelude
@@ -87,7 +87,20 @@ instance ((a :+: b) :<: f, AnnotateWithPos a f, AnnotateWithPos b f) => Annotate
     annotateWithPosF (Inr x) = annotateWithPosF x
     annotateWithPosF (Inl y) = annotateWithPosF y
 
-instance (Show note, Ppr t) => Ppr (WithNote note t) where pprF (Note (p,t)) = parens(text (show p) <> comma <> pprF t)
+
+newtype WithNote note f a = Note (note, f a) deriving (Show)
+instance Functor f  => Functor (WithNote note f)  where fmap f (Note (p, fx))   = Note (p, fmap f fx)
+instance Foldable f => Foldable (WithNote note f) where foldMap f (Note (_p,fx)) = foldMap f fx
+instance Traversable f => Traversable (WithNote note f) where traverse f (Note (p, fx)) = (Note . (,) p) <$> traverse f fx
+instance Eq (f a) => Eq (WithNote note f a) where Note (_, f1) == Note (_, f2) = f1 == f2
+instance Ord (f a) => Ord (WithNote note f a) where Note (_, f1) `compare` Note (_, f2) = compare f1 f2
+instance (Show note, Ppr t) => Ppr (WithNote note t) where pprF (Note (p,t)) = pprF t <> char '_' <> text (show p)
+instance IsVar f => IsVar (WithNote note f) where
+    isVarF (Note (_,t)) = isVarF t
+    uniqueIdF (Note (_,t)) = uniqueIdF t
+
+note :: Term (WithNote note f) -> note
+note (In (Note (note,_))) = note
 
 vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
 vars t = {-# SCC "vars" #-}
