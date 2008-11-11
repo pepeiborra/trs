@@ -59,7 +59,7 @@ getArity Sig{..} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not i
 class (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f, Eq (Term f)) => TRSC f
 instance (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f, Eq (Term f)) => TRSC f
 
-data TRS id f where TRS :: (Ord id, TRSC f) => [Rule f] -> Signature id -> TRS id f
+data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => [Rule f] -> Signature id -> TRS id f
 
 instance Ppr f => Show (TRS id f) where show trs = show $ rules trs
 
