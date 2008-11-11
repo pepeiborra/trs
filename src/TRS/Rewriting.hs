@@ -17,12 +17,13 @@ module TRS.Rewriting (
     ) where
 
 import Control.Applicative
-import Control.Monad (mzero, mplus, MonadPlus)
+import Control.Monad (mzero, mplus, MonadPlus, foldM)
 import Control.Monad.Logic.Class
 import Control.Monad.State (MonadState, lift)
 import Data.Foldable
 import Data.List ((\\))
 import Data.Maybe (isJust)
+import Data.Monoid
 import Data.Traversable
 import Prelude hiding (mapM, concat, zipWith)
 import TypePrelude
@@ -79,8 +80,12 @@ instance (fs :<: gs, Var :<: gs, Var :<: fs, IsVar gs) => Match Var Var fs gs wh
 instance forall isVar f g fs gs. (TypeEq2 f Var isVar, Match2 isVar f g fs gs) => Match f g fs gs where matchF x y = matchF' (proxy::isVar) x y
 
 
-matchFdefault :: (IsVar gs, Matchable fs gs, MatchShape f f fs gs, Eq (Term gs)) => f (Term fs) -> f (Term gs) -> Maybe (Subst gs)
-matchFdefault t1 t2 = mergeSubsts =<< (mapM (uncurry match') =<< matchShapeF t1 t2)
+matchFdefault :: (IsVar gs, Matchable fs gs, MatchShape f f fs gs) => f (Term fs) -> f (Term gs) -> Maybe (Subst gs)
+--matchFdefault t1 t2 = mergeSubsts =<< (mapM (uncurry match') =<< matchShapeF t1 t2)
+matchFdefault s t = matchShapeF s t >>= foldM matchOne mempty
+  where matchOne subst (s,t) = do
+          subst' <- match' s (applySubst subst t)
+          return (unionSubst subst subst')
 
 match' :: (Matchable f g) => Term f -> Term g -> Maybe (Subst g)
 match' (In t) (In u) = {-# SCC "match'" #-} matchF t u

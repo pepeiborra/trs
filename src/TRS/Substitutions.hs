@@ -13,7 +13,7 @@ module TRS.Substitutions (
      (//),
      Subst, SubstG(..), MkSubst(..), emptySubst,
      o, lookupSubst, restrictTo, insertSubst,
-     mergeSubst, mergeSubsts,
+     mergeSubst, mergeSubsts, unionSubst,
      applySubst, applySubstF, isRenaming,
      substRange, substDomain) where
 
@@ -106,6 +106,8 @@ mergeSubst s1 s2 | agree     = return (subst s)
 
 mergeSubsts :: (IsVar f, Eq (Term f), HashConsed f, Monad m) => [Subst f] -> m (Subst f)
 mergeSubsts ss = {-# SCC "mergeSubsts" #-} foldM mergeSubst mempty ss
+
+unionSubst s1 s2 = Subst (fromSubst s1 `Map.union` fromSubst s2)
 
 insertSubst :: (IsVar g, Ppr g, IsVar fs, HashConsed fs) => Term g -> Term fs -> Subst fs -> Subst fs
 insertSubst v t sigma
