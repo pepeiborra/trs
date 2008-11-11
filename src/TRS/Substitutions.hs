@@ -66,6 +66,7 @@ instance Show Key where
 {-# INLINE unique #-}
 unique (KeyId i) = i
 unique (KeyTerm t) | Just i <- uniqueId t = i
+unique (KeyTerm t) = error ("A substitution is binding on something which is not a variable:  " ++ show t)
 
 type Subst f     = SubstG (Term f)
 newtype SubstG a = Subst {fromSubst:: Map.Map Key a} deriving (Eq, Functor)
