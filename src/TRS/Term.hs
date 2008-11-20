@@ -101,6 +101,9 @@ instance IsVar f => IsVar (WithNote note f) where
 note :: Term (WithNote note f) -> note
 note (In (Note (note,_))) = note
 
+isLinear :: (Var :<: s, Foldable s, Functor s) => Term s -> Bool
+isLinear t = length(snub vars) == length vars where vars = [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.match u]]
+
 vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
 vars t = {-# SCC "vars" #-}
          snub [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.match u]]
