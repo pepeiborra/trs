@@ -104,9 +104,13 @@ narrows' rr t = {-# SCC "narrows" #-}
 inn_narrowing :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
 inn_narrowing rr t = runN ([0..] \\ map varId (vars t)) (fixMP (innStepBasic rr >=> apply') t)
 
+
+-- TODO: Prove that this implementation really fulfills the innermost restriction
 innStepBasic rr t = do
      rr' <- mapM variant rr
-     let go (t, ct) = ifte (msumP [go (t, ct|>ct1) | (t, ct1) <- contexts t]) return ((ct |>) `liftM` narrowTop t)
+     let go (t, ct) = ifte (msumP [go (t, ct|>ct1) | (t, ct1) <- contexts t]) -- Try
+                           return                        -- then return it
+                           ((ct |>) `liftM` narrowTop t) -- else narrow at the top
          narrowTop t = msumP $ flip map rr' $ \(lhs:->rhs) -> do
                           guard (not $ isVar t)
                           unify1 lhs t
