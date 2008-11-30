@@ -91,8 +91,8 @@ newtype WithNote note f a = Note (note, f a) deriving (Show)
 instance Functor f  => Functor (WithNote note f)  where fmap f (Note (p, fx))   = Note (p, fmap f fx)
 instance Foldable f => Foldable (WithNote note f) where foldMap f (Note (_p,fx)) = foldMap f fx
 instance Traversable f => Traversable (WithNote note f) where traverse f (Note (p, fx)) = (Note . (,) p) <$> traverse f fx
-instance Eq (f a) => Eq (WithNote note f a) where Note (_, f1) == Note (_, f2) = f1 == f2
-instance Ord (f a) => Ord (WithNote note f a) where Note (_, f1) `compare` Note (_, f2) = compare f1 f2
+instance (Functor f, Eq (Term f)) => Eq (Term (WithNote note f)) where t1 == t2 = dropNote t1 == dropNote t2
+instance (Functor f, Ord (Term f)) => Ord (Term (WithNote note f)) where t1 `compare` t2 = compare (dropNote t1) (dropNote t2)
 instance (Show note, Ppr t) => Ppr (WithNote note t) where pprF (Note (p,t)) = pprF t <> char '_' <> text (show p)
 instance IsVar f => IsVar (WithNote note f) where
     isVarF (Note (_,t)) = isVarF t
@@ -100,6 +100,9 @@ instance IsVar f => IsVar (WithNote note f) where
 
 note :: Term (WithNote note f) -> note
 note (In (Note (note,_))) = note
+
+dropNote :: Functor f => Term (WithNote note f) -> Term f
+dropNote = foldTerm f where f (Note (note,t)) = In t
 
 isLinear :: (Var :<: s, Foldable s, Functor s) => Term s -> Bool
 isLinear t = length(snub vars) == length vars where vars = [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.match u]]
