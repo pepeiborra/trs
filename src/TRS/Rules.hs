@@ -41,6 +41,8 @@ instance Foldable RuleG where
 instance Functor RuleG where
   fmap = fmapDefault
 
+instance SizeF f => Size (Rule f) where size = Data.Foldable.sum . fmap size
+
 --swap :: Rule r s -> Rule r s
 swapRule :: RuleG t -> RuleG t
 swapRule (lhs:->rhs) = rhs:->lhs

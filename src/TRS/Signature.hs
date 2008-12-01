@@ -7,7 +7,7 @@
 
 module TRS.Signature where
 
-import Data.Foldable (Foldable)
+import Data.Foldable (Foldable, sum)
 import Data.List ((\\))
 import Data.Maybe
 import Data.Monoid
@@ -68,6 +68,8 @@ instance (T id :<: f, Ord id, TRSC f) => Monoid (TRS id f) where
    mappend (TRS r1 _) (TRS r2 _) = let rr = (r1 `mappend` r2) in TRS rr (getSignature rr)
 
 instance SignatureC (TRS id f) id where getSignature = sig
+
+instance SizeF f => Size (TRS id f) where size = Data.Foldable.sum . fmap TRS.Types.size . rules
 
 tRS :: (T id :<: t, Ord id, TRSC t) => [Rule t] -> TRS id t
 rules :: TRS id t -> [Rule t]

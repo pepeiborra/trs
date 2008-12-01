@@ -36,7 +36,7 @@ import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, sum, elem, notElem)
 
 
-import TRS.Utils hiding ( parens )
+import TRS.Utils hiding ( parens, size )
 
 
 type Unique = Int
@@ -192,12 +192,12 @@ matchShape (In t) (In u) = {-# SCC "matchShape" #-}
 -----------------
 -- Size measures
 -----------------
-class Foldable f => Size f where sizeF :: f Int -> Int
-instance Foldable f => Size f where sizeF f = 1 + sum f
+class (Functor f, Foldable f) => SizeF f where sizeF :: f Int -> Int
+instance (Functor f, Foldable f) => SizeF f where sizeF f = 1 + sum f
 
-termSize :: (Functor f, Foldable f) => Term f -> Int
-termSize = foldTerm sizeF
-
+class Size t where size :: t -> Int
+instance SizeF f => Size (Term f) where size = foldTerm sizeF
+instance Size t  => Size [t] where size      = sum . fmap size
 ------------------------
 -- Hash Consing
 -- ---------------------

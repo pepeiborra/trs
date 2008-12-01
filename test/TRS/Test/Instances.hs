@@ -17,16 +17,16 @@ import qualified Test.LazySmallCheck as LS
 import Test.LazySmallCheck ( (*&*) )
 
 import TRS
-import TRS.Utils
+import TRS.Utils hiding ( size )
 import TRS.Test.Peano
 
 isValidTRS = all isValidRule
-isValidRule (l:->r) = (not.isVar) l && (vars r `subSetOf` vars l) && termSize l - termSize r > 5
+isValidRule (l:->r) = (not.isVar) l && (vars r `subSetOf` vars l) && size l - size r > 5
     where subSetOf s1 s2 = ( `elem` s2) `all` s1
 
 isValidRule' (l:->r) = LS.lift (not$ isVar l) *&*
                        LS.lift (vars r `subSetOf` vars l) *&*
-                       LS.lift (termSize l - termSize r > 5)
+                       LS.lift (size l - size r > 5)
     where subSetOf s1 s2 = ( `elem` s2) `all` s1
 
 --QuickCheck

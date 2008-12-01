@@ -64,7 +64,7 @@ contexts :: (Hole :<: f, Traversable f, HashConsed f) => Term f -> [(Term f, Con
 contexts t@(In f) = {-# SCC "contexts" #-}
      let t' = shiftC 1 t in
              [ (shiftC (-1) t_i, u)
-             | i <- [1..size f]
+             | i <- [1..TRS.Utils.size f]
              , (u, t_i) <- updateAt' [i] t' (hole 0) ]
 
 -- | Shift the indexes of the context vars
