@@ -9,7 +9,7 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Rewriting (
-      Rewritable, Match(..), Match2(..), Matchable, match, matchFdefault,
+      Rewritable, Match(..), MatchL(..), Matchable, match, matchFdefault,
       rewrite1,  reduce,  rewrites,
 --      rewrite1S, reduceS, rewritesS,
       (=.=), EqModulo_(..), EqModulo, equal, equalG,
@@ -40,45 +40,31 @@ isNF = (null.) . rewrite1
 -----------------------------
 -- * Matching
 -----------------------------
-class (Basic :<: g, Traversable g, IsVar g, Var :<: g, Match g g g g) => MatchableSimple g
-instance (Basic :<: g, Traversable g, IsVar g, Var :<: g, Match g g g g) => MatchableSimple g
-
-class    (Var :<: f, Var :<: g, HashConsed g, Traversable f, Traversable g, Match f g f g) => Matchable f g
-instance (Var :<: f, Var :<: g, HashConsed g, Traversable f, Traversable g, Match f g f g) => Matchable f g
+class    (Var :<: f, Var :<: g, IsVar g, HashConsed g, Traversable f, Traversable g, MatchL f g) => Matchable f g
+instance (Var :<: f, Var :<: g, IsVar g, HashConsed g, Traversable f, Traversable g, MatchL f g) => Matchable f g
 
 class    (IsVar f, HashConsed rf, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
 instance (IsVar f, HashConsed rf, IsVar rf, Var :<: rf, Traversable rf, rf :<: f, Matchable f f) => Rewritable rf f
 
-class (fs :<: gs, f :<: fs, g :<: gs) => Match f g fs gs where matchF :: Matchable fs gs => f(Term fs) -> g(Term gs) -> Maybe (Subst gs)
+class     MatchL f g where matchL :: (Matchable fs g) => f(Term fs) -> g(Term g) -> Maybe (Subst g)
+instance (MatchL c a, MatchL d a) => MatchL (c :+: d) a where
+    matchL (Inl x) y = matchL x y
+    matchL (Inr x) y = matchL x y
+instance IsVar g    => MatchL Var g where matchL (Var _ i) t = Just $ mkSubst [(i, In t)]
+instance MatchR f g => MatchL f   g where matchL = matchR
 
-instance (f :<: g, (c :+: d) :<: f, Match c a f g, Match d a f g) => Match (c :+: d) a f g where
-    matchF (Inl x) y = matchF x y
-    matchF (Inr x) y = matchF x y
+class    MatchR f g where matchR :: (Matchable fs gs) => f (Term fs) -> g (Term gs) -> Maybe (Subst gs)
+instance (MatchR a c, MatchR a d) => MatchR a (c :+: d) where
+    matchR x (Inl y) = matchR x y
+    matchR x (Inr y) = matchR x y
+instance Match f g => MatchR f g where matchR = matchF
 
-instance (fs :<: gs, (c :+: d) :<: gs, Match a c fs gs, Match a d fs gs) => Match a (c :+: d) fs gs where
-    matchF x (Inl y) = matchF x y
-    matchF x (Inr y) = matchF x y
-
-instance (fs :<: gs, Match a c fs gs, Match b c fs gs, Match a d fs gs, Match b d fs gs, (a :+: b) :<: fs, (c :+: d) :<: gs) =>
-        Match (a :+: b) (c :+: d) fs gs where
-    matchF (Inl x) (Inl y) = matchF x y
-    matchF (Inr x) (Inr y) = matchF x y
-    matchF (Inl x) (Inr y) = matchF x y
-    matchF (Inr x) (Inl y) = matchF x y
-
-
-class (fs :<: gs, f :<: fs, g :<: gs) => Match2 isVarF f g fs gs where matchF' :: {- Match g g g g => -} Matchable fs gs => isVarF -> f(Term fs) -> g(Term gs) -> Maybe (Subst gs)
-instance (Var :<: fs, Var :<: gs, IsVar gs, g :<: gs, fs :<: gs) =>
-                                            Match2 HTrue Var g fs gs where matchF' _ (Var _ i) t = Just $ mkSubst [(i, inject t)]
-instance (IsVar gs, fs :<: gs, MatchShape f f fs gs, Eq (Term gs)) =>
-                                            Match2 HFalse f f fs gs where matchF' _ = matchFdefault
-instance (fs :<: gs, f :<: fs, g :<: gs) => Match2 HFalse f g fs gs where matchF' _ _x _y = Nothing
-
-instance (fs :<: gs, Var :<: gs, Var :<: fs, IsVar gs) => Match Var Var fs gs where matchF (Var _ i) vj@Var{} = Just$ mkSubst [(i, inject vj)]
-instance forall isVar f g fs gs. (TypeEq2 f Var isVar, Match2 isVar f g fs gs) => Match f g fs gs where matchF x y = matchF' (proxy::isVar) x y
+class    Match f g     where matchF :: (Matchable fs gs) => f (Term fs) -> g (Term gs) -> Maybe (Subst gs)
+instance MatchShape f => Match f f where matchF = matchFdefault
+instance Match f g     where matchF _ _ = Nothing
 
 
-matchFdefault :: (IsVar gs, Matchable fs gs, MatchShape f f fs gs) => f (Term fs) -> f (Term gs) -> Maybe (Subst gs)
+matchFdefault :: (Matchable fs gs, MatchShape f) => f (Term fs) -> f (Term gs) -> Maybe (Subst gs)
 --matchFdefault t1 t2 = mergeSubsts =<< (mapM (uncurry match') =<< matchShapeF t1 t2)
 matchFdefault s t = matchShapeF s t >>= foldM matchOne mempty
   where matchOne subst (s,t) = do
@@ -86,7 +72,7 @@ matchFdefault s t = matchShapeF s t >>= foldM matchOne mempty
           return (unionSubst subst subst')
 
 match' :: (Matchable f g) => Term f -> Term g -> Maybe (Subst g)
-match' (In t) (In u) = {-# SCC "match'" #-} matchF t u
+match' (In t) (In u) = {-# SCC "match'" #-} matchL t u
 
 match :: (Matchable f f) => Term f -> Term f -> Maybe (Subst f)
 match t u = {-# SCC "match" #-} match' t u
@@ -164,17 +150,13 @@ instance (Matchable f f, IsVar f) => Eq (EqModulo f) where EqModulo t1 == EqModu
 -- * Examples
 ---------------------------------------
 {-
-x,y :: (Var :<: f) => Term f
-x = var 0
-y = var 1
-
-(+:) :: (T String :<: f) => Term f -> Term f -> Term f
+(+:) :: (T String :<: f, HashConsed f) => Term f -> Term f -> Term f
 (+:) = term2 "+"
 
 t :: Term (Var :+: T String)
 t = x +: y
 
-t1 :: (T String :<: f) => Term f
+t1 :: (T String :<: f, HashConsed f) => Term f
 t1 = constant "1" +: constant "0"
 
 m1  = match t t1

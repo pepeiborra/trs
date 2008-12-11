@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiParamTypeClasses, ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE OverlappingInstances, UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
@@ -18,6 +18,7 @@ import Text.PrettyPrint
 import Prelude hiding (sequence, concatMap, mapM)
 import qualified Prelude
 
+import TRS.Rules
 import TRS.Types
 import TRS.Utils hiding ( parens )
 
@@ -35,6 +36,15 @@ properSubterms = {-# SCC "properSubterms" #-}
 rootSymbol :: (T id :<: f) => Term f -> Maybe id
 rootSymbol t | Just (T root _) <- match t = Just root
              | otherwise = Nothing
+
+
+isConstructor :: forall id f s . (MatchShapeD f s, IsVar s) => [Rule f] -> Term s -> Bool
+isConstructor rules t
+  | isVar t   = True
+  | otherwise = all (\(l:->_) -> isNothing $ matchShape l t) rules
+
+--isDefined :: (T id :<: f, T id :<: s, IsVar s) => [Rule f] -> Term s -> Bool
+isDefined rules = not . isConstructor rules
 
 type Position = [Int]
 

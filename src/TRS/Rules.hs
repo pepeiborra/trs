@@ -47,15 +47,6 @@ instance SizeF f => Size (Rule f) where size = Data.Foldable.sum . fmap size
 swapRule :: RuleG t -> RuleG t
 swapRule (lhs:->rhs) = rhs:->lhs
 
-isConstructor :: (IsVar s, MatchShapeable f s, Var :<: s) => [Rule f] -> Term s -> Bool
-isConstructor rules t
-  | isVar t   = True
-  | otherwise = null$ [ () | lhs:->_ <- rules
-                           , isJust $ matchShape lhs t]
-
-isDefined :: (IsVar s, Var :<: s, MatchShapeable f s) => [Rule f] -> Term s -> Bool
-isDefined rules = not . isConstructor rules
-
 instance Show (a) => Show (RuleG (a)) where
     show (a:->b) = show a ++ " -> " ++ show b
 

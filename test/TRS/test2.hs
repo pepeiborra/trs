@@ -3,15 +3,18 @@
 module TRS.Test2 where
 
 import Control.Applicative
+import Control.Monad.Logic
 import Data.Foldable (concat, toList)
 import Data.List (intersect)
 import Data.Maybe
 import System.Environment
 --import Test.QuickCheck hiding (variant)
 import Test.SmallCheck as Small
+import Test.HUnit
 import Prelude hiding (concat)
 
 import TRS
+import qualified TRS.Term
 import TRS.Rules
 import TRS.Types
 import TRS.Rewriting
@@ -41,8 +44,9 @@ main = do
   putStrLn "Narrowing Soundness 1 " >> Small.smallCheck 8 propNarrowingSoundness
   putStrLn "Reduce gives Normal Forms 1" >> Small.smallCheck 8 propReduceNF
   putStrLn "Narrowing gives idempotent subts" >> smallCheck 8 propSubstitutionIdempotency
+  runTestTT testIsDefined
 
-reduceFib,narrowFib :: MonadPlus1 m => Int -> m (Term PeanoTH)
+--reduceFib,narrowFib ::Int -> m (Term PeanoTH)
 reduceFib i = reduce fibTRS (fib $ (iterate s z) !! i)
 narrowFib i = fst <$> narrow fibTRS (fib $ (iterate s z) !! i)
 
@@ -56,9 +60,6 @@ fibTRS = peanoTRS ++
          , fib (s z) :-> s z
          , fib (s (s x)) :-> fib (s x) +: fib x]
 
-x,y :: (Var :<: f) => Term f
-x = var 0
-y = var 1
 
 ------------------
 -- Properties
@@ -70,10 +71,10 @@ propSubstitutionIdempotency (rr :: [Rule PeanoT]) (t :: Term PeanoTH) =
       return (t' // theta == t' // theta // theta)
 
 propVariant l r t = concat (vars <$> r') `intersect` vars t == []
-  where Just r' = evalN (variant (l:->r) t)
+  where Just r' = evalR [0..] (variant (l:->r))
         types = ([l,r,t ]:: [Term PeanoT])
 
-propNarrowingVars rr t = isVar t && isValidTRS rr ==> isNothing $ narrow1 rr (reinject t :: Term PeanoTH)
+propNarrowingVars rr t = isVar t && isValidTRS rr ==> null $ observeMany 1 $ narrow1 rr (reinject t :: Term PeanoTH)
  where types = (rr :: [Rule PeanoT], t :: Term PeanoT)
 
 propNarrowingSoundness rr t = isValidTRS rr ==> and $ do
@@ -85,6 +86,16 @@ propReduceNF rr t = isValidTRS rr ==> Prelude.and $ do
     t' <- reduce rr t
     return (isNothing $ rewrite1 rr t')
   where types = (rr :: [Rule PeanoT], t :: Term PeanoT)
+
+-- --------------------
+-- Type Checking
+-- --------------------
+
+
+testIsDefined = TestList [
+                 isConstructor peanoTRS (s z :: Term PeanoT) ~? "s z isConstructor",
+                 isDefined     peanoTRS (s z +: z :: Term PeanoTH) ~? " 1 + 0 isDefined"
+                 ]
 
 --------------------------
 -- Testing Reductions

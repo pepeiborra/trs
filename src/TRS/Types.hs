@@ -161,7 +161,7 @@ instance (Ord id, Ord a) => Ord (T id a) where
 -- -----------
 -- MatchShape
 --------------
-
+{-
 class    MatchShape f g f g => MatchShapeable f g
 instance MatchShape f g f g => MatchShapeable f g
 
@@ -188,6 +188,61 @@ instance (Eq id, T id :<: fs, T id :<: gs, fs :<: gs) => MatchShape (T id) (T id
 matchShape :: (MatchShapeable f g) => Term f -> Term g -> Maybe [(Term f, Term g)]
 matchShape (In t) (In u) = {-# SCC "matchShape" #-}
                            matchShapeF t u
+-}
+class MatchShape f where matchShapeF :: f a -> f b -> Maybe [(a, b)]
+instance Eq id => MatchShape (T id) where matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
+--instance MatchShape f where matchShapeF _ _ = Nothing
+instance MatchShape Var where matchShapeF _ _ = Just []
+
+class MatchShapeD f g where matchShapeD :: f a -> g b -> Maybe [(a,b)]
+
+instance (MatchShapeD c a, MatchShapeD d a) => MatchShapeD (c :+: d) a where
+    matchShapeD (Inl x) y = matchShapeD x y
+    matchShapeD (Inr x) y = matchShapeD x y
+
+instance (MatchShapeD a c, MatchShapeD a d) => MatchShapeD a (c :+: d)  where
+    matchShapeD x (Inl y) = matchShapeD x y
+    matchShapeD x (Inr y) = matchShapeD x y
+
+instance (MatchShapeD a c, MatchShapeD b c, MatchShapeD a d, MatchShapeD b d) =>
+        MatchShapeD (a :+: b) (c :+: d) where
+    matchShapeD (Inl x) (Inl y) = matchShapeD x y
+    matchShapeD (Inr x) (Inr y) = matchShapeD x y
+    matchShapeD (Inl x) (Inr y) = matchShapeD x y
+    matchShapeD (Inr x) (Inl y) = matchShapeD x y
+
+-- To disambiguate
+instance (MatchShapeD a b, MatchShapeD b a, MatchShapeD a a, MatchShapeD b b) => MatchShapeD (a :+: b) (a :+: b) where
+    matchShapeD (Inl x) (Inl y) = matchShapeD x y
+    matchShapeD (Inr x) (Inr y) = matchShapeD x y
+    matchShapeD (Inl x) (Inr y) = matchShapeD x y
+    matchShapeD (Inr x) (Inl y) = matchShapeD x y
+
+--instance (MatchShape f, f ~ g) => MatchShapeD f g where matchShapeD = matchShapeF
+instance MatchShape f => MatchShapeD f f where matchShapeD = matchShapeF
+instance                 MatchShapeD f g where matchShapeD _ _ = Nothing
+
+matchShape (In t) (In u) = matchShapeD t u
+
+-- --------
+-- ZipTerm
+-- --------
+class ZipTerm f g where zipTermF :: f (Term fs) -> g (Term gs) -> Maybe [(Term fs, Term gs)]
+instance Eq id => ZipTerm (T id) (T id) where zipTermF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
+
+instance (ZipTerm c a, ZipTerm d a) => ZipTerm (c :+: d) a where
+    zipTermF (Inl x) y = zipTermF x y
+    zipTermF (Inr x) y = zipTermF x y
+
+instance (ZipTerm a c, ZipTerm a d) => ZipTerm a (c :+: d) where
+    zipTermF x (Inl y) = zipTermF x y
+    zipTermF x (Inr y) = zipTermF x y
+
+instance (ZipTerm a c, ZipTerm b c, ZipTerm a d, ZipTerm b d) => ZipTerm (a :+: b) (c :+: d) where
+    zipTermF (Inl x) (Inl y) = zipTermF x y
+    zipTermF (Inr x) (Inr y) = zipTermF x y
+    zipTermF (Inl x) (Inr y) = zipTermF x y
+    zipTermF (Inr x) (Inl y) = zipTermF x y
 
 -----------------
 -- Size measures

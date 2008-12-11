@@ -74,7 +74,7 @@ shiftC n t = {-# SCC "shiftC" #-} foldTerm f t
                      | otherwise = In t
 
 instance Ppr Hole where pprF (Hole i) = brackets (int i)
-instance (Hole :<: fs, Hole :<: gs, fs :<: gs) => MatchShape Hole Hole fs gs where matchShapeF _ _ = Nothing
+instance MatchShape Hole where matchShapeF _ _ = Nothing
 
 --instance (Hole :<: g) => Match Hole Hole g where matchF _ _ = Nothing
 --instance (Hole :<: g, a :<: g) => Match Hole a g where matchF _ _ = Nothing

@@ -17,8 +17,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Traversable
 
-import TRS.Rules hiding ( isConstructor )
-import TRS.Term
+import TRS.Rewriting (Matchable)
+import TRS.Rules
+import TRS.Term hiding (isConstructor, isDefined)
 import TRS.Types
 import TRS.Unification
 import TRS.Utils
@@ -56,8 +57,8 @@ getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " no
 -- ----
 -- TRS
 -- ----
-class (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f,HashConsed f) => TRSC f
-instance (Var :<: f, Traversable f, MatchShapeable f f, Unifyable f, HashConsed f) => TRSC f
+class (Var :<: f, Traversable f, Matchable f f, Unifyable f,HashConsed f) => TRSC f
+instance (Var :<: f, Traversable f, Matchable f f, Unifyable f, HashConsed f) => TRSC f
 
 data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => [Rule f] -> Signature id -> TRS id f
 

@@ -1,4 +1,5 @@
-{-# LANGUAGE UndecidableInstances, OverlappingInstances #-}
+{-# LANGUAGE UndecidableInstances, OverlappingInstances, FlexibleContexts, FlexibleInstances #-}
+{-# LANGUAGE TypeOperators, TypeSynonymInstances #-}
 module TRS.Test.Peano where
 
 import TRS.Context
@@ -111,7 +112,7 @@ instance Functor Peano where
 instance Foldable Peano where
     foldMap = foldMapDefault
 
-instance (Peano :<: fs, Peano :<: gs, fs :<: gs) => MatchShape Peano Peano fs gs where
+instance MatchShape Peano where
     matchShapeF Zero Zero = Just []
     matchShapeF (Succ x) (Succ y) = Just [(x,y)]
     matchShapeF (a :+ b) (c :+ d) = Just [(a,c),(b,d)] 

@@ -19,11 +19,11 @@ module TRS ( module TRS.Term
 
 import TRS.Types hiding (match)
 import TRS.Signature hiding (isConstructor, isDefined)
-import TRS.Rules hiding (isConstructor, isDefined)
+import TRS.Rules
 import qualified TRS.Signature as Sig
-import qualified TRS.Rules as Rules
+import qualified TRS.Term      as Rules
 import TRS.Substitutions
-import TRS.Term
+import TRS.Term hiding (isConstructor, isDefined)
 import TRS.Unification
 import TRS.Rewriting
 import TRS.Narrowing
@@ -39,7 +39,7 @@ class IsConstructor trs tf where
     isConstructor = (not.).isDefined
     isDefined     = (not.).isConstructor
 
-instance (IsVar tf, MatchShapeable f tf, Var :<: tf) => IsConstructor [Rule f] tf where
+instance (IsVar tf, MatchShapeD f tf) => IsConstructor [Rule f] tf where
     type TermType [Rule f] = Term
     isConstructor = Rules.isConstructor
 

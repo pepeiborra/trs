@@ -34,7 +34,7 @@ instance (Show a) => Show (Ref a) where
   showsPrec p (Ref s)  = ('{' :) . showsPrec p s . ('}' :)
 
 instance Ppr Ref where pprF (Ref r) = braces r
-instance (Ref :<: g, MatchShapeable g g) => MatchShape Ref Ref g g where matchShapeF (Ref r) (Ref s) = matchShape r s
+--instance MatchShape Ref where matchShapeF (Ref r) (Ref s) = matchShape r s
 
 instance HashTerm (Ref) where hashF (Ref t) = t
 --instance HashConsed (Ref :+: Basic) where ht = newHt

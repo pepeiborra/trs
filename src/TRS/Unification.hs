@@ -31,8 +31,8 @@ class (f:<:g, h:<:g) => Unify f h g where
 class Unify2 isVarF isVarH f h g where unifyF' :: (MonadPlus m, MonadEnv g m, Unifyable g) => isVarF -> isVarH -> f(Term g) -> h(Term g) -> m ()
 instance (t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind (inV v) (inject t)
 instance (t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind (inV v) (inject t)
-instance (a:<: g, MatchShape a a g g) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
-instance (a:<:g, b:<:g)               => Unify2 HFalse HFalse a b g  where unifyF' _ _ _x _y = const mzero (_x,_y)
+instance (a:<: g, MatchShape a) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
+instance (a:<:g, b:<:g)         => Unify2 HFalse HFalse a b g where unifyF' _ _ _x _y = const mzero (_x,_y)
 
 instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g, f:<:g, h:<:g) => Unify f h g where
     unifyF x y = unifyF' (proxy::isVarF) (proxy::isVarH) x y
@@ -63,7 +63,7 @@ instance (Unify a c g, Unify b d g, Unify a d g, Unify b c g, (c:+:d) :<: g, (a:
 
 instance (Eq id, T id :<: g) => Unify (T id) (T id) g where unifyF = unifyFdefault
 
-unifyFdefault :: (MonadPlus m, MonadEnv g m, MatchShape f f g g, Unifyable g) =>
+unifyFdefault :: (MonadPlus m, MonadEnv g m, MatchShape f, Unifyable g) =>
                  f (Term g) -> f (Term g) -> m ()
 unifyFdefault t1 t2 = do
       pairs <- maybe mzero return $ matchShapeF t1 t2
