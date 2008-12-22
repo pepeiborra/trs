@@ -8,9 +8,10 @@ module TRS.Test (PeanoT, PeanoTH) where
 import Data.AlaCarte.Instances ()
 import Control.Monad.Logic
 
+import Data.Foldable
 import qualified Prelude
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
-                      , and, concat, concatMap, sequence, notElem
+                      , and, concat, concatMap, sequence, elem, notElem
                       , (+) )
 
 import Test.HUnit
@@ -38,7 +39,7 @@ import TRS.Test.TermRef
 
 htests = TestList
         [ TestLabel "testRewriting" testRewriting
---        , TestLabel "testNarrowing" testNarrowing
+        , TestLabel "testNarrowing" testNarrowing
 --        , TestLabel "testEquality"  testEquality
         , testProperties qtests
         ]
@@ -264,11 +265,13 @@ testEquality = TestLabel "test equality" $
 -- Verifying the new implementation of contexts
 -----------------------------------------------
  -- REVIEW these properties
-propCIdentity, propCTransiti :: Term PeanoTH -> Bool
-propCIdentity x = and [ ct|>y == x | (y,ct) <- contexts x ]
+propCIdentity, propCTransiti :: Term PeanoT -> Bool
+propCIdentity x0 | x <- (reinject x0 :: Term PeanoTH)
+                 = and [ ct|>y == x | (y,ct) <- contexts x]
 
-propCTransiti x = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts x
-                                       , (y,ct) <- contexts ct1]
+propCTransiti x0 | x <- (reinject x0 :: Term PeanoTH)
+                 = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts (reinject x)
+                                        , (y,ct) <- contexts ct1]
 
 propCSubterms :: Term PeanoT -> Bool
 propCSubterms x@(In f) = length (toList f) == length (contexts (reinject x :: Term PeanoTH))

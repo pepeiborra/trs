@@ -63,7 +63,7 @@ instance (f:<:fs, g:<:gs, fs :<: gs, IsVar fs, Match f g) => MatchR f g fs gs wh
 class    Match f g     where matchF :: (Matchable gs gs, IsVar fs, f :<: fs, g :<: gs, fs :<: gs) => f (Term fs) -> g (Term gs) -> Maybe (Subst gs)
 instance Match f g     where matchF _ _ = Nothing
 instance Zip f => Match f f where
-  matchF t u = fzip t u >>= F.foldr matchOne mempty where
+  matchF t u = fzip t u >>= F.foldr matchOne (return mempty) where
      matchOne (t,u) mtheta = do
        theta1 <- mtheta
        theta2 <- match (applySubst theta1 t) u

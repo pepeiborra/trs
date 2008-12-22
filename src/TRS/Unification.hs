@@ -48,6 +48,7 @@ class Unify f1 f2 where
 -- meaningful instances
 -- --------------------
 instance (t :<: g, Var :<: g) => UnifyR Var t g where unifyR v t = varBind (inV v) (inject t)
+instance (t :<: g, Var :<: g) => UnifyR t Var g where unifyR t v = varBind (inV v) (inject t)
 instance (UnifyR Var a g, UnifyR Var b g, (a:+:b) :<: g) => UnifyR Var (a:+:b) g where
     unifyR x (Inl y) = unifyR x y
     unifyR x (Inr y) = unifyR x y

@@ -1,5 +1,7 @@
 {-# LANGUAGE UndecidableInstances, OverlappingInstances, FlexibleContexts, FlexibleInstances #-}
 {-# LANGUAGE TypeOperators, TypeSynonymInstances #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+
 module TRS.Test.Peano where
 
 import TRS.Context
@@ -8,6 +10,7 @@ import TRS.Term
 import TRS.Test.TermRef
 
 import Control.Applicative
+import Control.Monad
 import qualified Data.AlaCarte as Carte
 import Data.Foldable
 import Data.HashTable
@@ -113,15 +116,19 @@ instance Functor Peano where
 instance Foldable Peano where
     foldMap = foldMapDefault
 
-instance MatchShape Peano where
-    matchShapeF Zero Zero = Just []
-    matchShapeF (Succ x) (Succ y) = Just [(x,y)]
-    matchShapeF (a :+ b) (c :+ d) = Just [(a,c),(b,d)] 
-    matchShapeF (a :* b) (c :* d) = Just [(a,c),(b,d)] 
-    matchShapeF (Fact a b) (Fact c d) = Just [(a,c),(b,d)]
-    matchShapeF (Pred a) (Pred b) = Just [(a,b)]
-    matchShapeF (Fib a)  (Fib b)  = Just [(a,b)]
-    matchShapeF x y = Nothing
+instance Zip Peano where
+    fzipWith f Zero Zero = return Zero
+    fzipWith f (Succ x) (Succ y) = Succ `liftM` f x y
+    fzipWith f (a :+ b) (c :+ d) = (:+) `liftM` f a c <@> f b d
+    fzipWith f (a :* b) (c :* d) = (:*) `liftM` f a c <@> f b d
+    fzipWith f (Fact a b) (Fact c d) = Fact `liftM` f a c <@> f b d
+    fzipWith f (Pred a) (Pred b) = Pred `liftM` f a b
+    fzipWith f (Fib a)  (Fib b)  = Fib  `liftM` f a b
+    fzipWith f x y = fail "fzipWith on Peano"
+
+infixl 3 <@>
+-- (<@>)
+(<@>) = ap
 
 instance Ppr Peano where
     pprF Zero = int 0
