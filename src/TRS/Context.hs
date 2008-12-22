@@ -74,7 +74,9 @@ shiftC n t = {-# SCC "shiftC" #-} foldTerm f t
                      | otherwise = In t
 
 instance Ppr Hole where pprF (Hole i) = brackets (int i)
-instance MatchShape Hole where matchShapeF _ _ = Nothing
+instance Zip Hole where fzipWith f (Hole i) (Hole j)
+                                | i == j    = return (Hole i)
+                                | otherwise = fail "zipTerm: hole mismatch"
 
 --instance (Hole :<: g) => Match Hole Hole g where matchF _ _ = Nothing
 --instance (Hole :<: g, a :<: g) => Match Hole a g where matchF _ _ = Nothing

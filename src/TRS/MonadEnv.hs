@@ -8,6 +8,7 @@ import Control.Monad
 import Control.Monad.State.Class
 
 import TRS.Types
+import TRS.Term
 import TRS.Substitutions
 
 class (Functor m, Monad m, IsVar f) => MonadEnv f m | m -> f where

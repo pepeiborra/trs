@@ -39,7 +39,7 @@ class IsConstructor trs tf where
     isConstructor = (not.).isDefined
     isDefined     = (not.).isConstructor
 
-instance (IsVar tf, MatchShapeD f tf) => IsConstructor [Rule f] tf where
+instance (IsVar tf, Zip tf, HashConsed tf, f :<: tf) => IsConstructor [Rule f] tf where
     type TermType [Rule f] = Term
     isConstructor = Rules.isConstructor
 

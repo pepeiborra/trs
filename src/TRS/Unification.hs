@@ -9,71 +9,63 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Unification (
-      Unifyable, Unify(..), Unify2(..), unify, unify1, unifyFdefault,
+      Unifyable, Unify(..), UnifyL(..), UnifyR(..), unify, unify1,
       ) where
 
 import Control.Monad.State hiding (mapM_, zipWithM_)
+import Control.Applicative
 import Data.Foldable
 import Prelude hiding (mapM_)
 import TypePrelude
 
 import TRS.Substitutions
+import TRS.Term
 import TRS.Types
 import TRS.MonadEnv
 import TRS.UMonad
 
-class    (IsVar f, HashConsed f, Unify f f f) => Unifyable f
-instance (IsVar f, HashConsed f, Unify f f f) => Unifyable f
+class    (IsVar f, HashConsed f, UnifyL f f, Ppr f) => Unifyable f
+instance (IsVar f, HashConsed f, UnifyL f f, Ppr f) => Unifyable f
 
-class (f:<:g, h:<:g) => Unify f h g where
-    unifyF :: (MonadPlus m, MonadEnv g m, Unifyable g) => f(Term g) -> h(Term g) -> m ()
+class (f :<: g) => UnifyL f g where
+    unifyL :: (MonadPlus m, MonadEnv g m) => f (Term g) -> g (Term g) -> m ()
+instance (UnifyL a c, UnifyL b c, (a:+:b):<:c) => UnifyL (a :+: b) c where
+    unifyL (Inl x) y = unifyL x y
+    unifyL (Inr x) y = unifyL x y
+instance UnifyR f g g => UnifyL f g where unifyL = unifyR
 
-class Unify2 isVarF isVarH f h g where unifyF' :: (MonadPlus m, MonadEnv g m, Unifyable g) => isVarF -> isVarH -> f(Term g) -> h(Term g) -> m ()
-instance (t :<: g) => Unify2 HTrue HFalse Var t g where unifyF' _ _ v t = varBind (inV v) (inject t)
-instance (t :<: g) => Unify2 HFalse HTrue t Var g where unifyF' _ _ t v = varBind (inV v) (inject t)
-instance (a:<: g, MatchShape a) => Unify2 HFalse HFalse a a g where unifyF' _ _ = unifyFdefault
-instance (a:<:g, b:<:g)         => Unify2 HFalse HFalse a b g where unifyF' _ _ _x _y = const mzero (_x,_y)
+class (f1 :<: g, f2 :<: g) => UnifyR f1 f2 g where
+    unifyR :: (MonadPlus m, MonadEnv g m) => f1 (Term g) -> f2 (Term g) -> m ()
+instance (UnifyR c a g, UnifyR c b g, (a:+:b):<:g) => UnifyR c (a :+: b) g where
+    unifyR x (Inl y) = unifyR x y
+    unifyR x (Inr y) = unifyR x y
+instance (f1:<:g, f2:<:g, Unifyable g, Ppr g, Unify f1 f2) => UnifyR f1 f2 g where unifyR = unifyF
 
-instance (TypeEq2 f Var isVarF, TypeEq2 h Var isVarH, Unify2 isVarF isVarH f h g, f:<:g, h:<:g) => Unify f h g where
-    unifyF x y = unifyF' (proxy::isVarF) (proxy::isVarH) x y
+class Unify f1 f2 where
+  unifyF :: (f1 :<: g, f2:<:g, Unifyable g, Ppr g, MonadPlus m, MonadEnv g m) =>
+            f1(Term g) -> f2(Term g) -> m ()
 
-instance (Var :<: g) =>Unify Var Var g where
-    unifyF v@(Var _ i) w@(Var _ j)
+-- meaningful instances
+-- --------------------
+instance Unify Var t where unifyF v t = varBind (inV v) (inject t)
+instance Unify t Var where unifyF t v = varBind (inV v) (inject t)
+instance Unify Var Var where
+    unifyF v@(Var n i) w@(Var _ j)
         | i == j    = return ()
         | otherwise = do
               mb_t <- readVar (inV v)
               case mb_t of
                 Nothing -> varBind (inV v) (inject w)
                 Just t ->  unify1 t (inject w)
-
-instance ((a :+: b) :<: g, Unify c a g, Unify c b g) => Unify c (a :+: b) g where
-    unifyF x (Inl y) = unifyF x y
-    unifyF x (Inr y) = unifyF x y
-
-instance ((a :+: b) :<: g, Unify c a g, Unify c b g) => Unify (a :+: b) c g where
-    unifyF (Inl y) x = unifyF x y
-    unifyF (Inr y) x = unifyF x y
-
-instance (Unify a c g, Unify b d g, Unify a d g, Unify b c g, (c:+:d) :<: g, (a:+:b) :<: g) =>
-    Unify (a :+: b) (c :+: d) g where
-    unifyF (Inl x) (Inl y) = unifyF x y
-    unifyF (Inr x) (Inr y) = unifyF x y
-    unifyF (Inl x) (Inr y) = unifyF x y
-    unifyF (Inr x) (Inl y) = unifyF x y
-
-instance (Eq id, T id :<: g) => Unify (T id) (T id) g where unifyF = unifyFdefault
-
-unifyFdefault :: (MonadPlus m, MonadEnv g m, MatchShape f, Unifyable g) =>
-                 f (Term g) -> f (Term g) -> m ()
-unifyFdefault t1 t2 = do
-      pairs <- maybe mzero return $ matchShapeF t1 t2
-      mapM_ (uncurry unify1) pairs
+instance (Foldable f, Zip f) => Unify f f where
+    unifyF t u = fzipWith_ unify1 t u
+instance Unify f g where unifyF _ _ = mzero
 
 unify1 :: (MonadPlus m, MonadEnv f m, Unifyable f) => Term f -> Term f -> m ()
-unify1 (In t) (In u) = {-# SCC "unify1" #-} unifyF t u
+unify1 (In t) (In u) = {-# SCC "unify1" #-} unifyL t u
 
 unify' :: (MonadPlus m, Unifyable f) => Subst f -> Term f -> Term f -> m (Subst f)
-unify' sigma (In t) (In u) = {-# SCC "unify" #-} execStateT (unU$ unifyF t u) sigma
+unify' sigma (In t) (In u) = {-# SCC "unify" #-} execStateT (unU$ unifyL t u) sigma
 
 unify :: (MonadPlus m, Unifyable f) => Term f -> Term f -> m (Subst f)
 unify = unify' emptySubst

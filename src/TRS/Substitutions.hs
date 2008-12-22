@@ -30,6 +30,7 @@ import Text.PrettyPrint
 import Prelude hiding (elem,all)
 
 import TRS.Types
+import TRS.Term
 
 ----------------------
 -- * Substitutions

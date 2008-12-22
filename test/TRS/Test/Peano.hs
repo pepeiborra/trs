@@ -4,6 +4,7 @@ module TRS.Test.Peano where
 
 import TRS.Context
 import TRS.Types
+import TRS.Term
 import TRS.Test.TermRef
 
 import Control.Applicative

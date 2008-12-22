@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, FlexibleContexts, UndecidableInstances, OverlappingInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE GADTs, TypeFamilies #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -20,10 +21,9 @@
 module TRS.Types (module Data.AlaCarte, module TRS.Types) where
 
 import Control.Applicative
-import Control.Monad       hiding (msum, mapM)
+import Control.Monad as M hiding (msum, mapM)
 import Control.Parallel.Strategies
 import Data.AlaCarte hiding (Expr(..), match, inject, reinject)
-import Data.Char (isAlpha)
 import Data.Foldable as Foldable
 import Data.Int
 import Data.Monoid
@@ -34,7 +34,6 @@ import System.IO.Unsafe
 import Text.PrettyPrint
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , and, concat, concatMap, sequence, sum, elem, notElem)
-
 
 import TRS.Utils hiding ( parens, size )
 
@@ -74,30 +73,32 @@ reinject' = fmap reinject
 match :: (g :<: f) => Term f -> Maybe (g (Term f))
 match (In t) = prj t
 
--- ------------------
--- Basic stuff
--- ------------------
+class Crush f where crushF :: (a -> b -> b) -> b -> f a -> b
+instance (Crush a, Crush b) => Crush (a :+: b) where
+    crushF f z (Inl x) = crushF f z x
+    crushF f z (Inr x) = crushF f z x
 
-class Functor f => Ppr f where pprF :: f Doc -> Doc
-ppr :: Ppr f => Term f -> Doc
-ppr = foldTerm pprF
-
+crush :: Crush f => (Term f -> b -> b) -> b -> Term f -> b
+crush f z (In t) = crushF f z t
 
 -- -----------------------------
 -- * The first building blocks
 -- -----------------------------
 type Basic = Var :+: T String
 
-data T id a = T !id [a]   deriving Eq
+data T id a where T :: Eq id => !(id) -> [a] -> T id a --   deriving Eq
+instance Eq a =>Eq (T id a) where T id1 tt1 == T id2 tt2 = id1 == id2 && tt1 == tt2
 instance Functor (T id)     where fmap f (T s aa) = T s (map f aa)
 instance Traversable (T id) where traverse f (T s tt) = T s <$> traverse f tt
 instance Foldable (T id)    where foldMap  f (T s tt) = mconcat $ map f tt
+instance Crush (T id)       where crushF f z (T s tt) = foldr f z tt
 
 data Var s = Var (Maybe String) Int deriving (Eq, Show)
 instance Functor Var     where fmap _ (Var s i) = Var s i
 instance Traversable Var where traverse _ (Var s i) = pure (Var s i)
 instance Foldable Var    where foldMap = foldMapDefault
-instance Ord (Var a) where compare (Var _ a) (Var _ b) = compare a b
+instance Ord (Var a)     where compare (Var _ a) (Var _ b) = compare a b
+instance Crush Var       where crushF _ z _ = z
 
 var :: (HashConsed s, Var :<: s) => Int -> Term s
 var = var' Nothing
@@ -133,25 +134,6 @@ uniqueId = foldTerm uniqueIdF
 varId :: Var f -> Int
 varId (Var _ i) = {-# SCC "varId'" #-} i
 
-instance Show id => Ppr (T id) where
-    pprF (T n []) = text (show n)
-    pprF (T n [x,y]) | not (any isAlpha $ show n) = x <+> text (show n) <+> y
-    pprF (T n tt) = text (show n) <> parens (cat$ punctuate comma tt)
-
-instance Ppr (T String) where
-    pprF (T n []) = text n
-    pprF (T n [x,y]) | not (any isAlpha $ n) = x <+> text n <+> y
-    pprF (T n tt) = text n <> parens (cat$ punctuate comma tt)
-
-instance Ppr Var where
-    pprF (Var Nothing i)  = text$ showsVar 0 i ""
-    pprF (Var (Just l) i) = text l -- <> char '_' <> int i
-instance (Ppr a, Ppr b) => Ppr (a:+:b) where
-    pprF (Inr x) = pprF x
-    pprF (Inl y) = pprF y
-
-instance Ppr f => Show (Term f) where show = render . ppr
-
 instance (Ord id, Ord a) => Ord (T id a) where
     (T s1 tt1) `compare` (T s2 tt2) =
         case compare s1 s2 of
@@ -159,90 +141,44 @@ instance (Ord id, Ord a) => Ord (T id a) where
           x  -> x
 
 -- -----------
--- MatchShape
---------------
-{-
-class    MatchShape f g f g => MatchShapeable f g
-instance MatchShape f g f g => MatchShapeable f g
-
-class (f :<: fs, g :<: gs, fs :<: gs) => MatchShape f g fs gs where matchShapeF :: f(Term fs) -> g(Term gs) -> Maybe [(Term fs, Term gs)]
-
-instance (f :<: g, (c :+: d) :<: f, MatchShape c a f g, MatchShape d a f g) => MatchShape (c :+: d) a f g where
-    matchShapeF (Inl x) y = matchShapeF x y
-    matchShapeF (Inr x) y = matchShapeF x y
-
-instance (fs :<: gs, (c :+: d) :<: gs, MatchShape a c fs gs, MatchShape a d fs gs) => MatchShape a (c :+: d) fs gs where
-    matchShapeF x (Inl y) = matchShapeF x y
-    matchShapeF x (Inr y) = matchShapeF x y
-
-instance (fs :<: gs, MatchShape a c fs gs, MatchShape b c fs gs, MatchShape a d fs gs, MatchShape b d fs gs, (a :+: b) :<: fs, (c :+: d) :<: gs) =>
-        MatchShape (a :+: b) (c :+: d) fs gs where
-    matchShapeF (Inl x) (Inl y) = matchShapeF x y
-    matchShapeF (Inr x) (Inr y) = matchShapeF x y
-    matchShapeF (Inl x) (Inr y) = matchShapeF x y
-    matchShapeF (Inr x) (Inl y) = matchShapeF x y
-
-instance (f :<: fs, g :<: gs, fs :<: gs) => MatchShape f g fs gs where matchShapeF _ _ = Nothing
-instance (Eq id, T id :<: fs, T id :<: gs, fs :<: gs) => MatchShape (T id) (T id) fs gs where
-    matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
-matchShape :: (MatchShapeable f g) => Term f -> Term g -> Maybe [(Term f, Term g)]
-matchShape (In t) (In u) = {-# SCC "matchShape" #-}
-                           matchShapeF t u
--}
-class MatchShape f where matchShapeF :: f a -> f b -> Maybe [(a, b)]
-instance Eq id => MatchShape (T id) where matchShapeF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
---instance MatchShape f where matchShapeF _ _ = Nothing
-instance MatchShape Var where matchShapeF _ _ = Just []
-
-class MatchShapeD f g where matchShapeD :: f a -> g b -> Maybe [(a,b)]
-
-instance (MatchShapeD c a, MatchShapeD d a) => MatchShapeD (c :+: d) a where
-    matchShapeD (Inl x) y = matchShapeD x y
-    matchShapeD (Inr x) y = matchShapeD x y
-
-instance (MatchShapeD a c, MatchShapeD a d) => MatchShapeD a (c :+: d)  where
-    matchShapeD x (Inl y) = matchShapeD x y
-    matchShapeD x (Inr y) = matchShapeD x y
-
-instance (MatchShapeD a c, MatchShapeD b c, MatchShapeD a d, MatchShapeD b d) =>
-        MatchShapeD (a :+: b) (c :+: d) where
-    matchShapeD (Inl x) (Inl y) = matchShapeD x y
-    matchShapeD (Inr x) (Inr y) = matchShapeD x y
-    matchShapeD (Inl x) (Inr y) = matchShapeD x y
-    matchShapeD (Inr x) (Inl y) = matchShapeD x y
-
--- To disambiguate
-instance (MatchShapeD a b, MatchShapeD b a, MatchShapeD a a, MatchShapeD b b) => MatchShapeD (a :+: b) (a :+: b) where
-    matchShapeD (Inl x) (Inl y) = matchShapeD x y
-    matchShapeD (Inr x) (Inr y) = matchShapeD x y
-    matchShapeD (Inl x) (Inr y) = matchShapeD x y
-    matchShapeD (Inr x) (Inl y) = matchShapeD x y
-
---instance (MatchShape f, f ~ g) => MatchShapeD f g where matchShapeD = matchShapeF
-instance MatchShape f => MatchShapeD f f where matchShapeD = matchShapeF
-instance                 MatchShapeD f g where matchShapeD _ _ = Nothing
-
-matchShape (In t) (In u) = matchShapeD t u
-
--- --------
 -- ZipTerm
--- --------
-class ZipTerm f g where zipTermF :: f (Term fs) -> g (Term gs) -> Maybe [(Term fs, Term gs)]
-instance Eq id => ZipTerm (T id) (T id) where zipTermF (T s1 tt1) (T s2 tt2) = guard(s1 == s2 && length tt1 == length tt2) >> return (zip tt1 tt2)
+--------------
+class (Functor f, Foldable f) => Zip f where
+  fzipWith  :: Monad m => (a -> b -> m c)  -> f a -> f b -> m (f c)
+  fzipWith_ :: Monad m => (a -> b -> m ()) -> f a -> f b -> m ()
+  fzipWith_ f v1 v2 = fzipWith f v1 v2 >> return ()
 
-instance (ZipTerm c a, ZipTerm d a) => ZipTerm (c :+: d) a where
-    zipTermF (Inl x) y = zipTermF x y
-    zipTermF (Inr x) y = zipTermF x y
+instance (Zip a, Zip b) => Zip (a :+: b) where
+    fzipWith  f (Inl x) (Inl y) = Inl `liftM` fzipWith f x y
+    fzipWith  f (Inr x) (Inr y) = Inr `liftM` fzipWith f x y
+    fzipWith  f _       _       = fail "fzipWith"
+    fzipWith_ f (Inl x) (Inl y) = fzipWith_ f x y
+    fzipWith_ f (Inr x) (Inr y) = fzipWith_ f x y
+    fzipWith_ f _       _       = fail "fzipWith_"
+instance Eq id => Zip (T id) where
+    fzipWith  f (T s1 tt1) (T s2 tt2) = do
+      unless(s1 == s2 && length tt1 == length tt2) $ fail "fzipWith"
+      T s1 `liftM` M.zipWithM f tt1 tt2
+    fzipWith_ f (T s1 tt1) (T s2 tt2) = do
+      unless(s1 == s2 && length tt1 == length tt2) $ fail "fzipWith"
+      M.zipWithM_ f tt1 tt2
 
-instance (ZipTerm a c, ZipTerm a d) => ZipTerm a (c :+: d) where
-    zipTermF x (Inl y) = zipTermF x y
-    zipTermF x (Inr y) = zipTermF x y
+instance Zip Var where
+    fzipWith f (Var u1 i) (Var u2 _) | u1 == u2 = return (Var u1 i)
+                                     | otherwise = fail "fzipWith"
 
-instance (ZipTerm a c, ZipTerm b c, ZipTerm a d, ZipTerm b d) => ZipTerm (a :+: b) (c :+: d) where
-    zipTermF (Inl x) (Inl y) = zipTermF x y
-    zipTermF (Inr x) (Inr y) = zipTermF x y
-    zipTermF (Inl x) (Inr y) = zipTermF x y
-    zipTermF (Inr x) (Inl y) = zipTermF x y
+fzip :: (Zip f, Monad m) => f a -> f b -> m (f(a,b))
+fzip = fzipWith (*) where a * b = return (a,b)
+
+zipTermM :: (Zip f, Monad m) =>
+          (Term f -> Term f -> m c) -> Term f -> Term f -> m (f c)
+zipTermM f (In t) (In u) = fzipWith f t u
+
+zipTerm :: (Foldable f, Zip f) => Term f -> Term f -> Maybe [(Term f, Term f)]
+zipTerm = (fmap toList .) . zipTermM (*) where a * b = return (a,b)
+
+zipTerm' :: (f :<: g, Foldable g, Zip g, HashConsed g) => Term f -> Term g -> Maybe [(Term g, Term g)]
+zipTerm' x y = zipTerm (reinject x) y
 
 -----------------
 -- Size measures

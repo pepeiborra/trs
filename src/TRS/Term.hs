@@ -12,6 +12,7 @@ import Control.Applicative
 import Control.Arrow ((***))
 import Control.Monad hiding ( mapM, sequence, msum)
 import Data.Foldable (toList, Foldable, msum, foldMap)
+import Data.Char (isAlpha)
 import Data.Maybe
 import Data.Traversable (Traversable, mapM, traverse)
 import Text.PrettyPrint
@@ -38,10 +39,10 @@ rootSymbol t | Just (T root _) <- match t = Just root
              | otherwise = Nothing
 
 
-isConstructor :: forall id f s . (MatchShapeD f s, IsVar s) => [Rule f] -> Term s -> Bool
+isConstructor :: (HashConsed s, Zip s, Foldable s, f :<: s, IsVar s) => [Rule f] -> Term s -> Bool
 isConstructor rules t
   | isVar t   = True
-  | otherwise = all (\(l:->_) -> isNothing $ matchShape l t) rules
+  | otherwise = all (\(l:->_) -> isNothing $ zipTerm' l t) rules
 
 --isDefined :: (T id :<: f, T id :<: s, IsVar s) => [Rule f] -> Term s -> Bool
 isDefined rules = not . isConstructor rules
@@ -55,7 +56,7 @@ t    ! []     = t
 -- | Updates the subterm at the position given
 --   Note that this function does not guarantee success. A failure to substitute anything
 --   results in the input term being returned untouched
-updateAt  :: (Traversable f, HashConsed f) =>  Position -> Term f -> (Term f -> Term f)
+updateAt  :: (Traversable f, HashConsed f) =>  Position -> Term f -> Term f -> Term f
 updateAt [] _ t' = t'
 updateAt (0:_) _ _ = error "updateAt: 0 is not a position!"
 updateAt (i:ii) t' (In t) = {-# SCC "updateAt" #-}
@@ -63,10 +64,14 @@ updateAt (i:ii) t' (In t) = {-# SCC "updateAt" #-}
                             In$ fmap (\(j,st) -> if i==j then updateAt ii t' st else st)
                                 (unsafeZipG [1..] t)
 
-updateAt'  :: (Traversable f, HashConsed f, MonadPlus m, Functor m) => Position -> Term f -> (Term f -> m (Term f, Term f))
-updateAt' pos x x' = {-# SCC "updateAt'" #-} go x pos >>= \ (t',a) -> a >>= \v->return (hashCons t',v)
+-- TODO: simplify this code so that the monadPlus constraint does not float out by internally fixing the monad to lists
+updateAt'  :: (Traversable f, HashConsed f, Monad m) =>
+              Position -> Term f -> Term f -> m (Term f, Term f)
+updateAt' pos x x' = {-# SCC "updateAt'" #-} 
+                     maybe (fail "updateAt': invalid position") return
+                        (go x pos >>= \(t',a) -> a >>= \v -> return (hashCons t',v))
   where
-    go _      (0:_)  = error "updateAt: 0 is not a position!"
+    go _      (0:_)  = fail "updateAt: 0 is not a position!"
     go (In t) (i:is) = fmap ((In***msum) . unzipG)
                      . mapM  (\(j,u)->if i==j
                                        then go u is
@@ -90,7 +95,7 @@ annotateWithPos = {-# SCC "annotateWithPos" #-} mergePositions . foldTerm annota
 class (t :<: f) => AnnotateWithPos t f where annotateWithPosF :: t (Term (WithNote Position f)) -> Term (WithNote Position f)
 instance (T id :<: f) => AnnotateWithPos (T id) f where
     annotateWithPosF (T n tt) =
-        In$ Note ([], (inj$ T n [In (Note (i:p, t)) | (i, In(Note (p,t))) <- zip [0..] tt]))
+        In$ Note ([], (inj$ T n [In (Note (i:p, t)) | (i, In(Note (p,t))) <- zip [1..] tt]))
 instance (t  :<: f) => AnnotateWithPos t f where annotateWithPosF t = In $ Note ([], inj t)
 instance ((a :+: b) :<: f, AnnotateWithPos a f, AnnotateWithPos b f) => AnnotateWithPos (a :+: b) f where
     annotateWithPosF (Inr x) = annotateWithPosF x
@@ -145,18 +150,46 @@ someSubterm f (In x) = msum (In <$$> interleaveM f return x)
 -- Creating terms
 -- ---------------
 
-term :: (T id :<: f, HashConsed f) => id -> [Term f] -> Term f
+term :: (T id :<: f, Eq id, HashConsed f) => id -> [Term f] -> Term f
 term s = hashCons . inject . T s
 
-term1 :: (T id :<: f, HashConsed f) => id -> Term f -> Term f
+term1 :: (T id :<: f, Eq id, HashConsed f) => id -> Term f -> Term f
 term1 f t       = term f [t]
-term2 :: (T id :<: f, HashConsed f) => id -> Term f -> Term f -> Term f
+term2 :: (T id :<: f, Eq id, HashConsed f) => id -> Term f -> Term f -> Term f
 term2 f t t'    = term f [t,t']
-term3 :: (T id :<: f, HashConsed f) => id -> Term f -> Term f -> Term f -> Term f
+term3 :: (T id :<: f, Eq id, HashConsed f) => id -> Term f -> Term f -> Term f -> Term f
 term3 f t t' t''= term f [t,t',t'']
-constant :: (T id :<: f, HashConsed f) => id -> Term f
+constant :: (T id :<: f, Eq id, HashConsed f) => id -> Term f
 constant f      = term f []
 
 x,y :: (HashConsed f, Var :<: f) => Term f
 x = var 0
 y = var 1
+
+
+-- ----------------------
+-- Pretty Printing terms
+-- ----------------------
+
+class Functor f => Ppr f where pprF :: f Doc -> Doc
+ppr :: Ppr f => Term f -> Doc
+ppr = foldTerm pprF
+
+instance Show id => Ppr (T id) where
+    pprF (T n []) = text (show n)
+    pprF (T n [x,y]) | not (any isAlpha $ show n) = x <+> text (show n) <+> y
+    pprF (T n tt) = text (show n) <> parens (cat$ punctuate comma tt)
+
+instance Ppr (T String) where
+    pprF (T n []) = text n
+    pprF (T n [x,y]) | not (any isAlpha $ n) = x <+> text n <+> y
+    pprF (T n tt) = text n <> parens (cat$ punctuate comma tt)
+
+instance Ppr Var where
+    pprF (Var Nothing i)  = text$ showsVar 0 i ""
+    pprF (Var (Just l) i) = text l -- <> char '_' <> int i
+instance (Ppr a, Ppr b) => Ppr (a:+:b) where
+    pprF (Inr x) = pprF x
+    pprF (Inl y) = pprF y
+
+instance Ppr f => Show (Term f) where show = render . ppr

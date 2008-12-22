@@ -1,23 +1,18 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
 {-# LANGUAGE OverlappingInstances, UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeOperators, PatternGuards #-}
 
 module TRS.Test.TermRef where
 import Control.Applicative
-import Control.Exception (assert)
-import Control.Monad hiding (mapM, sequence )
 import Data.Traversable
 import Text.PrettyPrint
-import Data.Char (isAlpha)
 import Data.Foldable
 import Prelude hiding ( all, maximum, minimum, any, mapM_,mapM, foldr, foldl
                       , sequence, concat, concatMap )
-import TypePrelude
 
 import TRS.Term
 import TRS.Types
-import TRS.Utils
 
 newtype Ref a = Ref a deriving (Ord, Eq)
 instance Functor Ref where fmap f (Ref t) = Ref (f t)

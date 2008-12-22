@@ -36,10 +36,10 @@ instance Ord id => Monoid (Signature id) where
 class SignatureC a id | a -> id where getSignature :: a -> Signature id
 
 instance (T id :<: f, Ord id, Foldable f) => SignatureC [Rule f] id where
-    getSignature = getSignatureDefault id
+    getSignature = getSignatureFromRules id
 
-getSignatureDefault :: (T id :<: f, Ord id, Foldable f) => (id -> id) -> [Rule f] -> Signature id
-getSignatureDefault mkLabel rules =
+getSignatureFromRules :: (T id :<: f, Ord id, Foldable f) => (id -> id) -> [Rule f] -> Signature id
+getSignatureFromRules mkLabel rules =
       Sig{arity= Map.fromList [(mkLabel f,length tt) | l :-> r <- rules, t <- [l,r]
                                              , Just (T f tt) <- map match (subterms t)]
          , definedSymbols     = Set.fromList dd
@@ -57,8 +57,8 @@ getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " no
 -- ----
 -- TRS
 -- ----
-class (Var :<: f, Traversable f, Matchable f f, Unifyable f,HashConsed f) => TRSC f
-instance (Var :<: f, Traversable f, Matchable f f, Unifyable f, HashConsed f) => TRSC f
+class (Matchable f f, Unifyable f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
+instance (Matchable f f, Unifyable f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 
 data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => [Rule f] -> Signature id -> TRS id f
 
