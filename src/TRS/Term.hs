@@ -106,8 +106,11 @@ newtype WithNote note f a = Note (note, f a) deriving (Show)
 instance Functor f  => Functor (WithNote note f)  where fmap f (Note (p, fx))   = Note (p, fmap f fx)
 instance Foldable f => Foldable (WithNote note f) where foldMap f (Note (_p,fx)) = foldMap f fx
 instance Traversable f => Traversable (WithNote note f) where traverse f (Note (p, fx)) = (Note . (,) p) <$> traverse f fx
-instance (Functor f, Eq (Term f)) => Eq (Term (WithNote note f)) where t1 == t2 = dropNote t1 == dropNote t2
-instance (Functor f, Ord (Term f)) => Ord (Term (WithNote note f)) where t1 `compare` t2 = compare (dropNote t1) (dropNote t2)
+instance (Functor f, Eq note, Eq (Term f)) => Eq (Term (WithNote note f)) where t1 == t2 = note t1 == note t2 && dropNote t1 == dropNote t2
+instance (Functor f, Ord note, Ord (Term f)) => Ord (Term (WithNote note f)) where
+    t1 `compare` t2 = case compare (note t1) (note t2) of
+                        EQ -> compare (dropNote t1) (dropNote t2)
+                        x  -> x
 instance (Show note, Ppr t) => Ppr (WithNote note t) where pprF (Note (p,t)) = pprF t <> char '_' <> text (show p)
 instance IsVar f => IsVar (WithNote note f) where
     isVarF (Note (_,t)) = isVarF t
