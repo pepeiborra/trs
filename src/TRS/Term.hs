@@ -50,7 +50,7 @@ isDefined rules = not . isConstructor rules
 type Position = [Int]
 
 (!) :: Foldable f => Term f -> Position -> Term f
-In t ! (i:ii) = {-# SCC "!" #-}  (toList t !! i) ! ii
+In t ! (i:ii) = {-# SCC "!" #-}  (toList t !! (i-1)) ! ii
 t    ! []     = t
 
 -- | Updates the subterm at the position given
