@@ -7,7 +7,7 @@
 
 module TRS.Signature where
 
-import Data.Foldable (Foldable, sum)
+import Data.Foldable (Foldable, sum, toList)
 import Data.List ((\\))
 import Data.Maybe
 import Data.Monoid
@@ -60,7 +60,7 @@ getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " no
 class (Matchable f f, Unifyable f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 instance (Matchable f f, Unifyable f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 
-data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => [Rule f] -> Signature id -> TRS id f
+data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => Set (Rule f) -> Signature id -> TRS id f
 
 instance Ppr f => Show (TRS id f) where show trs = show $ rules trs
 
@@ -69,14 +69,18 @@ instance (T id :<: f, Ord id, TRSC f) => Monoid (TRS id f) where
    mappend (TRS r1 _) (TRS r2 _) = let rr = (r1 `mappend` r2) in TRS rr (getSignature rr)
 
 instance SignatureC (TRS id f) id where getSignature = sig
+instance (T id :<: f, Ord id, Foldable f) => SignatureC (Set (Rule f)) id where
+    getSignature = getSignatureFromRules id . toList
 
 instance SizeF f => Size (TRS id f) where size = Data.Foldable.sum . fmap TRS.Types.size . rules
 
-tRS :: (T id :<: t, Ord id, TRSC t) => [Rule t] -> TRS id t
+tRS' :: (T id :<: t, Ord id, TRSC t) => [Rule t] -> TRS id t
 rules :: TRS id t -> [Rule t]
 
-tRS rules = TRS rules (getSignature rules)
-rules (TRS r _) = r; sig (TRS _ s) = s
+tRS  rules = TRS (Set.fromList rules)
+tRS' rules = TRS (Set.fromList rules) (getSignature rules)
+rules (TRS r _) = toList r; sig (TRS _ s) = s
+
 
 isDefined, isConstructor :: (T id :<: f, Ord id) => TRS id f -> Term f -> Bool
 isConstructor trs t = (`Set.member` constructorSymbols (sig trs)) `all` collectIds t
