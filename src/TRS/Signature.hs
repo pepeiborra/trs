@@ -63,6 +63,7 @@ instance (Matchable f f, Unifyable f, AnnotateWithPos f f, Ord (Term f)) => TRSC
 data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => Set (Rule f) -> Signature id -> TRS id f
 
 instance Ppr f => Show (TRS id f) where show trs = show $ rules trs
+instance Eq (Term f) => Eq (TRS id f) where a == b = rules a == rules b
 
 instance (T id :<: f, Ord id, TRSC f) => Monoid (TRS id f) where
    mempty = TRS mempty mempty
