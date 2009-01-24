@@ -41,7 +41,7 @@ instance (T id :<: f, Ord id, Foldable f) => SignatureC [Rule f] id where
 getSignatureFromRules :: (T id :<: f, Ord id, Foldable f) => (id -> id) -> [Rule f] -> Signature id
 getSignatureFromRules mkLabel rules =
       Sig{arity= Map.fromList [(mkLabel f,length tt) | l :-> r <- rules, t <- [l,r]
-                                             , Just (T f tt) <- map match (subterms t)]
+                                             , Just (T f tt) <- map open (subterms t)]
          , definedSymbols     = Set.fromList dd
          , constructorSymbols = Set.fromList $ map mkLabel $
                                 snub[root | l :-> r <- rules, t <- subterms r ++ properSubterms l, Just root <- [rootSymbol t]] \\ dd}

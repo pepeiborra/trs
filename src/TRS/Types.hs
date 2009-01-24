@@ -70,8 +70,8 @@ reinject = hashCons . foldTerm inject
 reinject' :: (f :<: fs, fs :<: gs, HashConsed gs) => f (Term fs) -> f (Term gs)
 reinject' = fmap reinject
 
-match :: (g :<: f) => Term f -> Maybe (g (Term f))
-match (In t) = prj t
+open :: (g :<: f) => Term f -> Maybe (g (Term f))
+open (In t) = prj t
 
 class Crush f where crushF :: (a -> b -> b) -> b -> f a -> b
 instance (Crush a, Crush b) => Crush (a :+: b) where

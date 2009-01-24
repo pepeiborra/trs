@@ -28,7 +28,7 @@ import Prelude hiding (mapM, concat, zipWith)
 import TypePrelude
 
 import TRS.Term
-import TRS.Types hiding (match, size)
+import TRS.Types hiding (size)
 import TRS.Rules
 import TRS.Substitutions
 import TRS.UMonad

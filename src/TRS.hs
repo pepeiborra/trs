@@ -17,7 +17,7 @@ module TRS ( module TRS.Term
            , module TRS.Signature
            , module TRS)  where
 
-import TRS.Types hiding (match)
+import TRS.Types
 import TRS.Signature hiding (isConstructor, isDefined)
 import TRS.Rules
 import qualified TRS.Signature as Sig

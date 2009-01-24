@@ -35,7 +35,7 @@ properSubterms = {-# SCC "properSubterms" #-}
 ------------------------------------
 
 rootSymbol :: (T id :<: f) => Term f -> Maybe id
-rootSymbol t | Just (T root _) <- match t = Just root
+rootSymbol t | Just (T root _) <- open t = Just root
              | otherwise = Nothing
 
 
@@ -123,11 +123,11 @@ dropNote :: Functor f => Term (WithNote note f) -> Term f
 dropNote = foldTerm f where f (Note (note,t)) = In t
 
 isLinear :: (Var :<: s, Foldable s, Functor s) => Term s -> Bool
-isLinear t = length(snub vars) == length vars where vars = [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.match u]]
+isLinear t = length(snub vars) == length vars where vars = [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.open u]]
 
 vars :: (Var :<: s, Foldable s, Functor s) => Term s -> [Var (Term s)]
 vars t = {-# SCC "vars" #-}
-         snub [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.match u]]
+         snub [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.open u]]
 
 vars' :: (IsVar s, Ord (Term s), Foldable s, Functor s) => Term s -> [Term s]
 vars' t = {-# SCC "vars" #-}

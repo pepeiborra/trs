@@ -20,7 +20,7 @@ instance Foldable Ref where foldMap = foldMapDefault
 instance Traversable Ref where traverse f (Ref t) = Ref <$> f t
 
 ref :: (Ref :<: f) => Term f -> Term f
-ref t | Just (Ref t) <- match t = t
+ref t | Just (Ref t) <- open t = t
       | otherwise               = inject $ Ref t
 
 instance HashConsed (Var :+: Ref)
