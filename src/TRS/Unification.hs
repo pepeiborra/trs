@@ -6,6 +6,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
+
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Unification (
@@ -47,8 +49,18 @@ class Unify f1 f2 where
 
 -- meaningful instances
 -- --------------------
-instance (t :<: g, Var :<: g) => UnifyR Var t g where unifyR v t = varBind (inV v) (inject t)
-instance (t :<: g, Var :<: g) => UnifyR t Var g where unifyR t v = varBind (inV v) (inject t)
+instance (t :<: g, Var :<: g, Unifyable g) => UnifyR Var t g where
+    unifyR v t = is v (\v' -> varBind (inV v') (inject t))
+                      (\v' -> unify1 v' (inject t))
+
+instance (t :<: g, Var :<: g, Unifyable g) => UnifyR t Var g where
+    unifyR t v = is v (\v' -> varBind (inV v') (inject t))
+                      (\v' -> unify1 v' (inject t))
+
+is v isV isT = maybe (isV v) is' =<< readVar (inV v)
+  where is' (open -> Just v@Var{}) = is v isV isT
+        is' t = isT t
+
 instance (UnifyR Var a g, UnifyR Var b g, (a:+:b) :<: g) => UnifyR Var (a:+:b) g where
     unifyR x (Inl y) = unifyR x y
     unifyR x (Inr y) = unifyR x y
@@ -56,14 +68,11 @@ instance (UnifyR Var a g, UnifyR Var b g, (a:+:b) :<: g) => UnifyR Var (a:+:b) g
 instance (Unifyable g, Var :<: g) => UnifyR Var Var g where
     unifyR v@(Var n i) w@(Var _ j)
         | i == j    = return ()
-        | otherwise = do
-              mb_t <- readVar (inV v)
-              case mb_t of
-                Nothing -> varBind (inV v) (inject w)
-                Just t ->  unify1 t (inject w)
-instance (Foldable f, Zip f) => Unify f f where
-    unifyF t u = fzipWith_ unify1 t u
+        | otherwise = is v (\v' -> varBind (inV v) (inject w)) (unify1 (inject w))
+
+instance (Foldable f, Zip f) => Unify f f where unifyF t u = fzipWith_ unify1 t u
 instance Unify f g where unifyF _ _ = mzero
+
 
 unify1 :: (MonadPlus m, MonadEnv f m, Unifyable f) => Term f -> Term f -> m ()
 unify1 (In t) (In u) = {-# SCC "unify1" #-} unifyL t u
@@ -77,18 +86,15 @@ unify = unify' emptySubst
 ---------------------------------------
 -- * Examples
 ---------------------------------------
-{-
-x,y :: (Var :<: f) => Term f
-x = var 0
-y = var 1
 
-(+:) :: (T String :<: f) => Term f -> Term f -> Term f
+{-
+--(+:) :: (T String :<: f) => Term f -> Term f -> Term f
 (+:) = term2 "+"
 
-t :: Term (Var :+: T String)
+--t :: Term (Var :+: T String)
 t = x +: y
 
-t1 :: (T String :<: f) => Term f
+--t1 :: (T String :<: f) => Term f
 t1 = constant "1" +: constant "0"
 
 u1  = unify t t1 `asTypeOf` Nothing
@@ -97,8 +103,12 @@ u1' = unify t1 t `asTypeOf` Nothing
 u2 :: Maybe (Subst Var)
 u2 = unify x y
 
-u3 = unify x (constant "1") :: Maybe (Subst (T String :+: Var))
+u3 = unify x (constant "1") :: Maybe (Subst Basic)
 
-e1 = t `equal` (y +: x)
-e2 = t `equal` t1
+--e1 = t `equal` (y +: x)
+--e2 = t `equal` t1
+
+u,t' :: Term Basic
+t' = term3 "f" x x x
+u = term3 "f" (constant "a") (constant "b") y
 -}
