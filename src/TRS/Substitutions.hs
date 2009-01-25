@@ -6,7 +6,7 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving #-}
 {-# LANGUAGE NoMonomorphismRestriction  #-}
 
 module TRS.Substitutions (
@@ -32,6 +32,10 @@ import Prelude hiding (elem,all)
 import TRS.Types
 import TRS.Term
 
+#ifdef HOOD
+import Debug.Observe
+#endif
+
 ----------------------
 -- * Substitutions
 ----------------------
@@ -53,6 +57,11 @@ lookupSubst s t | Just i <- uniqueId t = {-# SCC "lookupSubst" #-}
                   lookupKey s i
                 | otherwise = Nothing
 
+type Subst f     = SubstG (Term f)
+newtype SubstG a = Subst {fromSubst:: Map.Map Key a} deriving (Eq, Functor)
+subst            = normalize . Subst
+subst'           = subst . Map.fromList
+
 data Key where KeyTerm :: (Ppr f, IsVar f) => Term f -> Key
                KeyId   :: Int -> Key
 
@@ -62,16 +71,15 @@ instance Show Key where
     showsPrec _ (KeyId i) = ("KeyId" ++ ) . (show i ++)
     showsPrec _ (KeyTerm t) = ("KeyTerm" ++ ) . (show t ++)
 
+#ifdef HOOD
+instance Observable Key where observer = observeBase
+#endif
+
 {-# INLINE unique #-}
 unique :: Key -> Int
 unique (KeyId i) = i
 unique (KeyTerm t) | Just i <- uniqueId t = i
 unique (KeyTerm t) = error ("A substitution is binding on something which is not a variable:  " ++ show t)
-
-type Subst f     = SubstG (Term f)
-newtype SubstG a = Subst {fromSubst:: Map.Map Key a} deriving (Eq, Functor)
-subst            = normalize . Subst
-subst'           = subst . Map.fromList
 
 class MkSubst a f | a -> f where mkSubst :: a -> Subst f
 instance (Ppr f, IsVar f, IsVar fs) => MkSubst [(Term f, Term fs)] fs where mkSubst = subst' . map (first (KeyTerm))
@@ -142,3 +150,9 @@ normalize (Subst map) = Subst $ Map.filterWithKey (\k t -> case uniqueId t of
 
 lookupKey :: Subst f -> Int -> Maybe (Term f)
 lookupKey (Subst s) i = Map.lookup (KeyId i) s
+
+
+
+#ifdef HOOD
+deriving instance Show a => Observable (SubstG a)
+#endif

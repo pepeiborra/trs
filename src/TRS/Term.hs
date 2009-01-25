@@ -23,6 +23,9 @@ import TRS.Rules
 import TRS.Types
 import TRS.Utils hiding ( parens )
 
+#ifdef HOOD
+import Debug.Observe
+#endif
 
 subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
 subterms (In t) = In t : {-# SCC "subterms" #-}
@@ -196,3 +199,10 @@ instance (Ppr a, Ppr b) => Ppr (a:+:b) where
     pprF (Inl y) = pprF y
 
 instance Ppr f => Show (Term f) where show = render . ppr
+
+-- --------------
+-- Hood instances
+-- --------------
+#ifdef HOOD
+instance Ppr f => Observable (Term f) where observer = observeBase
+#endif HOOD

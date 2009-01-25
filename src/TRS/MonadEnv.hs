@@ -11,6 +11,10 @@ import TRS.Types
 import TRS.Term
 import TRS.Substitutions
 
+#ifdef HOOD
+import Debug.Observe
+#endif //HOOD
+
 class (Functor m, Monad m, IsVar f) => MonadEnv f m | m -> f where
     varBind :: (IsVar g, Ppr g) => Term g -> Term f -> m ()
     readVar :: IsVar g => Term g -> m (Maybe (Term f))
@@ -33,3 +37,8 @@ instance (IsVar f, HashConsed f, Functor m, MonadState (Subst f) m) => MonadEnv 
     readVar = {-# SCC "readVar" #-}  gets . flip lookupSubst
 
 occurs _ _ = True --TODO
+
+#ifdef HOOD
+observeEnv :: (Observable (Subst f), MonadEnv f m) => String -> m ()
+observeEnv label = (getEnv >>= return . observe label ) >> return ()
+#endif

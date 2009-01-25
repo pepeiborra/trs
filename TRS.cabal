@@ -1,5 +1,5 @@
 name: TRS
-version: 0.20
+version: 0.21
 Cabal-Version:  >= 1.2
 license: AllRightsReserved
 license-file: ""
@@ -16,6 +16,7 @@ Flag tests
 Flag ghc10
 Flag debug
    Default: False
+
 Library
  buildable: True
  build-depends: base < 4, mtl, containers, pretty, alacarte, typeprelude, logict, parallel
@@ -53,4 +54,5 @@ Library
  if flag(ghc10)
     build-depends: ghc-prim
  if flag(debug)
-    cpp-options: -DDEBUGTRS
+    build-depends: GHood
+    cpp-options: -DDEBUGTRS -DHOOD

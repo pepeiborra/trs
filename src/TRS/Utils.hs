@@ -36,6 +36,10 @@ import Prelude hiding ( all, any, maximum, minimum, any, mapM_,mapM, foldr, fold
 import Control.Exception
 import GHC.Prim
 
+#ifdef HOOD
+import Debug.Observe
+#endif
+
 import qualified Debug.Trace
 
 #if __GLASGOW_HASKELL__ < 607 
@@ -570,3 +574,9 @@ trace msg x =
 --	    t m a -> (a -> t m b) -> t m b
 --(>>-) = LogicT.bindi
 
+#ifdef HOOD
+observeM :: (Observable s, MonadState s m) => String -> m ()
+observeM label = modify(observe label)
+
+instance (Show k, Show v) => Observable (Map k v) where observer = observeBase
+#endif

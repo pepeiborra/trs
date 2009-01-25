@@ -17,6 +17,11 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Traversable
 
+
+#ifdef HOOD
+import Debug.Observe
+#endif //HOOD
+
 import TRS.Rewriting (Matchable)
 import TRS.Rules
 import TRS.Term hiding (isConstructor, isDefined)
@@ -92,3 +97,7 @@ collectIds :: (T id :<: f) => Term f -> [id]
 collectIds = foldTerm f where
     f t | Just (T id ids) <- prj t = id : concat ids
         | otherwise = []
+
+#ifdef HOOD
+instance Observable (TRS id f) where observer trs@TRS{} = observeBase trs
+#endif HOOD
