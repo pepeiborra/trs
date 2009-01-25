@@ -86,12 +86,13 @@ crush f z (In t) = crushF f z t
 -- -----------------------------
 type Basic = Var :+: T String
 
-data T id a where T :: Eq id => !(id) -> [a] -> T id a --   deriving Eq
+data T id a where T :: Eq id => !(id) -> [a] -> T id a
 instance Eq a =>Eq (T id a) where T id1 tt1 == T id2 tt2 = id1 == id2 && tt1 == tt2
 instance Functor (T id)     where fmap f (T s aa) = T s (map f aa)
 instance Traversable (T id) where traverse f (T s tt) = T s <$> traverse f tt
 instance Foldable (T id)    where foldMap  f (T s tt) = mconcat $ map f tt
 instance Crush (T id)       where crushF f z (T s tt) = foldr f z tt
+instance (Show id, Show a) => Show (T id a) where show (T id tt) =  "T " ++ show id ++ " " ++ show tt
 
 data Var s = Var (Maybe String) Int deriving (Eq, Show)
 instance Functor Var     where fmap _ (Var s i) = Var s i
