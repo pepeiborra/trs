@@ -24,6 +24,7 @@ import Control.Monad.Error (Error, ErrorT(..), MonadError(..))
 import Control.Monad.Logic (MonadLogic(..), runLogic, Logic)
 import Data.AlaCarte
 import Data.List (sortBy, groupBy, intersperse)
+import Data.Map  (Map)
 import Data.Maybe
 import Data.Monoid
 import Data.Traversable
