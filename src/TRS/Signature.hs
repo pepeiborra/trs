@@ -62,8 +62,8 @@ getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " no
 -- ----
 -- TRS
 -- ----
-class (Matchable f f, Unifyable f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
-instance (Matchable f f, Unifyable f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
+class (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
+instance (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 
 data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => Set (Rule f) -> Signature id -> TRS id f
 
@@ -97,6 +97,12 @@ collectIds :: (T id :<: f) => Term f -> [id]
 collectIds = foldTerm f where
     f t | Just (T id ids) <- prj t = id : concat ids
         | otherwise = []
+
+mapRules :: (Rule f -> Rule f) -> TRS id f -> TRS id f
+mapRules f (TRS rr sig) = TRS (Set.map f rr) sig
+
+mapTerms :: (Term f -> Term f) -> TRS id f -> TRS id f
+mapTerms f (TRS rr sig) = TRS (Set.map (fmap f) rr) sig
 
 #ifdef HOOD
 instance Observable (TRS id f) where observer trs@TRS{} = observeBase trs
