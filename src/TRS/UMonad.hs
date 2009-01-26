@@ -22,8 +22,8 @@ newtype GMonadT s m a = GMonadT {unU :: StateT s m a}
     deriving (Functor, Monad, MonadPlus, MonadPlus1, MonadLogic, MonadState s, MonadTrans)
 
 instance (Monad m) => MonadFresh (GMonadT (b, [Int]) m) where
-    variant = withSnd . variant
     fresh   = withSnd fresh
+    current = withSnd fresh
 
 instance (IsVar f, HashConsed f, Monad m) => MonadEnv f (GMonadT (Subst f, b) m) where
     varBind t = withFst . varBind t

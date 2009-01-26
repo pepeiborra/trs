@@ -15,22 +15,25 @@ module TRS.Substitutions (
      o, lookupSubst, restrictTo, insertSubst,
      mergeSubst, mergeSubsts, unionSubst,
      applySubst, applySubstF, isRenaming,
-     substRange, substDomain) where
+     substRange, substDomain,
+     variant, variant') where
 
 import Control.Applicative
 import Control.Arrow (first)
-import Control.Monad
-import Data.List (intersect)
+import Control.Monad.State
+import Data.List (intersect, (\\))
 import Data.Foldable
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
 import Data.Monoid
 import Text.PrettyPrint
-import Prelude hiding (elem,all)
+import Prelude hiding (elem,all, concatMap)
 
 import TRS.Types
 import TRS.Term
+import TRS.MonadFresh
+import TRS.Utils (snub)
 
 #ifdef HOOD
 import Debug.Observe
@@ -150,6 +153,19 @@ normalize (Subst map) = Subst $ Map.filterWithKey (\k t -> case uniqueId t of
 
 lookupKey :: Subst f -> Int -> Maybe (Term f)
 lookupKey (Subst s) i = Map.lookup (KeyId i) s
+
+
+
+variant :: (MonadFresh m, HashConsed f, Var :<: fs, IsVar fs, Foldable fs, fs :<: f, Var :<: f, IsVar f, Functor t, Foldable t) => t (Term fs) -> m(t (Term f))
+variant r = {-# SCC "variant1" #-} do
+     let vars_r = snub (concatMap vars r)
+     vars'  <- replicateM (length vars_r) fresh
+     return $ applySubst (mkSubst (vars_r `zip` map var vars')) <$> r
+
+
+-- | Takes a term t and a term u and returns a variant of t which is fresh w.r.t. u
+variant' :: (Var :<: f, IsVar f, Foldable f, HashConsed f, Functor t, Foldable t) => t(Term f) -> t(Term f) -> t(Term f)
+variant' t u = evalState (variant t) ([0..] \\ (varId <$> concatMap vars u))
 
 
 
