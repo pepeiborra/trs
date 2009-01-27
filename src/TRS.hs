@@ -18,12 +18,10 @@ module TRS ( module TRS.Term
            , module TRS)  where
 
 import TRS.Types
-import TRS.Signature hiding (isConstructor, isDefined)
+import TRS.Signature
 import TRS.Rules
-import qualified TRS.Signature as Sig
-import qualified TRS.Term      as Rules
 import TRS.Substitutions
-import TRS.Term hiding (isConstructor, isDefined)
+import TRS.Term
 import TRS.Unification
 import TRS.Rewriting
 import TRS.Narrowing
@@ -31,18 +29,3 @@ import TRS.Context
 import TRS.MonadFresh
 import TRS.MonadEnv
 import TRS.UMonad
-
-class IsConstructor trs tf where
-    type TermType trs ::(* -> *) -> *
-    isConstructor :: trs -> TermType trs tf -> Bool
-    isDefined     :: trs -> TermType trs tf -> Bool
-    isConstructor = (not.).isDefined
-    isDefined     = (not.).isConstructor
-
-instance (IsVar tf, Zip tf, HashConsed tf, f :<: tf) => IsConstructor [Rule f] tf where
-    type TermType [Rule f] = Term
-    isConstructor = Rules.isConstructor
-
-instance (T id :<: f, Ord id) => IsConstructor (TRS id f) f where
-    type TermType (TRS id f) = Term
-    isConstructor = Sig.isConstructor

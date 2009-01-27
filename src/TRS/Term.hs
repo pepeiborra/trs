@@ -42,14 +42,6 @@ rootSymbol t | Just (T root _) <- open t = Just root
              | otherwise = Nothing
 
 
-isConstructor :: (HashConsed s, Zip s, Foldable s, f :<: s, IsVar s) => [Rule f] -> Term s -> Bool
-isConstructor rules t
-  | isVar t   = True
-  | otherwise = all (\(l:->_) -> isNothing $ zipTerm' l t) rules
-
---isDefined :: (T id :<: f, T id :<: s, IsVar s) => [Rule f] -> Term s -> Bool
-isDefined rules = not . isConstructor rules
-
 type Position = [Int]
 
 (!) :: Foldable f => Term f -> Position -> Term f

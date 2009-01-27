@@ -24,7 +24,7 @@ import Debug.Observe
 
 import TRS.Rewriting (Matchable)
 import TRS.Rules
-import TRS.Term hiding (isConstructor, isDefined)
+import TRS.Term
 import TRS.Types
 import TRS.Unification
 import TRS.Utils
@@ -88,9 +88,8 @@ tRS' rules = TRS (Set.fromList rules) (getSignature rules)
 rules (TRS r _) = toList r; sig (TRS _ s) = s
 
 
-isDefined, isConstructor :: (T id :<: f, Ord id) => TRS id f -> Term f -> Bool
-isConstructor trs t = (`Set.member` constructorSymbols (sig trs)) `all` collectIds t
-
+isDefined, isConstructor :: (T id :<: f, Ord id, SignatureC trs id) => trs -> Term f -> Bool
+isConstructor trs t = (`Set.member` constructorSymbols (getSignature trs)) `all` collectIds t
 isDefined = (not.) . isConstructor
 
 collectIds :: (T id :<: f) => Term f -> [id]
