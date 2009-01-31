@@ -176,12 +176,12 @@ ppr = foldTerm pprF
 instance Show id => Ppr (T id) where
     pprF (T n []) = text (show n)
     pprF (T n [x,y]) | not (any isAlpha $ show n) = x <+> text (show n) <+> y
-    pprF (T n tt) = text (show n) <> parens (cat$ punctuate comma tt)
+    pprF (T n tt) = text (show n) <> parens (fcat$ punctuate comma tt)
 
 instance Ppr (T String) where
     pprF (T n []) = text n
     pprF (T n [x,y]) | not (any isAlpha $ n) = x <+> text n <+> y
-    pprF (T n tt) = text n <> parens (cat$ punctuate comma tt)
+    pprF (T n tt) = text n <> parens (fcat$ punctuate comma tt)
 
 instance Ppr Var where
     pprF (Var Nothing i)  = text$ showsVar 0 i ""
