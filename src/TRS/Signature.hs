@@ -34,14 +34,11 @@ data Signature id = Sig { constructorSymbols :: Set id
                         , arity              :: Map id Int}
      deriving (Show, Eq)
 
+allSymbols sig = constructorSymbols sig `Set.union` definedSymbols sig
+
 instance Ord id => Monoid (Signature id) where
     mempty  = Sig mempty mempty mempty
     mappend (Sig c1 s1 a1) (Sig c2 s2 a2) = Sig (mappend c1 c2) (mappend s1 s2) (mappend a1 a2)
-
-class SignatureC a id | a -> id where getSignature :: a -> Signature id
-
-instance (T id :<: f, Ord id, Foldable f) => SignatureC [Rule f] id where
-    getSignature = getSignatureFromRules id
 
 getSignatureFromRules :: (T id :<: f, Ord id, Foldable f) => (id -> id) -> [Rule f] -> Signature id
 getSignatureFromRules mkLabel rules =
@@ -58,6 +55,9 @@ getArity :: (Show id, Ord id) => Signature id -> id -> Int
 getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
                                (Map.lookup f arity)
 
+class Ord id => SignatureC a id | a -> id where getSignature :: a -> Signature id
+instance (Foldable f, Ord id, T id :<: f) => SignatureC [Rule f] id where getSignature = getSignatureFromRules id
+instance (Foldable f, Ord id, T id :<: f) => SignatureC (Set (Rule f)) id where getSignature = getSignatureFromRules id . toList
 
 -- ----
 -- TRS
@@ -65,30 +65,40 @@ getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " no
 class (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 instance (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 
-data TRS id f where TRS :: (Ord id, TRSC f, T id :<: f) => Set (Rule f) -> Signature id -> TRS id f
+class (SignatureC t id, T id :<: f, TRSC f) => TRS t id f | t -> id f where
+    rules :: t -> [Rule f]
+    tRS   :: [Rule f] -> t
+    sig :: t -> Signature id
 
-instance Ppr f => Show (TRS id f) where show trs = show $ rules trs
-instance Eq (Term f) => Eq (TRS id f) where a == b = rules a == rules b
+instance (TRSC f, Ord id, T id :<: f) => TRS [Rule f] id f where
+    rules = id
+    tRS   = id
 
-instance (T id :<: f, Ord id, TRSC f) => Monoid (TRS id f) where
-   mempty = TRS mempty mempty
-   mappend (TRS r1 _) (TRS r2 _) = let rr = (r1 `mappend` r2) in TRS rr (getSignature rr)
+instance (TRSC f, Ord id, T id :<: f) => TRS (Set (Rule f)) id f where
+    rules = toList
+    tRS   = Set.fromList
 
-instance SignatureC (TRS id f) id where getSignature = sig
-instance (T id :<: f, Ord id, Foldable f) => SignatureC (Set (Rule f)) id where
-    getSignature = getSignatureFromRules id . toList
+data SimpleTRS id f where SimpleTRS :: (Ord id, TRSC f, T id :<: f) => Set (Rule f) -> Signature id -> SimpleTRS id f
+instance Ord id => SignatureC (SimpleTRS id f) id where getSignature (SimpleTRS   _ s) = s
 
-instance SizeF f => Size (TRS id f) where size = Data.Foldable.sum . fmap TRS.Types.size . rules
+instance (T id :<: f, Ord id, TRSC f) => TRS (SimpleTRS id f) id f where
+    rules (SimpleTRS r _) = toList r
+    tRS rules = SimpleTRS (Set.fromList rules) (sig rules)
 
-tRS' :: (T id :<: t, Ord id, TRSC t) => [Rule t] -> TRS id t
-rules :: TRS id t -> [Rule t]
+instance (Ppr f, TRS t id f) => Show t where show = show . rules
+instance (TRS t id f) => Eq t where a == b = rules a == rules b
 
-tRS  rules = TRS (Set.fromList rules)
-tRS' rules = TRS (Set.fromList rules) (getSignature rules)
-rules (TRS r _) = toList r; sig (TRS _ s) = s
+instance (T id :<: f, Ord id, TRSC f) => Monoid (SimpleTRS id f) where
+   mempty = SimpleTRS mempty mempty
+   mappend (SimpleTRS r1 _) (SimpleTRS r2 _) = let rr = (r1 `mappend` r2) in SimpleTRS rr (sig rr)
+
+instance (TRS t id f, SizeF f) => Size t where
+    size = Data.Foldable.sum . fmap TRS.Types.size . rules
 
 
-isDefined, isConstructor :: (T id :<: f, Ord id, SignatureC trs id) => trs -> Term f -> Bool
+--tRS  rules = SimpleTRS (Set.fromList rules)
+
+isDefined, isConstructor :: (TRS trs id f) => trs -> Term f -> Bool
 isConstructor trs t = (`Set.member` constructorSymbols (getSignature trs)) `all` collectIds t
 isDefined = (not.) . isConstructor
 
@@ -97,12 +107,12 @@ collectIds = foldTerm f where
     f t | Just (T id ids) <- prj t = id : concat ids
         | otherwise = []
 
-mapRules :: (Rule f -> Rule f) -> TRS id f -> TRS id f
-mapRules f (TRS rr sig) = TRS (Set.map f rr) sig
+mapRules :: (Rule f -> Rule f) -> SimpleTRS id f -> SimpleTRS id f
+mapRules f (SimpleTRS rr sig) = SimpleTRS (Set.map f rr) sig
 
-mapTerms :: (Term f -> Term f) -> TRS id f -> TRS id f
-mapTerms f (TRS rr sig) = TRS (Set.map (fmap f) rr) sig
+mapTerms :: (Term f -> Term f) -> SimpleTRS id f -> SimpleTRS id f
+mapTerms f (SimpleTRS rr sig) = SimpleTRS (Set.map (fmap f) rr) sig
 
 #ifdef HOOD
-instance Observable (TRS id f) where observer trs@TRS{} = observeBase trs
+instance Observable (SimpleTRS id f) where observer trs@SimpleTRS{} = observeBase trs
 #endif HOOD
