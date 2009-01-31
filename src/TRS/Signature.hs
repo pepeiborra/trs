@@ -1,5 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
-{-# LANGUAGE UndecidableInstances, TypeSynonymInstances #-}
+{-# LANGUAGE OverlappingInstances,UndecidableInstances, TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
 {-# LANGUAGE PatternGuards, NamedFieldPuns #-}
 {-# LANGUAGE GADTs #-}
@@ -92,7 +92,7 @@ instance (T id :<: f, Ord id, TRSC f) => Monoid (SimpleTRS id f) where
    mempty = SimpleTRS mempty mempty
    mappend (SimpleTRS r1 _) (SimpleTRS r2 _) = let rr = (r1 `mappend` r2) in SimpleTRS rr (sig rr)
 
-instance (TRS t id f, SizeF f) => Size t where
+instance (TRS t id f) => Size t where
     size = Data.Foldable.sum . fmap TRS.Types.size . rules
 
 

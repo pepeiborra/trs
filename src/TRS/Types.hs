@@ -184,12 +184,14 @@ zipTerm' x y = zipTerm (reinject x) y
 -----------------
 -- Size measures
 -----------------
-class (Functor f, Foldable f) => SizeF f where sizeF :: f Int -> Int
-instance (Functor f, Foldable f) => SizeF f where sizeF f = 1 + sum f
+
 
 class Size t where size :: t -> Int
-instance SizeF f => Size (Term f) where size = foldTerm sizeF
+instance (Functor f, Foldable f) => Size (Term f) where size = foldTerm (\f -> 1 + sum f)
 instance Size t  => Size [t] where size      = sum . fmap size
+
+size' :: (Functor f, Foldable f) => Term f -> [()]
+size' = foldTerm ( (():) . Foldable.concat )
 ------------------------
 -- Hash Consing
 -- ---------------------
@@ -199,7 +201,7 @@ class Functor f => HashTerm f where hashF :: f Int32 -> Int32
 instance HashTerm (T String)  where hashF  (T id tt) = hashString id + sum tt
 instance HashTerm Var where hashF (Var (Just n) i) = hashString n + hashInt i
                             hashF (Var _ i) = hashInt i
-                                              
+
 instance (HashTerm f, HashTerm g) => HashTerm (f :+: g) where
     hashF (Inl l) = hashF l
     hashF (Inr r) = hashF r
