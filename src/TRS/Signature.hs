@@ -65,7 +65,7 @@ instance (Foldable f, Ord id, T id :<: f) => SignatureC (Set (Rule f)) id where 
 class (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 instance (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 
-class (SignatureC t id, T id :<: f, TRSC f) => TRS t id f | t -> id f where
+class (Monoid t, SignatureC t id, T id :<: f, TRSC f) => TRS t id f | t -> id f where
     rules :: t -> [Rule f]
     tRS   :: [Rule f] -> t
     sig :: t -> Signature id
