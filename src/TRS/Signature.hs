@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
 {-# LANGUAGE PatternGuards, NamedFieldPuns #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ViewPatterns #-}
 
 
 module TRS.Signature where
@@ -51,14 +52,14 @@ getSignatureFromRules mkLabel rules =
 
 -- instance SignatureC (TRS f) where getSignature TRS{..} = getSignature rules
 
-getArity :: (Show id, Ord id) => Signature id -> id -> Int
-getArity Sig{arity} f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
-                               (Map.lookup f arity)
+getArity :: (Ord id, SignatureC sig id) => sig -> id -> Int
+getArity (getSignature -> Sig{arity}) f = fromMaybe (error $ "getArity: symbol not in signature")
+                                            (Map.lookup f arity)
 
 class Ord id => SignatureC a id | a -> id where getSignature :: a -> Signature id
+instance Ord id => SignatureC (Signature id) id where getSignature = id
 instance (Foldable f, Ord id, T id :<: f) => SignatureC [Rule f] id where getSignature = getSignatureFromRules id
 instance (Foldable f, Ord id, T id :<: f) => SignatureC (Set (Rule f)) id where getSignature = getSignatureFromRules id . toList
-
 -- ----
 -- TRS
 -- ----
@@ -68,7 +69,7 @@ instance (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)
 class (Monoid t, SignatureC t id, T id :<: f, TRSC f) => TRS t id f | t -> id f where
     rules :: t -> [Rule f]
     tRS   :: [Rule f] -> t
-    sig :: t -> Signature id
+    sig   :: t -> Signature id
 
 instance (TRSC f, Ord id, T id :<: f) => TRS [Rule f] id f where
     rules = id
@@ -107,11 +108,8 @@ collectIds = foldTerm f where
     f t | Just (T id ids) <- prj t = id : concat ids
         | otherwise = []
 
-mapRules :: (Rule f -> Rule f) -> SimpleTRS id f -> SimpleTRS id f
-mapRules f (SimpleTRS rr sig) = SimpleTRS (Set.map f rr) sig
-
-mapTerms :: (Term f -> Term f) -> SimpleTRS id f -> SimpleTRS id f
-mapTerms f (SimpleTRS rr sig) = SimpleTRS (Set.map (fmap f) rr) sig
+mapRules f trs = tRS(map   f $ rules trs)
+mapTerms f trs = tRS(fmap2 f $ rules trs)
 
 #ifdef HOOD
 instance Observable (SimpleTRS id f) where observer trs@SimpleTRS{} = observeBase trs
