@@ -57,6 +57,11 @@ getArity :: (Show id, Ord id, SignatureC sig id) => sig -> id -> Int
 getArity (getSignature -> Sig{arity}) f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
                                             (Map.lookup f arity)
 
+getFunctionSymbols (getSignature -> Sig{..}) = definedSymbols `mappend` constructorSymbols
+getDefinedSymbols  (getSignature -> Sig{..}) = definedSymbols
+getConstructorSymbols (getSignature -> Sig{..}) = constructorSymbols
+
+
 class Ord id => SignatureC a id | a -> id where getSignature :: a -> Signature id
 instance Ord id => SignatureC (Signature id) id where getSignature = id
 instance (Foldable f, Ord id, T id :<: f) => SignatureC [Rule f] id where getSignature = getSignatureFromRules id
