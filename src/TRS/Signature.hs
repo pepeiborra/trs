@@ -4,6 +4,7 @@
 {-# LANGUAGE PatternGuards, NamedFieldPuns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE RecordWildCards #-}
 
 
 module TRS.Signature where
@@ -52,8 +53,8 @@ getSignatureFromRules mkLabel rules =
 
 -- instance SignatureC (TRS f) where getSignature TRS{..} = getSignature rules
 
-getArity :: (Ord id, SignatureC sig id) => sig -> id -> Int
-getArity (getSignature -> Sig{arity}) f = fromMaybe (error $ "getArity: symbol not in signature")
+getArity :: (Show id, Ord id, SignatureC sig id) => sig -> id -> Int
+getArity (getSignature -> Sig{arity}) f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
                                             (Map.lookup f arity)
 
 class Ord id => SignatureC a id | a -> id where getSignature :: a -> Signature id
