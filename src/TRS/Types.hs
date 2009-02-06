@@ -52,6 +52,9 @@ instance Eq (t(Term t)) => Eq (Term t) where t1@(In a) == t2@(In b) = unsafePtrE
 --deriving instance Eq (f (Term f)) => Eq (Term f)
 deriving instance Ord (f (Term f)) => Ord (Term f)
 
+mapTerm :: Functor f => (f (Term f) -> Term f) -> Term f -> Term f
+mapTerm f (In t) = f t
+
 foldTerm :: Functor f => (f a -> a) -> Term f -> a
 foldTerm f (In t) = f (fmap (foldTerm f) t)
 
