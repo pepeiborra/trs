@@ -14,6 +14,7 @@ import Control.Monad hiding ( mapM, sequence, msum)
 import Data.Foldable (toList, Foldable, msum, foldMap)
 import Data.Char (isAlpha)
 import Data.Maybe
+import Data.Monoid
 import Data.Traversable (Traversable, mapM, traverse)
 import Text.PrettyPrint
 import Prelude hiding (sequence, concatMap, mapM)
