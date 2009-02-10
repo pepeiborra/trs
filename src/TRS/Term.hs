@@ -148,19 +148,22 @@ someSubterm f (In x) = msum (In <$$> interleaveM f return x)
 -- Creating terms
 -- ---------------
 
-term :: (T id :<: f, Eq id, HashConsed f) => id -> [Term f] -> Term f
-term s = hashCons . inject . T s
+term :: (T id :<: f, Eq id) => id -> [Term f] -> Term f
+term s = inject . T s
+
+termHc :: (T id :<: f, Eq id, HashConsed f) => id -> [Term f] -> Term f
+termHc s = hashCons . inject . T s
 
 term1 :: (T id :<: f, Eq id, HashConsed f) => id -> Term f -> Term f
-term1 f t       = term f [t]
+term1 f t       = termHc f [t]
 term2 :: (T id :<: f, Eq id, HashConsed f) => id -> Term f -> Term f -> Term f
-term2 f t t'    = term f [t,t']
+term2 f t t'    = termHc f [t,t']
 term3 :: (T id :<: f, Eq id, HashConsed f) => id -> Term f -> Term f -> Term f -> Term f
-term3 f t t' t''= term f [t,t',t'']
+term3 f t t' t''= termHc f [t,t',t'']
 constant :: (T id :<: f, Eq id, HashConsed f) => id -> Term f
-constant f      = term f []
+constant f      = termHc f []
 
-x,y :: (HashConsed f, Var :<: f) => Term f
+x,y :: (Var :<: f) => Term f
 x = var 0
 y = var 1
 

@@ -104,14 +104,20 @@ instance Foldable Var    where foldMap = foldMapDefault
 instance Ord (Var a)     where compare (Var _ a) (Var _ b) = compare a b
 instance Crush Var       where crushF _ z _ = z
 
-var :: (HashConsed s, Var :<: s) => Int -> Term s
+var :: (Var :<: s) => Int -> Term s
 var = var' Nothing
 
-var' :: (HashConsed s, Var :<: s) => Maybe String -> Int -> Term s
-var' =((hashCons . inject) .) . Var
+var' :: (Var :<: s) => Maybe String -> Int -> Term s
+var' =( inject .) . Var
+
+varHc :: (HashConsed s, Var :<: s) => Int -> Term s
+varHc = varHc' Nothing
+
+varHc' :: (HashConsed s, Var :<: s) => Maybe String -> Int -> Term s
+varHc' =((hashCons . inject) .) . Var
 
 varLabeled :: (HashConsed s, Var :<: s) => String -> Int -> Term s
-varLabeled l = {-# SCC "varLabeled" #-} var' (Just l)
+varLabeled l = {-# SCC "varLabeled" #-} varHc' (Just l)
 
 inV :: Var t -> Term Var
 inV (Var n i) = In (Var n i)
