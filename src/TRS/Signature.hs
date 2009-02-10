@@ -75,7 +75,6 @@ instance (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)
 class (Monoid t, SignatureC t id, T id :<: f, TRSC f) => TRS t id f | t -> id f where
     rules :: t -> [Rule f]
     tRS   :: [Rule f] -> t
-    sig   :: t -> Signature id
 
 instance (TRSC f, Ord id, T id :<: f) => TRS [Rule f] id f where
     rules = id
@@ -90,14 +89,14 @@ instance Ord id => SignatureC (SimpleTRS id f) id where getSignature (SimpleTRS 
 
 instance (T id :<: f, Ord id, TRSC f) => TRS (SimpleTRS id f) id f where
     rules (SimpleTRS r _) = toList r
-    tRS rules = SimpleTRS (Set.fromList rules) (sig rules)
+    tRS rules = SimpleTRS (Set.fromList rules) (getSignature rules)
 
 instance (Ppr f, TRS t id f) => Show t where show = show . rules
 instance (TRS t id f) => Eq t where a == b = rules a == rules b
 
 instance (T id :<: f, Ord id, TRSC f) => Monoid (SimpleTRS id f) where
    mempty = SimpleTRS mempty mempty
-   mappend (SimpleTRS r1 _) (SimpleTRS r2 _) = let rr = (r1 `mappend` r2) in SimpleTRS rr (sig rr)
+   mappend (SimpleTRS r1 _) (SimpleTRS r2 _) = let rr = (r1 `mappend` r2) in SimpleTRS rr (getSignature rr)
 
 instance (TRS t id f) => Size t where
     size = Data.Foldable.sum . fmap TRS.Types.size . rules
