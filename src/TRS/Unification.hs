@@ -11,12 +11,13 @@
 {-# OPTIONS_GHC -fglasgow-exts #-}
 
 module TRS.Unification (
-      Unifyable, Unify(..), UnifyL(..), UnifyR(..), unify, unify1,
+      Unifyable, Unify(..), UnifyL(..), UnifyR(..), unify, unify1, unifies
       ) where
 
 import Control.Monad.State hiding (mapM_, zipWithM_)
 import Control.Applicative
 import Data.Foldable
+import Data.Maybe (isJust)
 import Prelude hiding (mapM_)
 import TypePrelude
 
@@ -83,6 +84,8 @@ unify' sigma (In t) (In u) = {-# SCC "unify" #-} execStateT (unU$ unifyL t u) si
 unify :: (MonadPlus m, Unifyable f) => Term f -> Term f -> m (Subst f)
 unify = unify' emptySubst
 
+unifies :: Unifyable f => Term f -> Term f -> Bool
+unifies = (isJust.) . unify
 ---------------------------------------
 -- * Examples
 ---------------------------------------
