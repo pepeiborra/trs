@@ -28,12 +28,12 @@ import TRS.Utils hiding ( parens )
 import Debug.Observe
 #endif
 
-subterms, properSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
+subterms, properSubterms, directSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
 subterms (In t) = In t : {-# SCC "subterms" #-}
                   concat (subterms <$> toList t)
 properSubterms = {-# SCC "properSubterms" #-}
                  tail . subterms
-
+directSubterms (In t) = toList t
 ------------------------------------
 -- * Inspecting and modifying terms
 ------------------------------------
