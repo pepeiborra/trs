@@ -51,9 +51,9 @@ getSignatureFromRules mkLabel rules =
                                 snub[root | l :-> r <- rules, t <- subterms r ++ properSubterms l, Just root <- [rootSymbol t]] \\ dd}
     where dd = snub [ root | l :-> _ <- rules, let Just root = rootSymbol l]
 
--- instance SignatureC (TRS f) where getSignature TRS{..} = getSignature rules
+-- instance HasSignature (TRS f) where getSignature TRS{..} = getSignature rules
 
-getArity :: (Show id, Ord id, SignatureC sig id) => sig -> id -> Int
+getArity :: (Show id, Ord id, HasSignature sig id) => sig -> id -> Int
 getArity (getSignature -> Sig{arity}) f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
                                             (Map.lookup f arity)
 
@@ -62,17 +62,17 @@ getDefinedSymbols  (getSignature -> Sig{..}) = definedSymbols
 getConstructorSymbols (getSignature -> Sig{..}) = constructorSymbols
 
 
-class Ord id => SignatureC a id | a -> id where getSignature :: a -> Signature id
-instance Ord id => SignatureC (Signature id) id where getSignature = id
-instance (Foldable f, Ord id, T id :<: f) => SignatureC [Rule f] id where getSignature = getSignatureFromRules id
-instance (Foldable f, Ord id, T id :<: f) => SignatureC (Set (Rule f)) id where getSignature = getSignatureFromRules id . toList
+class Ord id => HasSignature a id | a -> id where getSignature :: a -> Signature id
+instance Ord id => HasSignature (Signature id) id where getSignature = id
+instance (Foldable f, Ord id, T id :<: f) => HasSignature [Rule f] id where getSignature = getSignatureFromRules id
+instance (Foldable f, Ord id, T id :<: f) => HasSignature (Set (Rule f)) id where getSignature = getSignatureFromRules id . toList
 -- ----
 -- TRS
 -- ----
 class (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 instance (Matchable f f, Unifyable f, IsVar f, AnnotateWithPos f f, Ord (Term f)) => TRSC f
 
-class (Monoid t, SignatureC t id, T id :<: f, TRSC f) => TRS t id f | t -> id f where
+class (Monoid t, HasSignature t id, T id :<: f, TRSC f) => TRS t id f | t -> id f where
     rules :: t -> [Rule f]
     tRS   :: [Rule f] -> t
 
@@ -85,7 +85,7 @@ instance (TRSC f, Ord id, T id :<: f) => TRS (Set (Rule f)) id f where
     tRS   = Set.fromList
 
 data SimpleTRS id f where SimpleTRS :: (Ord id, TRSC f, T id :<: f) => Set (Rule f) -> Signature id -> SimpleTRS id f
-instance Ord id => SignatureC (SimpleTRS id f) id where getSignature (SimpleTRS   _ s) = s
+instance Ord id => HasSignature (SimpleTRS id f) id where getSignature (SimpleTRS   _ s) = s
 
 instance (T id :<: f, Ord id, TRSC f) => TRS (SimpleTRS id f) id f where
     rules (SimpleTRS r _) = toList r
@@ -93,6 +93,7 @@ instance (T id :<: f, Ord id, TRSC f) => TRS (SimpleTRS id f) id f where
 
 instance (Ppr f, TRS t id f) => Show t where show = show . rules
 instance (TRS t id f) => Eq t where a == b = rules a == rules b
+
 
 instance (T id :<: f, Ord id, TRSC f) => Monoid (SimpleTRS id f) where
    mempty = SimpleTRS mempty mempty
