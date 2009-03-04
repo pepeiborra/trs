@@ -19,7 +19,6 @@ import Control.Applicative
 import Data.Foldable
 import Data.Maybe (isJust)
 import Prelude hiding (mapM_)
-import TypePrelude
 
 import TRS.Substitutions
 import TRS.Term

@@ -19,7 +19,7 @@ Flag debug
 
 Library
  buildable: True
- build-depends: base < 4, mtl, containers, pretty, alacarte, typeprelude, logict, parallel
+ build-depends: base < 4, mtl, containers, pretty, alacarte, logict, parallel
  exposed-modules: 
   TRS
   TRS.Utils 

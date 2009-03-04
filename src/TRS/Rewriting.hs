@@ -25,7 +25,6 @@ import Data.Maybe (isJust)
 import Data.Monoid
 import Data.Traversable
 import Prelude hiding (mapM, concat, zipWith)
-import TypePrelude
 
 import TRS.Term
 import TRS.Types hiding (size)
