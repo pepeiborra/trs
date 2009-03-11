@@ -60,10 +60,10 @@ fill ct t = {-# SCC "fill" #-}
 
 -- | Returns a list of subterms and the corresponding contexts
 --   | forall subterm ctx . (subterm, ctx) <- contexts t ==> ctx |> subterm = t
-contexts :: (Hole :<: f, Traversable f, HashConsed f) => Term f -> [(Term f, Context f)]
+contexts :: (Hole :<: f, Traversable f, HashConsed f) => Term f -> [(Term f, Context f, Position)]
 contexts t@(In f) = {-# SCC "contexts" #-}
      let t' = shiftC 1 t in
-             [ (shiftC (-1) t_i, u)
+             [ (shiftC (-1) t_i, u, [i])
              | i <- [1..TRS.Utils.size f]
              , (u, t_i) <- updateAt' [i] t' (hole 0) ]
 

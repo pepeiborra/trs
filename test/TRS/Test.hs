@@ -267,11 +267,11 @@ testEquality = TestLabel "test equality" $
  -- REVIEW these properties
 propCIdentity, propCTransiti :: Term PeanoT -> Bool
 propCIdentity x0 | x <- (reinject x0 :: Term PeanoTH)
-                 = and [ ct|>y == x | (y,ct) <- contexts x]
+                 = and [ ct|>y == x | (y,ct,_) <- contexts x]
 
 propCTransiti x0 | x <- (reinject x0 :: Term PeanoTH)
-                 = and [ ct|>y|>y1 == x | (y1,ct1) <- contexts (reinject x)
-                                        , (y,ct) <- contexts ct1]
+                 = and [ ct|>y|>y1 == x | (y1,ct1,_) <- contexts (reinject x)
+                                        , (y,ct,_) <- contexts ct1]
 
 propCSubterms :: Term PeanoT -> Bool
 propCSubterms x@(In f) = length (toList f) == length (contexts (reinject x :: Term PeanoTH))

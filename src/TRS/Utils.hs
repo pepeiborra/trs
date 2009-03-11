@@ -122,6 +122,10 @@ biM f g = firstM f >=> secondM g
 
 swap :: (a,b) -> (b,a)
 swap(x,y) = (y,x)
+
+first3  f (x,y,z) = (f x, y, z)
+second3 f (x,y,z) = (x, f y, z)
+
 ------------------------------------------------------------------------
 --
 -- Monadic versions of functions on lists
