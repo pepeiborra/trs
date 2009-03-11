@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
 {-# LANGUAGE OverlappingInstances,UndecidableInstances, TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
@@ -9,6 +10,7 @@
 
 module TRS.Signature where
 
+import Control.Applicative
 import Data.Foldable (Foldable, sum, toList)
 import Data.List ((\\))
 import Data.Maybe
@@ -36,8 +38,6 @@ data Signature id = Sig { constructorSymbols :: Set id
                         , arity              :: Map id Int}
      deriving (Show, Eq)
 
-allSymbols sig = constructorSymbols sig `Set.union` definedSymbols sig
-
 instance Ord id => Monoid (Signature id) where
     mempty  = Sig mempty mempty mempty
     mappend (Sig c1 s1 a1) (Sig c2 s2 a2) = Sig (mappend c1 c2) (mappend s1 s2) (mappend a1 a2)
@@ -57,10 +57,15 @@ getArity :: (Show id, Ord id, HasSignature sig id) => sig -> id -> Int
 getArity (getSignature -> Sig{arity}) f = fromMaybe (error $ "getArity: symbol " ++ show f ++ " not in signature")
                                             (Map.lookup f arity)
 
-getFunctionSymbols (getSignature -> Sig{..}) = definedSymbols `mappend` constructorSymbols
+
 getDefinedSymbols  (getSignature -> Sig{..}) = definedSymbols
 getConstructorSymbols (getSignature -> Sig{..}) = constructorSymbols
 
+
+allSymbols :: Ord id => Signature id -> Set id
+allSymbols    = liftA2 (Set.union) constructorSymbols definedSymbols
+getAllSymbols :: HasSignature f id => f -> Set id
+getAllSymbols = liftA2 mappend getConstructorSymbols getDefinedSymbols
 
 class Ord id => HasSignature a id | a -> id where getSignature :: a -> Signature id
 instance Ord id => HasSignature (Signature id) id where getSignature = id
