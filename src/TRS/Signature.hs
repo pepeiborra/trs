@@ -110,8 +110,8 @@ instance (TRS t id f) => Size t where
 
 --tRS  rules = SimpleTRS (Set.fromList rules)
 
-isDefined, isConstructor :: (TRS trs id f) => trs -> Term f -> Bool
-isConstructor trs t = (`Set.member` constructorSymbols (getSignature trs)) `all` collectIds t
+isDefined, isConstructor :: (HasSignature sig id, T id :<: f) => sig -> Term f -> Bool
+isConstructor sig t = (`Set.member` getConstructorSymbols sig) `all` collectIds t
 isDefined = (not.) . isConstructor
 
 collectIds :: (T id :<: f) => Term f -> [id]
