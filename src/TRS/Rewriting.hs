@@ -7,10 +7,12 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE PolymorphicComponents #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
-{-# OPTIONS_GHC -fglasgow-exts #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module TRS.Rewriting (
-      Rewritable, Match(..), MatchL(..), Matchable, match,
+      Rewritable, Match(..), MatchL(..), Matchable,
+      match, match', matches,
       rewrite1,  reduce,  rewrites,
 --      rewrite1S, reduceS, rewritesS,
       (=.=), EqModulo_(..), EqModulo, equal, equalG,
@@ -39,9 +41,11 @@ import TRS.Utils hiding (someSubterm)
 isNF :: (Rewritable rf f) => [Rule rf] -> Term f -> Bool
 isNF = (null.) . rewrite1
 
-isNotRootDefined, isRootDefined :: (Zip f, Matchable rf f) => [Rule rf] -> Term f -> Bool
-isRootDefined rr (In t) = Prelude.any (flip matches t_cap . lhs) rr where
-   t_cap = In $ evalState (fzipWith (\_ _ -> var <$> fresh) t t) [0..]
+isNotRootDefined, isRootDefined :: (Zip f, rf :<: f, HashConsed f) => [Rule rf] -> Term f -> Bool
+--isRootDefined rr t = Prelude.any (flip matches t . cap . lhs) rr where
+--   cap (In x) = In $ evalState (fzipWith (\_ _ -> var <$> fresh) x x) [0..]
+
+isRootDefined rr (In t) = F.any (\((reinject -> In l) :-> _) -> isJust (fzip t l)) rr
 
 isNotRootDefined rr = not . isRootDefined rr
 
@@ -76,13 +80,13 @@ instance Zip f => Match f f where
        theta2 <- match (applySubst theta1 t) u
        return (theta1 `mappend` theta2)
 
-match' :: (Matchable f g) => Term f -> Term g -> Maybe (Subst g)
+match' :: (Matchable pattern f) => Term pattern -> Term f -> Maybe (Subst f)
 match' (In t) (In u) = {-# SCC "match'" #-} matchL t u
 
 match :: (Matchable f f) => Term f -> Term f -> Maybe (Subst f)
 match t u = {-# SCC "match" #-} match' t u
 
-matches :: (Matchable f g) => Term f -> Term g -> Bool
+matches :: (Matchable pattern f) => Term pattern -> Term f -> Bool
 matches = (isJust.). match'
 
 ----------------------------------------
