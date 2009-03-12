@@ -36,6 +36,7 @@ Library
   TRS.UMonad
   TRS.Signature
   TRS.Confluence
+  TRS.Bottom
  extensions: CPP, UndecidableInstances, OverlappingInstances,
              MultiParamTypeClasses, FunctionalDependencies,
              FlexibleContexts, FlexibleInstances, TypeSynonymInstances
