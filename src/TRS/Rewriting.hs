@@ -14,11 +14,13 @@ module TRS.Rewriting (
       rewrite1,  reduce,  rewrites,
 --      rewrite1S, reduceS, rewritesS,
       (=.=), EqModulo_(..), EqModulo, equal, equalG,
-      isNF
+      isNF, isRootDefined, isNotRootDefined
     ) where
 
+import Control.Applicative
 import Control.Monad (mzero, mplus, MonadPlus, foldM)
 import Control.Monad.Logic.Class
+import Control.Monad.State (evalState)
 import Data.Foldable as F
 import Data.List ((\\))
 import Data.Maybe (isJust)
@@ -36,6 +38,12 @@ import TRS.Utils hiding (someSubterm)
 
 isNF :: (Rewritable rf f) => [Rule rf] -> Term f -> Bool
 isNF = (null.) . rewrite1
+
+isNotRootDefined, isRootDefined :: (Zip f, Matchable rf f) => [Rule rf] -> Term f -> Bool
+isRootDefined rr (In t) = Prelude.any (flip matches t_cap . lhs) rr where
+   t_cap = In $ evalState (fzipWith (\_ _ -> var <$> fresh) t t) [0..]
+
+isNotRootDefined rr = not . isRootDefined rr
 
 -----------------------------
 -- * Matching
@@ -73,6 +81,9 @@ match' (In t) (In u) = {-# SCC "match'" #-} matchL t u
 
 match :: (Matchable f f) => Term f -> Term f -> Maybe (Subst f)
 match t u = {-# SCC "match" #-} match' t u
+
+matches :: (Matchable f g) => Term f -> Term g -> Bool
+matches = (isJust.). match'
 
 ----------------------------------------
 -- * Rewriting
