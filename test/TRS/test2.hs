@@ -34,13 +34,11 @@ main = do
 
 main = do
 {-
-  putStrLn "Variant" >> quickCheck propVariant
   putStrLn "Narrowing Soundness 1 " >> quickCheck (propNarrowingSoundness peanoTRS)
   putStrLn "Narrowing Soundness 2 " >> quickCheck (propNarrowingSoundness peanoTRS')
   putStrLn "Reduce gives Normal Forms 1" >> quickCheck (propReduceNF peanoTRS )
   putStrLn "Reduce gives Normal Forms 2" >> quickCheck (propReduceNF peanoTRS')
 -}
-  putStrLn "Variant" >> Small.smallCheck 8 propVariant
   putStrLn "Narrowing Soundness 1 " >> Small.smallCheck 8 propNarrowingSoundness
   putStrLn "Reduce gives Normal Forms 1" >> Small.smallCheck 8 propReduceNF
   putStrLn "Narrowing gives idempotent subts" >> smallCheck 8 propSubstitutionIdempotency
@@ -70,10 +68,6 @@ propSubstitutionIdempotency (rr :: [Rule PeanoT]) (t :: Term PeanoTH) =
       (t', theta) <- take 100 $ narrows rr t
       return (t' // theta == t' // theta // theta)
 
-propVariant l r t = concat (vars <$> r') `intersect` vars t == []
-  where Just r' = evalR [0..] (variant (l:->r))
-        types = ([l,r,t ]:: [Term PeanoT])
-
 propNarrowingVars rr t = isVar t && isValidTRS rr ==> null $ observeMany 1 $ narrow1 rr (reinject t :: Term PeanoTH)
  where types = (rr :: [Rule PeanoT], t :: Term PeanoT)
 
@@ -93,8 +87,8 @@ propReduceNF rr t = isValidTRS rr ==> Prelude.and $ do
 
 
 testIsDefined = TestList [
-                 isConstructor peanoTRS (s z :: Term PeanoT) ~? "s z isConstructor",
-                 isDefined     peanoTRS (s z +: z :: Term PeanoTH) ~? " 1 + 0 isDefined"
+                 isNotRootDefined  peanoTRS (s z :: Term PeanoT) ~? "s z isConstructor",
+                 isRootDefined     peanoTRS (s z +: z :: Term PeanoTH) ~? " 1 + 0 isDefined"
                  ]
 
 --------------------------
