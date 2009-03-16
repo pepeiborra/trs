@@ -99,13 +99,13 @@ instance (T id :<: f, Ord id, TRSC f) => TRS (SimpleTRS id f) id f where
 instance (Ppr f, TRS t id f) => Show t where show = show . rules
 instance (TRS t id f) => Eq t where a == b = rules a == rules b
 
-
 instance (T id :<: f, Ord id, TRSC f) => Monoid (SimpleTRS id f) where
    mempty = SimpleTRS mempty mempty
    mappend (SimpleTRS r1 _) (SimpleTRS r2 _) = let rr = (r1 `mappend` r2) in SimpleTRS rr (getSignature rr)
 
-instance (TRS t id f) => Size t where
-    size = Data.Foldable.sum . fmap TRS.Types.size . rules
+--instance (TRS t id f) => Size t where size =
+sizeTRS :: TRS t id f => t -> Int
+sizeTRS = Data.Foldable.sum . fmap TRS.Types.size . rules
 
 
 --tRS  rules = SimpleTRS (Set.fromList rules)
