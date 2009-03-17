@@ -48,7 +48,7 @@ rootSymbol t | Just (T root _) <- open t = Just root
 type Position = [Int]
 
 positions :: (Functor f, Foldable f) => Term f -> [Position]
-positions = foldTerm f where f x = concat $ Prelude.zipWith (\i pp -> map (i:) pp) [1..] (toList x)
+positions = foldTerm f where f x = [] : concat (Prelude.zipWith (\i pp -> map (i:) pp) [1..] (toList x))
 
 (!) :: Foldable f => Term f -> Position -> Term f
 In t ! (i:ii) = {-# SCC "!" #-}  (toList t !! (i-1)) ! ii
