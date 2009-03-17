@@ -9,9 +9,10 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module TRS.Rewriting (
-      Rewritable, Match(..), MatchL(..), Matchable,
+      Rewritable, Match(..), MatchL(..), MatchR(..), Matchable,
       match, match', matches,
       rewrite1,  reduce,  rewrites,
 --      rewrite1S, reduceS, rewritesS,
