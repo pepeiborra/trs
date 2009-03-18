@@ -147,7 +147,7 @@ equalG t u | t' <- variant' t u = {-# SCC "equalG" #-}
 
 
 -- Equality modulo renaming on Terms
-type EqModulo f = EqModulo_(Term f)
+type EqModulo f = EqModulo_ (Term f)
 
 newtype EqModulo_ a = EqModulo {eqModulo :: a}
 
@@ -156,6 +156,7 @@ deriving instance (Eq (EqModulo_ a), Ord  a) => Ord (EqModulo_ a)
 instance Show a => Show (EqModulo_ a) where showsPrec p (EqModulo x) = showsPrec p x
 
 instance (Matchable f f, IsVar f) => Eq (EqModulo f) where EqModulo t1 == EqModulo t2 = t1 `equal` t2
+instance (Matchable f f, IsVar f, Traversable t) => Eq (EqModulo_ (t(Term f))) where EqModulo t1 == EqModulo t2 = t1 `equalG` t2
 
 --instance (Var :<: f, Unifyable f) => Eq (Term f) where (==) = equal
 
