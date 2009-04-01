@@ -48,7 +48,7 @@ import Debug.Observe
 
 applySubst :: (IsVar f, f :<: fs, HashConsed fs) => Subst fs -> Term f -> Term fs
 applySubst s t = {-# SCC "applySubst" #-}
-                 hashCons $ foldTerm (applySubstF s) t
+                 foldTerm (applySubstF s) t
 
 applySubstF :: (IsVar f, f :<: fs) => Subst fs -> f (Term fs) -> Term fs
 applySubstF s t
@@ -87,7 +87,7 @@ unique (KeyTerm t) = error ("A substitution is binding on something which is not
 
 class MkSubst a f | a -> f where mkSubst :: a -> Subst f
 instance (Ppr f, IsVar f, IsVar fs) => MkSubst [(Term f, Term fs)] fs where mkSubst = subst' . map (first (KeyTerm))
-instance IsVar fs => MkSubst [(Var h, Term fs)] fs where mkSubst = subst' . map (first (\(Var n i) -> KeyTerm $ In $ Var n i))
+instance IsVar fs => MkSubst [(Var h, Term fs)] fs where mkSubst = subst' . map (first (\(Var n i) -> KeyTerm $ hIn $ Var n i))
 instance IsVar f  => MkSubst [(Int, Term f)]    f  where mkSubst = subst' . map (first KeyId)
 instance Ppr f => Show (Subst f) where
     show (Subst m) = render $ braces $ fsep $ punctuate comma (

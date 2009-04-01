@@ -16,6 +16,9 @@ Flag tests
 Flag ghc10
 Flag debug
    Default: False
+Flag hashCons
+   Default:False
+
 
 Library
  buildable: True
@@ -44,6 +47,8 @@ Library
  hs-source-dirs: src
  ghc-prof-options: -prof -auto-all
  ghc-options: -O2 -Wall -fno-warn-name-shadowing
+ if flag(hashCons)
+    cpp-options: -DHASHCONS
  if flag(tests)
     build-depends: smallcheck, QuickCheck >= 2.0, HUnit < 1.2 , lazysmallcheck
     exposed-modules: 

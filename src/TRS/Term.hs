@@ -30,7 +30,7 @@ import Debug.Observe
 #endif
 
 subterms, properSubterms, directSubterms :: (Functor f, Foldable f) => Term f -> [Term f]
-subterms (In t) = In t : {-# SCC "subterms" #-}
+subterms (In t) = hIn t : {-# SCC "subterms" #-}
                   concat (subterms <$> toList t)
 properSubterms = {-# SCC "properSubterms" #-}
                  tail . subterms
@@ -61,8 +61,7 @@ updateAt  :: (Traversable f, HashConsed f) =>  Position -> Term f -> Term f -> T
 updateAt [] _ t' = t'
 updateAt (0:_) _ _ = error "updateAt: 0 is not a position!"
 updateAt (i:ii) t' (In t) = {-# SCC "updateAt" #-}
-                            hashCons $
-                            In$ fmap (\(j,st) -> if i==j then updateAt ii t' st else st)
+                            hIn$ fmap (\(j,st) -> if i==j then updateAt ii t' st else st)
                                 (unsafeZipG [1..] t)
 
 -- TODO: simplify this code so that the monadPlus constraint does not float out by internally fixing the monad to lists
@@ -70,10 +69,10 @@ updateAt'  :: (Traversable f, HashConsed f, Monad m) =>
               Position -> Term f -> Term f -> m (Term f, Term f)
 updateAt' pos x x' = {-# SCC "updateAt'" #-} 
                      maybe (fail "updateAt': invalid position") return
-                        (go x pos >>= \(t',a) -> a >>= \v -> return (hashCons t',v))
+                        (go x pos >>= \(t',a) -> a >>= \v -> return (t',v))
   where
     go _      (0:_)  = fail "updateAt: 0 is not a position!"
-    go (In t) (i:is) = fmap ((In***msum) . unzipG)
+    go (In t) (i:is) = fmap ((hIn***msum) . unzipG)
                      . mapM  (\(j,u)->if i==j
                                        then go u is
                                        else return (u, mzero))
@@ -91,13 +90,13 @@ annotateWithPos = {-# SCC "annotateWithPos" #-} mergePositions . foldTerm annota
    mergePositions :: Functor f => Term (WithNote Position f) -> Term (WithNote Position f)
    mergePositions = foldTermTop f
    f (Note (p,t))  = Note (p, fmap (appendPos p) t)
-   appendPos p (In (Note (p', t'))) = In (Note (p++p', t'))
+   appendPos p (In (Note (p', t'))) = hIn (Note (p++p', t'))
 
 class (t :<: f) => AnnotateWithPos t f where annotateWithPosF :: t (Term (WithNote Position f)) -> Term (WithNote Position f)
 instance (T id :<: f) => AnnotateWithPos (T id) f where
     annotateWithPosF (T n tt) =
-        In$ Note ([], (inj$ T n [In (Note (i:p, t)) | (i, In(Note (p,t))) <- zip [1..] tt]))
-instance (t  :<: f) => AnnotateWithPos t f where annotateWithPosF t = In $ Note ([], inj t)
+        hIn$ Note ([], (inj$ T n [hIn (Note (i:p, t)) | (i, In(Note (p,t))) <- zip [1..] tt]))
+instance (t  :<: f) => AnnotateWithPos t f where annotateWithPosF t = hIn $ Note ([], inj t)
 instance ((a :+: b) :<: f, AnnotateWithPos a f, AnnotateWithPos b f) => AnnotateWithPos (a :+: b) f where
     annotateWithPosF (Inr x) = annotateWithPosF x
     annotateWithPosF (Inl y) = annotateWithPosF y
@@ -117,7 +116,7 @@ note :: Term (WithNote note f) -> note
 note (In (Note (note,_))) = note
 
 dropNote :: Functor f => Term (WithNote note f) -> Term f
-dropNote = foldTerm f where f (Note (note,t)) = In t
+dropNote = foldTerm f where f (Note (note,t)) = hIn t
 
 isLinear :: (Var :<: s, Foldable s, Functor s) => Term s -> Bool
 isLinear t = length(snub vars) == length vars where vars = [ v | u <- subterms t, Just v@Var{} <- [TRS.Types.open u]]
@@ -139,12 +138,12 @@ collect pred t = {-# SCC "collect" #-} [ u | u <- subterms t, pred u]
 --   (you could deduce that from the type signature)
 replace :: (Eq (Term f), Functor f, HashConsed f) => [(Term f, Term f)] -> Term f -> Term f
 replace []   = id
-replace dict = hashCons . foldTerm f where
-    f t = fromMaybe (In t) $ lookup (In t) dict
+replace dict = foldTerm f where
+    f t = fromMaybe (hIn t) $ lookup (hIn t) dict
 
 -- Only 1st level subterms
 someSubterm :: (Traversable f, Functor m, MonadPlus m) => (Term f -> m(Term f)) -> Term f -> m (Term f)
-someSubterm f (In x) = msum (In <$$> interleaveM f return x)
+someSubterm f (In x) = msum (hIn <$$> interleaveM f return x)
 
 -- ---------------
 -- Creating terms
@@ -154,7 +153,7 @@ term :: (T id :<: f, Eq id) => id -> [Term f] -> Term f
 term s = inject . T s
 
 termHc :: (T id :<: f, Eq id, HashConsed f) => id -> [Term f] -> Term f
-termHc s = hashCons . inject . T s
+termHc s = inject . T s
 
 term1 :: (T id :<: f, Eq id, HashConsed f) => id -> Term f -> Term f
 term1 f t       = termHc f [t]

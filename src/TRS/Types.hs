@@ -62,10 +62,10 @@ foldTermM :: (Monad m, Traversable f) => (f a -> m a) -> Term f -> m a
 foldTermM f (In t) = f =<< mapM (foldTermM f) t
 
 foldTermTop :: Functor f => (f (Term f) -> f(Term f)) -> Term f -> Term f
-foldTermTop f (In t)= In (foldTermTop f `fmap` f t)
+foldTermTop f (In t)= hIn (foldTermTop f `fmap` f t)
 
 inject :: (g :<: f) => g (Term f) -> Term f
-inject = In . inj
+inject = hIn . inj
 
 reinject :: (f :<: g, HashConsed g) => Term f -> Term g
 reinject = hashCons . foldTerm inject
@@ -75,6 +75,12 @@ reinject' = fmap reinject
 
 open :: (g :<: f) => Term f -> Maybe (g (Term f))
 open (In t) = prj t
+
+#ifdef HASHCONS
+hIn = hashCons . In
+#else
+hIn = In
+#endif
 
 class Crush f where crushF :: (a -> b -> b) -> b -> f a -> b
 instance (Crush a, Crush b) => Crush (a :+: b) where
@@ -120,7 +126,7 @@ varLabeled :: (HashConsed s, Var :<: s) => String -> Int -> Term s
 varLabeled l = {-# SCC "varLabeled" #-} varHc' (Just l)
 
 inV :: Var t -> Term Var
-inV (Var n i) = In (Var n i)
+inV (Var n i) = hIn (Var n i)
 
 class Functor f => IsVar f where
     isVarF    :: f x -> Bool

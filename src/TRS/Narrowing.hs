@@ -54,14 +54,14 @@ narrowStepBasic rr t = {-# SCC "narrowStepBasic1" #-} go (t, emptyC, [])
                           guard (not $ isVar t)
                           lhs :-> rhs <- variant r
                           unify1 lhs t
-                          return (hashCons rhs)
+                          return rhs
 
 --unify' :: Unify f f f => Term f -> Term f ->  (Subst f)
 unify' :: (Unifyable f, MonadEnv f m, MonadEnv g m, MonadPlus m) => Term f -> Term f -> m (Subst g)
 unify' t u = unify1 t u >> getEnv
 
 apply' :: (HashConsed f, MonadEnv f m) => Term f -> m (Term f)
-apply' = apply >=> return . hashCons
+apply' = apply
 
 -- ------------------------------
 -- * Narrowing
@@ -125,7 +125,7 @@ innStepBasic rr t = do
          narrowTop t = msumP $ flip map rr' $ \(lhs:->rhs) -> do
                           guard (not $ isVar t)
                           unify1 lhs t
-                          return (hashCons rhs)
+                          return rhs
      go (t, emptyC)
 
 narrowBounded :: forall rf f m . (Narrowable rf f, Functor m, MonadLogic m) => (Term f -> Bool) -> [Rule rf] -> Term f -> m (Term f, Subst f)
