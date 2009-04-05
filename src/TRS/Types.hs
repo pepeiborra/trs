@@ -64,6 +64,7 @@ foldTermM f (In t) = f =<< mapM (foldTermM f) t
 foldTermTop :: Functor f => (f (Term f) -> f(Term f)) -> Term f -> Term f
 foldTermTop f (In t)= hIn (foldTermTop f `fmap` f t)
 
+{-# INLINE inject #-}
 inject :: (g :<: f) => g (Term f) -> Term f
 inject = hIn . inj
 
@@ -73,9 +74,11 @@ reinject = hashCons . foldTerm inject
 reinject' :: (f :<: fs, fs :<: gs, HashConsed gs) => f (Term fs) -> f (Term gs)
 reinject' = fmap reinject
 
+{-# INLINE open #-}
 open :: (g :<: f) => Term f -> Maybe (g (Term f))
 open (In t) = prj t
 
+{-# INLINE hIn #-}
 #ifdef HASHCONS
 hIn = hashCons . In
 #else
@@ -116,14 +119,8 @@ var = var' Nothing
 var' :: (Var :<: s) => Maybe String -> Int -> Term s
 var' =( inject .) . Var
 
-varHc :: (HashConsed s, Var :<: s) => Int -> Term s
-varHc = varHc' Nothing
-
-varHc' :: (HashConsed s, Var :<: s) => Maybe String -> Int -> Term s
-varHc' =((hashCons . inject) .) . Var
-
 varLabeled :: (HashConsed s, Var :<: s) => String -> Int -> Term s
-varLabeled l = {-# SCC "varLabeled" #-} varHc' (Just l)
+varLabeled l = {-# SCC "varLabeled" #-} var' (Just l)
 
 inV :: Var t -> Term Var
 inV (Var n i) = hIn (Var n i)
