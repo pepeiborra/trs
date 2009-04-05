@@ -60,8 +60,8 @@ t    ! []     = t
 updateAt  :: (Traversable f, HashConsed f) =>  Position -> Term f -> Term f -> Term f
 updateAt [] _ t' = t'
 updateAt (0:_) _ _ = error "updateAt: 0 is not a position!"
-updateAt (i:ii) t' (In t) = {-# SCC "updateAt" #-}
-                            hIn$ fmap (\(j,st) -> if i==j then updateAt ii t' st else st)
+updateAt (i:ii)  (In t) t' = {-# SCC "updateAt" #-}
+                            hIn$ fmap (\(j,st) -> if i==j then updateAt ii st t' else st)
                                 (unsafeZipG [1..] t)
 
 -- TODO: simplify this code so that the monadPlus constraint does not float out by internally fixing the monad to lists

@@ -22,6 +22,7 @@ module TRS.Substitutions (
 import Control.Applicative
 import Control.Arrow (first)
 import Control.Monad.State
+import Control.Parallel.Strategies
 import Data.List (intersect, (\\))
 import Data.Foldable
 import qualified Data.Map as Map
@@ -66,8 +67,14 @@ newtype SubstG a = Subst {fromSubst:: Map.Map Key a} deriving (Eq, Functor)
 subst            = normalize . Subst
 subst'           = subst . Map.fromList
 
+deriving instance NFData a => NFData (SubstG a)
+
 data Key where KeyTerm :: (Ppr f, IsVar f) => Term f -> Key
                KeyId   :: Int -> Key
+
+instance NFData Key where
+  rnf (KeyId i)   = rnf i
+  rnf (KeyTerm t) = t `seq` ()
 
 instance Eq Key  where t1 == t2      = unique t1 == unique t2
 instance Ord Key where compare k1 k2 = compare (unique k1) (unique k2)

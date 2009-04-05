@@ -246,5 +246,5 @@ hashCons t = unsafePerformIO $ do
 -- ----------------
 
 instance NFData (f (Term f)) => NFData (Term f) where rnf (In x) = rnf x
-instance NFData a => NFData (T String a) where rnf (T s tt) = rnf s `seq` rnf tt `seq` ()
+instance (NFData id, NFData a) => NFData (T id a) where rnf (T s tt) = rnf s `seq` rnf tt `seq` ()
 instance NFData (Var a)  where rnf (Var n s) = rnf n `seq` rnf s `seq` ()
