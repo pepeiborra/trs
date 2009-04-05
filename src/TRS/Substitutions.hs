@@ -165,7 +165,7 @@ variant r = {-# SCC "variant1" #-} do
 
 
 -- | Takes a term t and a term u and returns a variant of t which is fresh w.r.t. u
-variant' :: (Var :<: f, IsVar f, Foldable f, HashConsed f, Functor t, Foldable t) => t(Term f) -> t(Term f) -> t(Term f)
+variant' :: (Var :<: f, IsVar f, Foldable f, Foldable g, Var :<: g, HashConsed f, Functor t, Foldable t) => t(Term f) -> t(Term g) -> t(Term f)
 variant' t u = evalState (variant t) ([0..] \\ (varId <$> concatMap vars u))
 
 
