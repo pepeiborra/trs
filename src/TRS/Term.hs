@@ -57,17 +57,17 @@ t    ! []     = t
 -- | Updates the subterm at the position given
 --   Note that this function does not guarantee success. A failure to substitute anything
 --   results in the input term being returned untouched
-updateAt  :: (Traversable f, HashConsed f) =>  Position -> Term f -> Term f -> Term f
-updateAt [] _ t' = t'
+updateAt  :: (Traversable f, HashConsed f) =>  Position -> Term f -> (Term f -> Term f) -> Term f
+updateAt [] t f = f t
 updateAt (0:_) _ _ = error "updateAt: 0 is not a position!"
-updateAt (i:ii)  (In t) t' = {-# SCC "updateAt" #-}
-                            hIn$ fmap (\(j,st) -> if i==j then updateAt ii st t' else st)
+updateAt (i:ii) (In t) f = {-# SCC "updateAt" #-}
+                            hIn$ fmap (\(j,st) -> if i==j then updateAt ii st f else st)
                                 (unsafeZipG [1..] t)
 
 -- TODO: simplify this code so that the monadPlus constraint does not float out by internally fixing the monad to lists
 updateAt'  :: (Traversable f, HashConsed f, Monad m) =>
-              Position -> Term f -> Term f -> m (Term f, Term f)
-updateAt' pos x x' = {-# SCC "updateAt'" #-} 
+              Position -> Term f -> (Term f -> Term f) -> m (Term f, Term f)
+updateAt' pos x f = {-# SCC "updateAt'" #-}
                      maybe (fail "updateAt': invalid position") return
                         (go x pos >>= \(t',a) -> a >>= \v -> return (t',v))
   where
@@ -78,7 +78,7 @@ updateAt' pos x x' = {-# SCC "updateAt'" #-}
                                        else return (u, mzero))
                      . unsafeZipG [1..]
                      $ t
-    go x [] = return (x', return x)
+    go x [] = return (f x, return x)
 {-
 findIn :: Term f -> Term f -> [Position]
 findIn t = fmap fst . collect (==t) . annotateWithPos
@@ -188,8 +188,9 @@ instance Ppr (T String) where
     pprF (T n tt) = text n <> parens (hcat$ punctuate comma tt)
 
 instance Ppr Var where
-    pprF (Var Nothing i)  = text$ showsVar 0 i ""
     pprF (Var (Just l) i) = text l -- <> char '_' <> int i
+--    pprF (Var _ i)  = text$ showsVar 0 i ""
+    pprF (Var _ i)  = char 'v' <> int i
 instance (Ppr a, Ppr b) => Ppr (a:+:b) where
     pprF (Inr x) = pprF x
     pprF (Inl y) = pprF y

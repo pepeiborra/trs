@@ -25,7 +25,7 @@ criticalPairs rr = nub $ do
   l1_p      <- subterms (annotateWithPos l1)
   guard (not $ isVar l1_p)
   theta     <- unify (dropNote l1_p) l2
-  let l1'    = updateAt (note l1_p) l1 r2
+  let l1'    = updateAt (note l1_p) l1 (const r2)
   return (r1 // theta, l1' // theta)
 
 joinable :: Rewritable rf f => [Rule rf] -> (Term f, Term f) -> Bool
