@@ -178,5 +178,6 @@ variant' t u = evalState (variant t) ([0..] \\ (varId <$> concatMap vars u))
 
 
 #ifdef HOOD
-deriving instance Show a => Observable (SubstG a)
+-- deriving instance Show a => Observable (SubstG a)
+instance Ppr f => Observable (Subst f) where observer = observeBase
 #endif
