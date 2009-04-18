@@ -79,8 +79,8 @@ instance NFData Key where
 instance Eq Key  where t1 == t2      = unique t1 == unique t2
 instance Ord Key where compare k1 k2 = compare (unique k1) (unique k2)
 instance Show Key where
-    showsPrec _ (KeyId i) = ("KeyId" ++ ) . (show i ++)
-    showsPrec _ (KeyTerm t) = ("KeyTerm" ++ ) . (show t ++)
+    showsPrec _ (KeyId i)   = ("KeyId " ++ ) . (show i ++)
+    showsPrec _ (KeyTerm t) = ("KeyTerm " ++ ) . (show t ++)
 
 #ifdef HOOD
 instance Observable Key where observer = observeBase
