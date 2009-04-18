@@ -11,9 +11,6 @@ module TRS ( module TRS.Term
            , module TRS.Context
            , module TRS.Rewriting
            , module TRS.Narrowing
-           , module TRS.MonadFresh
-           , module TRS.MonadEnv
-           , module TRS.UMonad
            , module TRS.Signature
            , module TRS)  where
 
@@ -26,6 +23,3 @@ import TRS.Unification
 import TRS.Rewriting
 import TRS.Narrowing
 import TRS.Context
-import TRS.MonadFresh
-import TRS.MonadEnv
-import TRS.UMonad
