@@ -16,7 +16,7 @@ import TRS.Substitutions
 import Debug.Observe
 #endif //HOOD
 
-class (Functor m, Monad m, IsVar f) => MonadEnv f m | m -> f where
+class (Monad m, IsVar f) => MonadEnv f m | m -> f where
     varBind :: (IsVar g, Ppr g) => Term g -> Term f -> m ()
     readVar :: IsVar g => Term g -> m (Maybe (Term f))
     apply   :: (IsVar g, g:<:f) => Term g -> m (Term f)
@@ -31,7 +31,7 @@ readVarDefault v | Just i <- uniqueId v = do
                  | otherwise = return Nothing
 
 
-instance (IsVar f, HashConsed f, Functor m, MonadState (Subst f) m) => MonadEnv f m where
+instance (IsVar f, HashConsed f, MonadState (Subst f) m) => MonadEnv f m where
     varBind t u = {-# SCC "varBind" #-}  modify (insertSubst t u)
     apply t = {-# SCC "apply" #-}  get >>= \sigma -> return (applySubst sigma t)
     getEnv  = get

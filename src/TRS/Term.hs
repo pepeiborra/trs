@@ -142,8 +142,8 @@ replace dict = foldTerm f where
     f t = fromMaybe (hIn t) $ lookup (hIn t) dict
 
 -- Only 1st level subterms
-someSubterm :: (Traversable f, Functor m, MonadPlus m) => (Term f -> m(Term f)) -> Term f -> m (Term f)
-someSubterm f (In x) = msum (hIn <$$> interleaveM f return x)
+someSubterm :: (Traversable f, MonadPlus m) => (Term f -> m(Term f)) -> Term f -> m (Term f)
+someSubterm f (In x) = msum ((liftM.liftM) hIn (interleaveM f return x))
 
 -- ---------------
 -- Creating terms

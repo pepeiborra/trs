@@ -140,8 +140,12 @@ narrowBounded pred rr t = {-# SCC "narrowBounded" #-}
 narrow1Basic :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, SubstG (Term f))
 narrow1Basic = narrow1
 
-narrowsBasic :: (Narrowable rf f, MonadEnv f m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
-narrowsBasic rr t = {-# SCC "narrowsBasic" #-} second (`restrictTo` vars' t) <$> runN ([0..] \\ map varId (vars t)) (closureMP (liftM fst . narrowStepBasic rr) t >>= apply)
+narrowsBasic :: (Narrowable rf f, MonadEnv f m, MonadLogic m) =>
+                [Rule rf] -> Term f -> m (Term f, Subst f)
+narrowsBasic rr t = {-# SCC "narrowsBasic" #-}
+                    second (`restrictTo` vars' t) `liftM`
+                         runN ([0..] \\ map varId (vars t))
+                            (closureMP (liftM fst . narrowStepBasic rr) t >>= apply)
 
 narrowBasic :: (Narrowable rf f, Functor m, MonadLogic m) => [Rule rf] -> Term f -> m (Term f, Subst f)
 narrowBasic rr t = {-# SCC "narrowBasic" #-} second (`restrictTo` vars' t) <$> runN ([0..] \\ map varId (vars t)) (fixMP (liftM fst . narrowStepBasic rr) t >>= apply)
@@ -150,7 +154,7 @@ narrowBasicBounded :: forall rf f m. (IsVar f, Narrowable rf f, Functor m, Monad
 narrowBasicBounded pred rr t = {-# SCC "narrowBasicBounded" #-} second (`restrictTo` vars' t) <$> runN ([0..] \\ map varId (vars t)) (go t >>= apply) where
     go :: (MonadFresh m1, MonadEnv f m1, MonadLogic m1) => Term f -> m1(Term f)
     go t = do
-      t' <- fst <$> narrowStepBasic rr t
+      t' <- fst `liftM` narrowStepBasic rr t
       if pred t' then go t' else return t'
 
 -- ** Innermost Basic Narrowing
