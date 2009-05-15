@@ -1,5 +1,5 @@
 name: TRS
-version: 0.21.20090406
+version: 0.21.20090513
 Cabal-Version:  >= 1.2
 license: AllRightsReserved
 license-file: ""
@@ -22,7 +22,7 @@ Flag hashCons
 
 Library
  buildable: True
- build-depends: base < 4, mtl, containers, pretty, alacarte, logict, parallel
+ build-depends: base < 4, transformers, monads-fd, containers, pretty, alacarte, logict >= 0.4, parallel
  exposed-modules: 
   TRS
   TRS.Utils 
