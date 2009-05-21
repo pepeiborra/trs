@@ -22,7 +22,7 @@ Flag hashCons
 
 Library
  buildable: True
- build-depends: base < 4, transformers, monads-fd, containers, pretty, alacarte, logict >= 0.4, parallel
+ build-depends: base, mtl, containers, pretty, alacarte, logict >= 0.4, parallel
  exposed-modules: 
   TRS
   TRS.Utils 
