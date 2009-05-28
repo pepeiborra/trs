@@ -1,0 +1,22 @@
+TRS
+-----
+
+Term Rewriting library based on a Data types a la Carte representation of terms.
+
+Providing, for any representation of terms, generic
+ - matching
+ - unification
+ - equality up to renaming
+ - rewriting
+ - innermost rewriting (work in progress)
+ - narrowing
+ - basic narrowing
+ - narrowing on demand
+
+author: Pepe Iborra
+maintainer: pepeiborra@gmail.com
+homepage: http://github.com/pepeiborra/TRS
+
+This library is made obsolete by the term library:
+
+http://github.com/pepeiborra/term
